@@ -1,0 +1,15 @@
+{
+  "name": "chess-trainer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Human-in-the-loop chess coaching and scenario-line analysis",
+  "scripts": {
+    "typecheck": "echo 'TypeScript configuration has not been added yet'",
+    "test": "echo 'Test runner has not been added yet'",
+    "lint": "echo 'Linter has not been added yet'",
+    "build": "echo 'Build configuration has not been added yet'"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
