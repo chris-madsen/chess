@@ -73,7 +73,7 @@ src/
   adapters/
     stockfish/              # UCI process implementation
     maia/                   # Maia runtime implementation
-    lichess/                # read-only import and optional probe integration
+    lichess/                # read-only import and automated bounded external probe integration
     persistence/            # filesystem/sqlite/postgres implementations
     llm/                    # CoachAssessment rendering adapter
   cli-or-ui/
@@ -115,7 +115,7 @@ Application code should depend on ports such as:
 ```ts
 type MaiaMoveProvider = (request: MaiaMoveRequest) => Promise<Result<ProvidedMove, ProviderError>>;
 type StockfishMoveProvider = (request: StockfishMoveRequest) => Promise<Result<ProvidedMove, ProviderError>>;
-type ExternalCandidateProbe = (request: ExternalProbeRequest) => Promise<Result<CandidateSeed, ProbeError>>;
+type ExternalCandidateProbe = (request: ExternalProbeRequest) => Promise<Result<CandidateSeed, ProbeError>>; // automated Lichess game-probe lifecycle
 type GamePositionReader = (request: GameImportRequest) => Promise<Result<PositionSnapshot, ImportError>>;
 type ScenarioRunRepository = (record: ScenarioRunRecord) => Promise<Result<void, RepositoryError>>;
 type CoachReviewProvider = (request: CoachReviewRequest) => Promise<Result<CoachAssessment, CoachError>>;
@@ -165,7 +165,7 @@ Events must not include secrets or raw authorization headers.
 
 ## External writes
 
-Normal analysis is read-only. Future write-capable integration, if ever added, must be a separate command path with:
+Normal analysis is read-only with respect to the Player's real game. ExternalProbe is a separate opt-in automated Lichess game-probe command for disposable casual probe games only; it is not ordinary analysis and not a real-game move submission. Any other write-capable integration, if ever added, must be a separate command path with:
 
 - dedicated OpenSpec change;
 - new ADR or superseding ADR;
@@ -199,3 +199,27 @@ Before any coaching explanation, the system should be able to derive determinist
 - repetition/halfmove metadata when available.
 
 The LLM coach should consume these facts instead of reconstructing the board from memory.
+
+## Local StylePath CLI mode
+
+The first local CLI analysis mode does not use Lichess probes or Stockfish. It builds independent `StylePath` lines for configured local style engines:
+
+```text
+Patricia: Patricia -> Maia 1900 -> Patricia -> Maia 1900 -> ...
+Jackal:   Jackal   -> Maia 1900 -> Jackal   -> Maia 1900 -> ...
+Seer:     Seer     -> Maia 1900 -> Seer     -> Maia 1900 -> ...
+```
+
+The final side to move after FEN or RAW SAN ingestion is the Player side for that CLI run. The same local style engine owns all odd plies in its line. Maia owns all even plies. Provider failures are represented as incomplete lines and do not contaminate other lines.
+
+UCI process management belongs only in adapters. The domain sees provider results, move provenance, and typed failures; it never imports `child_process`, UCI protocol code, filesystem watchers, or engine binaries.
+
+### StylePath CLI rendering and refresh
+
+The StylePath CLI renders each line as normal SAN movetext. For RAW SAN input, the original game text is replayed from the initial position and the generated continuation is appended with normal move numbering. User-facing `--horizon` is intentionally removed: watch mode starts at horizon 8 full moves. Patricia and Seer start at depth 13, while Jackal starts at depth 8 to keep updates responsive. Watch mode emits a pending frame immediately, updates engine lines independently as they complete, increases requested depth every 5 seconds when the rendered line remains stable, and increases horizon every 10 seconds while stable. There are no product-level max depth or max horizon caps; technical subprocess timeouts, serial queues, and clean shutdown remain in force.
+
+In watch mode, the CLI recomputes analysis snapshots on every refresh interval, not only when the input file changes. UCI adapters keep a persistent queued process per provider instance so repeated refreshes do not respawn the engine process for every request.
+
+### Continuous mixed StylePath semantics
+
+Watch mode does not stream raw engine PV as a teaching line. It repeatedly recomputes provenance-bearing mixed StylePath lines. Even-ply opponent responses remain Maia-generated. The application must never label a mixed line as a pure Patricia, Jackal, or Seer PV.

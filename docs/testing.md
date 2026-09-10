@@ -92,7 +92,7 @@ MAIA_MODEL_PATH=/path/to/maia
 
 ## Live external probe tests
 
-Live tests against external bots/platforms must be disabled by default and require explicit opt-in. They should use strict quotas and should never branch recursively.
+Live tests against external bots/platforms must be disabled by default and require explicit opt-in. They should exercise the automated Lichess API game-probe lifecycle, use strict quotas, clean up games safely, and never branch recursively.
 
 Suggested environment gates:
 
@@ -101,7 +101,7 @@ RUN_LIVE_PROBE_TESTS=1
 LICHESS_TOKEN=<provided outside repository>
 ```
 
-Assertions should focus on safety and provenance, not on expecting a specific bot move.
+Assertions should focus on safety, game lifecycle handling, cleanup records, and provenance, not on expecting a specific bot move.
 
 ## Safety tests
 
@@ -153,3 +153,18 @@ npm run build
 ```
 
 If a command is a placeholder or cannot run because implementation is absent, report that explicitly and describe the remaining verification gap.
+
+## Local StylePath tests
+
+Local StylePath contract tests cover:
+
+- valid FEN creates one line per enabled local style engine;
+- RAW SAN game text reaches the same final position as equivalent replay;
+- side-to-move after input ingestion defines the Player side;
+- source order is LocalStyleEngine, Maia, LocalStyleEngine, Maia;
+- one provider failure creates only one incomplete line;
+- Stockfish and Lichess probes are not invoked in local StylePath mode.
+
+Live local-engine checks are opt-in and verify configured Patricia, Jackal, Seer, and Maia UCI readiness without requiring external platform access.
+
+Local StylePath CLI tests also assert that the user-facing `--horizon` flag is rejected, adaptive defaults start at horizon 8, Jackal can use a lower configured depth than Patricia/Seer, stable-line policy raises depth every 5 seconds and horizon every 10 seconds, rendered output is SAN movetext without UCI-in-parentheses ambiguity, and watch mode refreshes continuously even when the input file is unchanged.

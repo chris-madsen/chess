@@ -2,12 +2,39 @@
   "name": "chess-trainer",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Human-in-the-loop chess coaching and scenario-line analysis",
   "scripts": {
-    "typecheck": "echo 'TypeScript configuration has not been added yet'",
-    "test": "echo 'Test runner has not been added yet'",
-    "lint": "echo 'Linter has not been added yet'",
-    "build": "echo 'Build configuration has not been added yet'"
+    "typecheck": "tsc --noEmit",
+    "test": "npm run test:contracts",
+    "test:contracts": "NODE_OPTIONS=--experimental-vm-modules jest --config jest.config.cjs --runInBand",
+    "test:bertrand": "NODE_OPTIONS=--experimental-vm-modules jest --config jest.config.cjs --runInBand --testPathPatterns=bertrand",
+    "lint": "eslint src tests --ext .ts,.js",
+    "build": "tsc --noEmit",
+    "gate": "npm run lint && npm run typecheck && npm run test:bertrand && npm run test:contracts",
+    "verify:engines:local": "node scripts/verify-local-engines.mjs",
+    "style:lines": "tsx src/cli/style-lines.ts",
+    "install:style-engines": "node scripts/install-local-style-engines.mjs",
+    "verify:style-engines:local": "node scripts/verify-local-style-engines.mjs"
+  },
+  "dependencies": {
+    "chess.js": "^1.4.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@swc/core": "^1.15.46",
+    "@swc/jest": "^0.2.39",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^26.1.1",
+    "@typescript-eslint/eslint-plugin": "^8.33.0",
+    "@typescript-eslint/parser": "^8.33.0",
+    "eslint": "^9.39.5",
+    "eslint-plugin-import": "^2.32.0",
+    "globals": "^16.5.0",
+    "jest": "^30.4.2",
+    "tsx": "^4.23.13",
+    "typescript": "~5.8.3",
+    "typescript-6": "npm:typescript@~5.8.3"
   },
   "engines": {
     "node": ">=22"

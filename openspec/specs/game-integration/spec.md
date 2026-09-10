@@ -50,19 +50,21 @@ Credential-bearing data SHALL remain outside domain records, logs, fixtures, and
 
 ## Requirement: Bound external probes
 
-External bot probes SHALL be explicit, bounded, and recorded.
+External bot probes SHALL be explicit, bounded, recorded, and automated through the Lichess API game lifecycle. They SHALL NOT require the Player to create or close games manually in the Lichess UI.
 
 ### Scenario: Probe one external bot for one first move
 
 - GIVEN the Player opts into an external probe
 - AND quota allows the request
 - WHEN the system asks LeelaAlien or Boris-Trapsky from a PositionSnapshot
-- THEN the system records the probe metadata
-- AND at most the actually observed first move is converted to a CandidateSeed.
+- THEN the ExternalProbe adapter creates or uses a bounded casual Lichess game through the API
+- AND streams the game until the requested bot move is observed or a terminal probe error occurs
+- AND records challenge/game identifiers, cleanup outcome, and probe metadata
+- AND at most the actually observed requested move is converted to a CandidateSeed.
 
 ### Scenario: Prevent recursive online tree probing
 
 - GIVEN an external probe has produced a CandidateSeed
 - WHEN HumanPath generation continues
 - THEN later plies use Maia and Stockfish according to HumanPath
-- AND the system does not create new external games for every branch continuation.
+- AND the system does not create unbounded recursive external games for every branch continuation.

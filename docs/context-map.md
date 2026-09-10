@@ -109,22 +109,26 @@ Turn domain requests into local engine/model calls and return domain-shaped resu
 
 ### Purpose
 
-Optionally obtain real first-move ideas from public playing bots such as LeelaAlien and Boris-Trapsky.
+Obtain real bot moves from public playing bots such as LeelaAlien and Boris-Trapsky through automated bounded Lichess API game probes.
 
 ### Owns
 
 - opt-in policy;
 - quota and rate limits;
-- external game lifecycle records;
+- automated challenge/game lifecycle;
+- game stream consumption;
+- relay move submission when required by the probe protocol;
+- safe abort/resign/cleanup records;
 - bot identity mapping;
 - observed move extraction;
 - probe audit log.
 
 ### Invariants
 
-- A probe returns at most a bounded number of observed first moves for a given position.
+- A probe returns only the explicitly requested observed bot move or bounded seed set for a given position.
 - A probe must not recursively branch an online search tree.
-- A failed or aborted probe is recorded as such, not converted into a guessed move.
+- A failed, declined, timed-out, aborted, or resigned probe is recorded as such, not converted into a guessed move.
+- The Player must not create or close probe games manually in the Lichess UI; the adapter owns the API lifecycle.
 - Later simulated moves are not attributed to the external bot.
 
 ## Game Integration Context

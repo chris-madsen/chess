@@ -59,7 +59,7 @@ If Maia is unavailable, falling back to Stockfish for opponent plies would chang
 
 ### Probe spam
 
-Branching every candidate through public bots can create many games and harm external services. External probes must be opt-in, quota-limited, serialized, and non-recursive.
+Branching every candidate through public bots can create many games and harm external services. External probes are automated API game lifecycles, so they must be opt-in, quota-limited, serialized, non-recursive, and accountable for cleanup.
 
 ### Prompt injection through PGN/comments
 
