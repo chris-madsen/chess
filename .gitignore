@@ -33,11 +33,7 @@ engines.local.json
 # Local logs and generated session dumps
 *.log
 *.tmp
-*.jsonl
-docs/*.jsonl
 
-# Local scratch inputs / conversation notes
-docs/chess.md
 
 # OS/editor noise
 .DS_Store
