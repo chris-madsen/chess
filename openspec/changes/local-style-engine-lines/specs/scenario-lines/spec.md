@@ -32,9 +32,8 @@ The system SHALL generate one `StylePath` ScenarioLine for each enabled local st
 - GIVEN local StylePath watch mode is running
 - WHEN a completed recomputation is rendered
 - THEN the output frame contains each enabled StylePath line at most once
-- AND no frame contains terminal reset, screen-clear, scrollback-clear, or cursor-movement controls
-- AND each frame is emitted only after a completed recomputation
-- AND no stale heartbeat frame is appended.
+- AND no frame contains global terminal reset, screen-clear, or scrollback-clear controls
+- AND timestamp-only heartbeat frames are suppressed.
 
 ### Scenario: CLI renders movetext before metadata
 
@@ -43,13 +42,13 @@ The system SHALL generate one `StylePath` ScenarioLine for each enabled local st
 - THEN StylePath SAN movetext appears before the analysis metadata block
 - AND the metadata block still includes the generated timestamp, FEN position, and inferred Player side.
 
-### Scenario: Watch mode adapts depth and horizon
+### Scenario: Watch mode keeps fixed engine depths stable
 
 - GIVEN local StylePath watch mode is running
-- AND the rendered line signature does not change for 5 seconds
-- WHEN the next analysis settings are computed
-- THEN style-engine depth increases by 2
-- AND no product-level max depth cap stops the increase while the process is running.
+- AND every enabled style engine has a configured fixed depth
+- WHEN the rendered line signature remains stable
+- THEN the displayed style depth does not grow into a meaningless global value
+- AND each style engine continues to use its configured depth.
 
 ### Scenario: Watch mode extends stable horizon
 
@@ -57,7 +56,8 @@ The system SHALL generate one `StylePath` ScenarioLine for each enabled local st
 - AND the rendered line signature does not change for 10 seconds
 - WHEN the next analysis settings are computed
 - THEN horizon increases by 2 full moves
-- AND no product-level max horizon cap stops the increase while the process is running.
+- AND no product-level max horizon cap stops the increase while the process is running
+- AND the line is extended from the current tail rather than recomputed from the root.
 
 ### Scenario: User horizon flag is removed
 
@@ -65,3 +65,12 @@ The system SHALL generate one `StylePath` ScenarioLine for each enabled local st
 - WHEN CLI options are parsed
 - THEN the request is rejected with a typed error
 - AND the usage text describes adaptive horizon behavior instead.
+
+### Scenario: Transient provider timeout retries same ply
+
+- GIVEN local StylePath watch mode is extending a line
+- AND a provider returns a transient timeout or unavailable error
+- WHEN the error is recorded
+- THEN the affected line remains incomplete with causal error details
+- AND the same ply is retried after backoff
+- AND no replacement move is invented.

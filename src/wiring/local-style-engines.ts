@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { availableParallelism } from "node:os";
 import { resolve } from "node:path";
 import type { ChessRulesPort } from "../application/ports/chess-rules";
 import type { LocalStyleEngineProvider, MoveProvider, StylePathProviders } from "../application/ports/providers";
@@ -44,33 +45,44 @@ const identity = (name: string, displayName: string, version: string): ProviderI
 
 const defaultStyleDepth = 13;
 const jackalStyleDepth = 8;
-const maiaLimit: UciGoLimit = { tag: "Nodes", nodes: 1 };
+const engineMemoryMb = 10_240;
+const winnerStyleThreads = Math.min(2, Math.max(1, availableParallelism()));
+const jackalThreads = 1;
+const maiaMoveTimeMs = 3_000;
+const maiaThreads = Math.min(6, Math.max(1, availableParallelism()));
+const maiaLimit: UciGoLimit = { tag: "MoveTime", milliseconds: maiaMoveTimeMs };
 
 const styleEngineTimeoutMs = 300_000;
+const maiaTransportTimeoutMs = 30_000;
 
 const styleConfig = (
   key: "patricia" | "jackal" | "seer",
   displayName: string,
   command: string,
   version: string,
-  styleDepth = defaultStyleDepth
+  styleDepth = defaultStyleDepth,
+  timeoutMs = styleEngineTimeoutMs,
+  threads = winnerStyleThreads
 ): UciEngineConfig => ({
   key,
   command: resolve(command),
   identity: identity(key, displayName, version),
   source: "LOCAL_STYLE_ENGINE",
   options: [
-    { name: "Threads", value: 1 },
-    { name: "Hash", value: 64 }
+    { name: "Threads", value: threads },
+    { name: "Hash", value: engineMemoryMb }
   ],
   limit: { tag: "Depth", depth: styleDepth },
-  timeoutMs: styleEngineTimeoutMs,
+  timeoutMs,
   configuration: {
     engineKey: key,
     role: "player-style",
     protocol: "uci",
-    styleDepth
-  }
+    styleDepth,
+    threads,
+    hashMb: engineMemoryMb
+  },
+  ...(key === "jackal" ? { allowInfoPvBestMoveFallback: true } : {})
 });
 
 const maiaConfig = (command: string): UciEngineConfig => ({
@@ -78,13 +90,24 @@ const maiaConfig = (command: string): UciEngineConfig => ({
   command: resolve(command),
   identity: identity("maia", "Maia 1900", "maia-1900.pb.gz via lc0"),
   source: "MAIA",
-  options: [],
+  options: [
+    { name: "Threads", value: maiaThreads },
+    { name: "TaskWorkers", value: maiaThreads },
+    { name: "MaxConcurrentSearchers", value: maiaThreads },
+    { name: "RamLimitMb", value: engineMemoryMb },
+    { name: "MinibatchSize", value: 32 }
+  ],
   limit: maiaLimit,
-  timeoutMs: 10000,
+  timeoutMs: maiaTransportTimeoutMs,
   configuration: {
     engineKey: "maia1900",
     role: "opponent-human-model",
-    policy: "nodes-1"
+    policy: "movetime-3000",
+    threads: maiaThreads,
+    taskWorkers: maiaThreads,
+    maxConcurrentSearchers: maiaThreads,
+    ramLimitMb: engineMemoryMb,
+    minibatchSize: 32
   }
 });
 
@@ -102,7 +125,7 @@ export const createLocalStylePathProviders = (
 ): StylePathProviders => {
   const engineConfigs = [
     styleConfig("patricia", "Patricia", requirePath(paths, "patriciaPath"), "latest-local", defaultStyleDepth),
-    styleConfig("jackal", "Jackal", requirePath(paths, "jackalPath"), "latest-local", jackalStyleDepth),
+    styleConfig("jackal", "Jackal", requirePath(paths, "jackalPath"), "latest-local", jackalStyleDepth, 10_000, jackalThreads),
     styleConfig("seer", "Seer", requirePath(paths, "seerPath"), "local-build", defaultStyleDepth)
   ];
   const styleEngines: readonly LocalStyleEngineProvider[] = engineConfigs.map(config => ({

@@ -5,9 +5,10 @@ import { setInterval, clearInterval, setTimeout } from "node:timers";
 import { createChessJsRulesAdapter } from "../adapters/chessjs/chess-rules-adapter";
 import type { ChessRulesPort } from "../application/ports/chess-rules";
 import type { StylePathProviders } from "../application/ports/providers";
-import { generateStylePath, generateStylePaths, type StylePathLineResult } from "../application/use-cases/style-path";
-import { makeScenarioHorizon } from "../domain/chess/value-objects";
+import { generateStylePaths, type StylePathLineResult } from "../application/use-cases/style-path";
+import { makePlyIndex, makeScenarioHorizon, type ScenarioHorizon } from "../domain/chess/value-objects";
 import type { PositionSnapshot } from "../domain/chess/position";
+import type { ScenarioLine, ScenarioPly } from "../domain/scenario-lines/scenario-line";
 import type { DomainError } from "../domain/shared/errors";
 import { isErr, type Result } from "../domain/shared/result";
 import { createLocalStylePathProviders } from "../wiring/local-style-engines";
@@ -51,9 +52,23 @@ export type CliPorts = Readonly<{
 
 export const WATCH_CLEAR_TO_END = "\x1b[J";
 
-const renderedLineCount = (text: string): number => {
+const terminalColumns = (): number => {
+  const fromStdout = process.stdout.columns;
+  if (Number.isInteger(fromStdout) && fromStdout > 0) {
+    return fromStdout;
+  }
+  const fromEnv = Number(process.env.COLUMNS);
+  return Number.isInteger(fromEnv) && fromEnv > 0 ? fromEnv : 80;
+};
+
+const renderedLineCount = (text: string, columns = terminalColumns()): number => {
   const normalized = text.endsWith("\n") ? text.slice(0, -1) : text;
-  return normalized.length === 0 ? 0 : normalized.split("\n").length;
+  if (normalized.length === 0) {
+    return 0;
+  }
+  return normalized.split("\n").reduce((count, line) => (
+    count + Math.max(1, Math.ceil(line.length / Math.max(1, columns)))
+  ), 0);
 };
 
 const renderWatchUpdateFrame = (text: string, previousLineCount: number): string => (
@@ -400,21 +415,59 @@ const printResult = (result: Result<string, DomainError>, ports: Pick<CliPorts, 
   ports.write(result.value);
 };
 
+const sleep = (milliseconds: number): Promise<void> => new Promise(resolve => setTimeout(resolve, milliseconds));
+
+type ContinuousLineState = {
+  currentPosition: PositionSnapshot;
+  plies: ScenarioPly[];
+  status: "Incomplete" | "Complete" | "Terminal";
+  error?: DomainError;
+  retryAfterMs?: number;
+};
+
+const scenarioLineForState = (
+  start: PositionSnapshot,
+  horizon: ScenarioHorizon,
+  label: string,
+  state: ContinuousLineState
+): ScenarioLine => ({
+  tag: "ScenarioLine",
+  mode: "StylePath",
+  label,
+  start,
+  horizon,
+  plies: [...state.plies],
+  status: state.status,
+  ...(state.error !== undefined ? { error: state.error } : {})
+});
+
+const isTransientProviderError = (error: DomainError): boolean => (
+  error.code === "PROVIDER_TIMEOUT" || error.code === "PROVIDER_UNAVAILABLE"
+);
+
+const hasAdaptiveStyleDepth = (providers: StylePathProviders): boolean => (
+  providers.styleEngines.some(engine => numberConfigValue(engine.configuration.styleDepth) === undefined)
+);
+
 const runWatch = async (options: CliOptions, ports: CliPorts): Promise<void> => {
-  let running = false;
-  let rerunRequested = true;
-  let lastRendered = "";
-  let lastRenderedLineCount = 0;
-  let renderTimer: NodeJS.Timeout | undefined;
-  let refreshTimer: NodeJS.Timeout | undefined;
-  let fileWatcher: ReturnType<typeof watch> | undefined;
-  let frameTimer: NodeJS.Timeout | undefined;
-  let pendingFrame: string | null = null;
-  let activeProgress: WatchProgress | null = null;
-  let lastRenderedSignature = "";
+  let stopped = false;
+  let generation = 0;
+  let targetSettings: AnalysisSettings = INITIAL_ANALYSIS_SETTINGS;
+  let adaptiveState: AdaptiveAnalysisState = {
+    settings: INITIAL_ANALYSIS_SETTINGS,
+    stableSinceMs: Date.now(),
+    depthLastIncreasedAtMs: Date.now(),
+    horizonLastIncreasedAtMs: Date.now()
+  };
   let lastLineSignature = "";
   let lastLineChangedAtMs = Date.now();
-  let stopped = false;
+  let lastRenderedSignature = "";
+  let lastRenderedLineCount = 0;
+  let pendingFrame: string | null = null;
+  let frameTimer: NodeJS.Timeout | undefined;
+  let renderTimer: NodeJS.Timeout | undefined;
+  let fileWatcher: ReturnType<typeof watch> | undefined;
+  let refreshTimer: NodeJS.Timeout | undefined;
 
   const writeWatchSnapshot = (text: string, signature: string): void => {
     if (signature === lastRenderedSignature) {
@@ -435,162 +488,240 @@ const runWatch = async (options: CliOptions, ports: CliPorts): Promise<void> => 
     }, 0);
   };
 
-  const now = Date.now();
-  let adaptiveState: AdaptiveAnalysisState = {
-    settings: INITIAL_ANALYSIS_SETTINGS,
-    stableSinceMs: now,
-    depthLastIncreasedAtMs: now,
-    horizonLastIncreasedAtMs: now
-  };
-
-  const recompute = async (): Promise<void> => {
-    if (running) {
-      rerunRequested = true;
-      return;
-    }
-    running = true;
-    rerunRequested = false;
-
+  const startContinuousGeneration = (): void => {
     const inputResult = ingestInput(options, ports);
+    generation += 1;
+    const currentGeneration = generation;
+    targetSettings = INITIAL_ANALYSIS_SETTINGS;
+    const nowMs = Date.now();
+    adaptiveState = {
+      settings: targetSettings,
+      stableSinceMs: nowMs,
+      depthLastIncreasedAtMs: nowMs,
+      horizonLastIncreasedAtMs: nowMs
+    };
+    lastLineSignature = "";
+    lastLineChangedAtMs = nowMs;
+
     if (isErr(inputResult)) {
-      lastRendered = `${inputResult.error.code}: ${inputResult.error.message}\n`;
-      activeProgress = null;
-      running = false;
-      writeWatchSnapshot(lastRendered, `error:${inputResult.error.code}:${inputResult.error.message}`);
+      writeWatchSnapshot(`${inputResult.error.code}: ${inputResult.error.message}\n`, `error:${inputResult.error.code}:${inputResult.error.message}`);
       return;
     }
 
-    const settings = adaptiveState.settings;
-    let runLineSignature = "";
-    let runLineChangedAtMs = Date.now();
-    const horizonResult = makeScenarioHorizon(settings.horizonMoves * 2);
-    if (isErr(horizonResult)) {
-      lastRendered = `${horizonResult.error.code}: ${horizonResult.error.message}\n`;
-      activeProgress = null;
-      running = false;
-      writeWatchSnapshot(lastRendered, `error:${horizonResult.error.code}:${horizonResult.error.message}`);
-      return;
-    }
-
+    const ingested = inputResult.value;
     const partialResults = new Map<string, StylePathLineResult>();
-    activeProgress = {
-      startedAtMs: Date.now(),
-      ingested: inputResult.value,
-      settings,
-      partialResults
-    };
-    lastRendered = renderWatchProgress(activeProgress, ports.providers, Date.now());
-    writeWatchSnapshot(
-      lastRendered,
-      `pending:${settings.styleDepth}:${settings.horizonMoves}:${String(inputResult.value.position.hash)}`
-    );
+    const stateByEngine = new Map<string, ContinuousLineState>();
 
-    const orderedResults = (): readonly StylePathLineResult[] => ports.providers.styleEngines
-      .map(engine => partialResults.get(engine.key))
-      .filter((result): result is StylePathLineResult => result !== undefined);
-    const progressSignature = (): string => lineSignature(orderedResults());
-    const renderProgressIfChanged = (): void => {
-      if (activeProgress === null) {
+    const render = (): void => {
+      const horizonResult = makeScenarioHorizon(targetSettings.horizonMoves * 2);
+      if (isErr(horizonResult)) {
+        writeWatchSnapshot(`${horizonResult.error.code}: ${horizonResult.error.message}\n`, `error:${horizonResult.error.code}:${horizonResult.error.message}`);
         return;
       }
-      const currentLineSignature = progressSignature();
-      if (currentLineSignature !== runLineSignature) {
-        runLineSignature = currentLineSignature;
-        runLineChangedAtMs = Date.now();
-        lastLineSignature = currentLineSignature;
-        lastLineChangedAtMs = runLineChangedAtMs;
-      }
-      const signature = `lines:${settings.styleDepth}:${settings.horizonMoves}:${currentLineSignature}`;
-      lastRendered = renderWatchProgress(activeProgress, ports.providers, Date.now());
-      writeWatchSnapshot(lastRendered, signature);
-    };
-
-    await Promise.all(ports.providers.styleEngines.map(async styleEngine => {
-      const lineResult = await generateStylePath(ports.chess, { maia: ports.providers.maia }, styleEngine, {
-        lineId: `style-${inputResult.value.position.hash}-${styleEngine.key}`,
-        start: inputResult.value.position,
-        horizon: horizonResult.value,
-        styleDepth: settings.styleDepth,
-        onProgress: line => {
-          partialResults.set(styleEngine.key, {
-            engineKey: styleEngine.key,
-            line,
-            styleDepth: styleDepthForCliEngine(styleEngine, settings.styleDepth)
-          });
-          renderProgressIfChanged();
+      ports.providers.styleEngines.forEach(engine => {
+        const state = stateByEngine.get(engine.key);
+        if (state === undefined) {
+          return;
         }
+        partialResults.set(engine.key, {
+          engineKey: engine.key,
+          line: scenarioLineForState(
+            ingested.position,
+            horizonResult.value,
+            `${engine.identity.displayName} StylePath`,
+            state
+          ),
+          styleDepth: styleDepthForCliEngine(engine, targetSettings.styleDepth)
+        });
       });
-      if (stopped || isErr(lineResult)) {
-        return;
-      }
-      partialResults.set(styleEngine.key, {
-        engineKey: styleEngine.key,
-        line: lineResult.value,
-        styleDepth: styleDepthForCliEngine(styleEngine, settings.styleDepth)
-      });
-      renderProgressIfChanged();
-    }));
-
-    const completedResults = orderedResults();
-    if (completedResults.length > 0) {
-      const finalSignature = lineSignature(completedResults);
-      if (adaptiveState.lastLineSignature !== finalSignature) {
+      const orderedResults = ports.providers.styleEngines
+        .map(engine => partialResults.get(engine.key))
+        .filter((result): result is StylePathLineResult => result !== undefined);
+      const currentLineSignature = lineSignature(orderedResults);
+      if (currentLineSignature !== lastLineSignature) {
+        lastLineSignature = currentLineSignature;
+        lastLineChangedAtMs = Date.now();
         adaptiveState = {
-          settings: adaptiveState.settings,
-          lastLineSignature: finalSignature,
+          settings: targetSettings,
+          lastLineSignature,
           stableSinceMs: lastLineChangedAtMs,
           depthLastIncreasedAtMs: lastLineChangedAtMs,
           horizonLastIncreasedAtMs: lastLineChangedAtMs
         };
-      } else {
-        const previousSettings = adaptiveState.settings;
-        adaptiveState = nextAdaptiveAnalysisState(adaptiveState, finalSignature, Date.now());
-        if (
-          adaptiveState.settings.styleDepth !== previousSettings.styleDepth
-          || adaptiveState.settings.horizonMoves !== previousSettings.horizonMoves
-        ) {
-          rerunRequested = true;
-        }
       }
-    }
+      const text = renderWatchProgress({
+        startedAtMs: nowMs,
+        ingested,
+        settings: targetSettings,
+        partialResults
+      }, ports.providers, Date.now());
+      writeWatchSnapshot(
+        text,
+        `lines:${targetSettings.styleDepth}:${targetSettings.horizonMoves}:${currentLineSignature}`
+      );
+    };
 
-    activeProgress = null;
-    running = false;
-    if (!stopped && rerunRequested) {
-      await recompute();
-    }
+    const runEngine = async (styleEngine: StylePathProviders["styleEngines"][number]): Promise<void> => {
+      const state: ContinuousLineState = {
+        currentPosition: ingested.position,
+        plies: [],
+        status: "Incomplete"
+      };
+      stateByEngine.set(styleEngine.key, state);
+      render();
+
+      while (!stopped && currentGeneration === generation) {
+        if (state.status === "Terminal") {
+          await sleep(250);
+          continue;
+        }
+        if (state.error !== undefined) {
+          const retryAfterMs = state.retryAfterMs;
+          if (!isTransientProviderError(state.error) || retryAfterMs === undefined || Date.now() < retryAfterMs) {
+            await sleep(250);
+            continue;
+          }
+          delete state.error;
+          delete state.retryAfterMs;
+        }
+
+        const targetPlyCount = targetSettings.horizonMoves * 2;
+        if (state.plies.length >= targetPlyCount) {
+          if (state.status !== "Complete") {
+            state.status = "Complete";
+            render();
+          }
+          await sleep(250);
+          continue;
+        }
+        if (state.status === "Complete") {
+          state.status = "Incomplete";
+          render();
+        }
+
+        const plyNumber = state.plies.length + 1;
+        const factsResult = ports.chess.computeFacts(state.currentPosition);
+        if (isErr(factsResult)) {
+          state.error = factsResult.error;
+          delete state.retryAfterMs;
+          state.status = "Incomplete";
+          render();
+          continue;
+        }
+        if (factsResult.value.isTerminal) {
+          state.status = "Terminal";
+          render();
+          continue;
+        }
+
+        const isStylePly = plyNumber % 2 === 1;
+        const provider = isStylePly ? styleEngine.provideMove : ports.providers.maia;
+        const expectedSource = isStylePly ? "LOCAL_STYLE_ENGINE" : "MAIA";
+        const providerRequest = isStylePly
+          ? {
+            position: state.currentPosition,
+            lineId: `style-${ingested.position.hash}-${styleEngine.key}`,
+            ply: plyNumber,
+            searchLimit: { tag: "Depth" as const, depth: styleDepthForCliEngine(styleEngine, targetSettings.styleDepth) }
+          }
+          : {
+            position: state.currentPosition,
+            lineId: `style-${ingested.position.hash}-${styleEngine.key}`,
+            ply: plyNumber
+          };
+        const providedResult = await provider(providerRequest);
+        if (stopped || currentGeneration !== generation) {
+          return;
+        }
+        if (isErr(providedResult)) {
+          state.error = providedResult.error;
+          if (isTransientProviderError(providedResult.error)) {
+            state.retryAfterMs = Date.now() + 2_000;
+          } else {
+            delete state.retryAfterMs;
+          }
+          state.status = "Incomplete";
+          render();
+          continue;
+        }
+        if (providedResult.value.provenance.source !== expectedSource) {
+          delete state.retryAfterMs;
+          state.error = {
+            code: "SOURCE_SEQUENCE_VIOLATION",
+            path: `scenario.plies.${plyNumber}.provenance.source`,
+            message: "Provider returned a move with an unexpected source",
+            details: { expected: expectedSource, actual: providedResult.value.provenance.source }
+          };
+          state.status = "Incomplete";
+          render();
+          continue;
+        }
+        const legalMove = ports.chess.parseLegalMove(state.currentPosition, providedResult.value.move.uci);
+        if (isErr(legalMove)) {
+          state.error = legalMove.error;
+          delete state.retryAfterMs;
+          state.status = "Incomplete";
+          render();
+          continue;
+        }
+        const nextPosition = ports.chess.applyMove(state.currentPosition, legalMove.value);
+        if (isErr(nextPosition)) {
+          state.error = nextPosition.error;
+          delete state.retryAfterMs;
+          state.status = "Incomplete";
+          render();
+          continue;
+        }
+        delete state.error;
+        delete state.retryAfterMs;
+        state.plies.push({
+          tag: "ScenarioPly",
+          index: makePlyIndex(plyNumber),
+          move: legalMove.value,
+          provenance: providedResult.value.provenance
+        });
+        state.currentPosition = nextPosition.value;
+        render();
+      }
+    };
+
+    ports.providers.styleEngines.forEach(engine => { void runEngine(engine); });
   };
 
-  void recompute();
+  startContinuousGeneration();
 
   renderTimer = setInterval(() => {
-    if (running || lastLineSignature.length === 0) {
+    if (lastLineSignature.length === 0) {
       return;
     }
     const seededState = adaptiveState.lastLineSignature === lastLineSignature
       ? adaptiveState
       : {
-        settings: adaptiveState.settings,
+        settings: targetSettings,
         lastLineSignature,
         stableSinceMs: lastLineChangedAtMs,
         depthLastIncreasedAtMs: lastLineChangedAtMs,
         horizonLastIncreasedAtMs: lastLineChangedAtMs
       };
     const updated = nextAdaptiveAnalysisState(seededState, lastLineSignature, Date.now());
+    const nextSettings = {
+      horizonMoves: updated.settings.horizonMoves,
+      styleDepth: hasAdaptiveStyleDepth(ports.providers) ? updated.settings.styleDepth : targetSettings.styleDepth
+    };
     if (
-      updated.settings.styleDepth !== adaptiveState.settings.styleDepth
-      || updated.settings.horizonMoves !== adaptiveState.settings.horizonMoves
+      nextSettings.styleDepth !== targetSettings.styleDepth
+      || nextSettings.horizonMoves !== targetSettings.horizonMoves
     ) {
-      adaptiveState = updated;
-      void recompute();
+      adaptiveState = { ...updated, settings: nextSettings };
+      targetSettings = nextSettings;
     }
   }, options.refreshMs);
 
   if (options.input.tag === "RawFile") {
     try {
-      fileWatcher = watch(options.input.path, () => { void recompute(); });
+      fileWatcher = watch(options.input.path, () => { startContinuousGeneration(); });
     } catch {
-      // The refresh timer below is the polling fallback.
+      // The refresh timer below is the polling fallback keepalive.
     }
   }
   refreshTimer = setInterval(() => undefined, options.refreshMs);
@@ -598,15 +729,10 @@ const runWatch = async (options: CliOptions, ports: CliPorts): Promise<void> => 
   await new Promise<void>(resolve => {
     const stop = (): void => {
       stopped = true;
-      if (refreshTimer !== undefined) {
-        clearInterval(refreshTimer);
-      }
-      if (renderTimer !== undefined) {
-        clearInterval(renderTimer);
-      }
-      if (frameTimer !== undefined) {
-        clearTimeout(frameTimer);
-      }
+      generation += 1;
+      if (refreshTimer !== undefined) clearInterval(refreshTimer);
+      if (renderTimer !== undefined) clearInterval(renderTimer);
+      if (frameTimer !== undefined) clearTimeout(frameTimer);
       if (pendingFrame !== null) {
         ports.write(renderWatchUpdateFrame(pendingFrame, lastRenderedLineCount));
         pendingFrame = null;

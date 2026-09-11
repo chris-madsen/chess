@@ -214,11 +214,15 @@ The final side to move after FEN or RAW SAN ingestion is the Player side for tha
 
 UCI process management belongs only in adapters. The domain sees provider results, move provenance, and typed failures; it never imports `child_process`, UCI protocol code, filesystem watchers, or engine binaries.
 
+### Local runtime resource defaults
+
+Patricia and Seer are the primary local style engines and run with 2 CPU threads plus a 10 GB hash budget. Jackal runs with 1 CPU thread plus a 10 GB hash budget because it is slower and has UCI completion quirks. Maia 1900 runs via Lc0 with 3 seconds movetime, 6 CPU threads/task workers/searchers, `MinibatchSize=32`, and a 10 GB RAM limit.
+
 ### StylePath CLI rendering and refresh
 
-The StylePath CLI renders each line as normal SAN movetext. For RAW SAN input, the original game text is replayed from the initial position and the generated continuation is appended with normal move numbering. User-facing `--horizon` is intentionally removed: watch mode starts at horizon 8 full moves. Patricia and Seer start at depth 13, while Jackal starts at depth 8 to keep updates responsive. Watch mode emits a pending frame immediately, updates engine lines independently as they complete, increases requested depth every 5 seconds when the rendered line remains stable, and increases horizon every 10 seconds while stable. There are no product-level max depth or max horizon caps; technical subprocess timeouts, serial queues, and clean shutdown remain in force.
+The StylePath CLI renders each line as normal SAN movetext. For RAW SAN input, the original game text is replayed from the initial position and the generated continuation is appended with normal move numbering. User-facing `--horizon` is intentionally removed: watch mode starts at horizon 8 full moves. Patricia and Seer start at depth 13, while Jackal starts at depth 8 to keep updates responsive. Watch mode updates engine lines independently as new plies are appended. For engines with fixed configured depths, the displayed global style-depth setting is not escalated because it would not improve those lines. Horizon extends every 10 seconds while the rendered line remains stable. Horizon extension continues from the existing line tail; it must not restart a root pass or recalculate already accepted plies. There are no product-level max depth or max horizon caps; technical subprocess timeouts, serial queues, and clean shutdown remain in force.
 
-In watch mode, the CLI recomputes analysis snapshots on every refresh interval, not only when the input file changes. UCI adapters keep a persistent queued process per provider instance so repeated refreshes do not respawn the engine process for every request.
+In watch mode, the CLI keeps per-engine line state in memory and extends each line from its current tail. It restarts from the root only when the ingested input changes or the process is restarted. Transient provider failures are retryable on the same ply; permanent validation failures remain visible as structured incomplete-line errors. UCI adapters keep a persistent queued process per provider instance so repeated refreshes do not respawn the engine process for every request.
 
 ### Continuous mixed StylePath semantics
 

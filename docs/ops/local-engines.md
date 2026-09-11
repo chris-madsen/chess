@@ -22,7 +22,7 @@ engines.local.json
 
 - Stockfish: official Stockfish 19 Linux x86-64 universal release.
 - Lc0: Nix `nixpkgs#lc0`, version `0.32.1`.
-- Maia-9: CSSLab `maia-1900.pb.gz` from `CSSLab/maia-chess` release `v1.0`, run through Lc0 with `--backend=eigen` and `go nodes 1` for human-policy style probing.
+- Maia-9: CSSLab `maia-1900.pb.gz` from `CSSLab/maia-chess` release `v1.0`, run through Lc0 with `--backend=eigen` and `go movetime 3000` for human-policy style probing.
 
 ## Verification
 
@@ -35,7 +35,7 @@ npm run verify:engines:local
 Expected behavior:
 
 - Stockfish returns `id name Stockfish 19`, `uciok`, `readyok`, and a `bestmove`.
-- Maia-9/Lc0 loads `maia-1900.pb.gz`, returns `uciok`, `readyok`, and a `bestmove` for `go nodes 1`.
+- Maia-9/Lc0 loads `maia-1900.pb.gz`, returns `uciok`, `readyok`, and a `bestmove` for `go movetime 3000`. Runtime config gives Maia 6 CPU worker threads, matching task/search workers, `MinibatchSize=32`, and `RamLimitMb=10240`.
 
 This command is intentionally not part of CI because the runtime files are local-only.
 
@@ -62,4 +62,10 @@ The Jackal 2.0.0 Linux release binary may require `GLIBC_2.39`. If the host has 
 
 ## Adaptive StylePath watch
 
-The StylePath CLI no longer accepts a user-facing `--horizon` flag. It starts at horizon 8 full moves. Patricia and Seer start at style-engine depth 13; Jackal starts at depth 8 because it is much slower on tactical positions. Watch mode renders an immediate pending frame, then updates each engine line independently as soon as that line completes. While watch mode is running, unchanged line signatures increase requested depth by 2 after 5 stable seconds and increase horizon by 2 full moves after 10 stable seconds. There is no product-level maximum; stopping the CLI stops analysis. Technical guards remain: UCI requests are queued per provider, subprocesses are cleaned up on failure where possible, and depth-based UCI requests use generous timeouts derived from the requested depth.
+Patricia and Seer use 2 CPU threads and `Hash=10240`. Jackal keeps 1 CPU thread for stability and also uses `Hash=10240`. Maia uses 6 CPU threads and `RamLimitMb=10240`.
+
+The StylePath CLI no longer accepts a user-facing `--horizon` flag. It starts at horizon 8 full moves. Patricia and Seer start at fixed style-engine depth 13; Jackal starts at fixed depth 8 because it is much slower on tactical positions. Watch mode updates each engine line independently as new plies are appended. Because all current style engines have fixed configured depths, watch mode does not increase the displayed global style depth into meaningless large values. Stable lines extend horizon by 2 full moves after 10 stable seconds. Horizon extension continues from the current tail and must not recalculate already accepted plies. There is no product-level maximum; stopping the CLI stops analysis. Technical guards remain: UCI requests are queued per provider, subprocesses are cleaned up on failure where possible, and depth-based UCI requests use generous timeouts derived from the requested depth. Transient provider timeouts remain visible and retry the same ply after a short backoff; no move is invented.
+
+### Jackal UCI quirk
+
+Jackal can emit usable `info ... pv ...` lines on tactical positions while never producing a final `bestmove` for `go depth`, `go nodes`, or `go movetime`. The UCI adapter therefore enables a Jackal-only fail-closed degradation: after the Jackal request timeout, if the adapter observed a legal first move in the latest PV, it uses that legal PV move as the provided move and restarts only the Jackal UCI session. Patricia and Seer do not use this fallback. If no legal PV move was observed, the line remains incomplete with the original provider error.

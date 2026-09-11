@@ -25,10 +25,12 @@ export type UciEngineConfig = Readonly<{
   limit: UciGoLimit;
   timeoutMs: number;
   configuration: Readonly<Record<string, unknown>>;
+  allowInfoPvBestMoveFallback?: boolean;
 }>;
 
 type PendingWait = Readonly<{
   predicate: (line: string) => boolean;
+  observe?: (line: string) => void;
   resolve: (line: string) => void;
   reject: (error: Error) => void;
   timer: NodeJS.Timeout;
@@ -73,7 +75,11 @@ class UciSession {
     this.child.stdin.write(`${command}\n`);
   }
 
-  public waitFor(predicate: (line: string) => boolean, timeoutMs: number): Promise<string> {
+  public waitFor(
+    predicate: (line: string) => boolean,
+    timeoutMs: number,
+    observe?: (line: string) => void
+  ): Promise<string> {
     if (this.pending !== null) {
       return Promise.reject(new Error("Concurrent UCI wait is not supported"));
     }
@@ -82,7 +88,13 @@ class UciSession {
         this.pending = null;
         reject(new Error("UCI timeout"));
       }, timeoutMs);
-      this.pending = { predicate, resolve, reject, timer };
+      this.pending = {
+        predicate,
+        ...(observe !== undefined ? { observe } : {}),
+        resolve,
+        reject,
+        timer
+      };
     });
   }
 
@@ -112,6 +124,7 @@ class UciSession {
     if (current === null) {
       return;
     }
+    current.observe?.(line);
     if (current.predicate(line)) {
       clearTimeout(current.timer);
       this.pending = null;
@@ -143,10 +156,15 @@ const extractBestMove = (bestMoveLine: string, config: UciEngineConfig): Result<
 };
 
 const timeoutMsFor = (config: UciEngineConfig, limit: ProviderSearchLimit): number => (
-  limit.tag === "Depth"
+  limit.tag === "Depth" && config.allowInfoPvBestMoveFallback !== true
     ? Math.max(config.timeoutMs, limit.depth * 15_000)
     : config.timeoutMs
 );
+
+const firstPvMove = (line: string): string | undefined => {
+  const match = /(?:^|\s)pv\s+(\S+)/.exec(line.trim());
+  return match?.[1];
+};
 
 const providerFailure = (config: UciEngineConfig, error: unknown): Result<string, DomainError> => {
   const message = error instanceof Error ? error.message : String(error);
@@ -179,15 +197,29 @@ export const createUciMoveProvider = (
     return sessionPromise;
   };
 
-  const requestBestMove = async (fen: string, limit: ProviderSearchLimit): Promise<Result<string, DomainError>> => {
+  const requestBestMove = async (request: ProviderRequest, limit: ProviderSearchLimit): Promise<Result<string, DomainError>> => {
+    let lastLegalPvMove: string | undefined;
     try {
       const session = await getSession();
       const timeoutMs = timeoutMsFor(config, limit);
       session.send("isready");
       await session.waitFor(line => line.trim() === "readyok", timeoutMs);
-      session.send(`position fen ${fen}`);
+      session.send(`position fen ${String(request.position.fen)}`);
       session.send(goCommand(limit));
-      const bestMoveLine = await session.waitFor(line => line.startsWith("bestmove "), timeoutMs);
+      const bestMoveLine = await session.waitFor(
+        line => line.startsWith("bestmove "),
+        timeoutMs,
+        line => {
+          const candidate = firstPvMove(line);
+          if (candidate === undefined) {
+            return;
+          }
+          const legalMove = chess.parseLegalMove(request.position, candidate);
+          if (!isErr(legalMove)) {
+            lastLegalPvMove = candidate;
+          }
+        }
+      );
       return extractBestMove(bestMoveLine, config);
     } catch (error) {
       const failedSession = sessionPromise;
@@ -197,13 +229,17 @@ export const createUciMoveProvider = (
       } catch {
         // best-effort cleanup
       }
+      const message = error instanceof Error ? error.message : String(error);
+      if (config.allowInfoPvBestMoveFallback === true && message.includes("timeout") && lastLegalPvMove !== undefined) {
+        return ok(lastLegalPvMove);
+      }
       return providerFailure(config, error);
     }
   };
 
   return async (request: ProviderRequest) => {
     const limit = request.searchLimit ?? config.limit;
-    queue = queue.then(() => requestBestMove(String(request.position.fen), limit), () => requestBestMove(String(request.position.fen), limit));
+    queue = queue.then(() => requestBestMove(request, limit), () => requestBestMove(request, limit));
     const bestMoveResult = await queue;
     if (isErr(bestMoveResult)) {
       return bestMoveResult;

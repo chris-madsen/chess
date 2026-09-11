@@ -18,14 +18,15 @@ A language model can know chess principles and still hallucinate a board state, 
 - every move is checked for legality before use;
 - every generated move carries provenance;
 - Maia is used for likely human replies;
-- Stockfish 19 NNUE is used for strong calculation and safety checks;
-- external bots such as LeelaAlien or Boris-Trapsky can only contribute observed first-move ideas.
+- local style engines can propose player-side StylePath continuations;
+- Stockfish 19 NNUE is reserved for strong calculation and safety checks outside the local StylePath CLI;
+- external bots such as LeelaAlien or Boris-Trapsky can only contribute observed first-move ideas in future opt-in probes.
 
 The target is practical training value, not engine supremacy.
 
-## Default workflow
+## Default coaching workflow
 
-For a position where the player is to move:
+The product-level coaching workflow remains player-first and HumanPath-oriented. For a position where the player is to move:
 
 1. **Position intake**
    - accept FEN, PGN position, or imported game reference;
@@ -50,6 +51,27 @@ For a position where the player is to move:
 6. **Decision recording**
    - the player may record a chosen move;
    - the system does not submit the move to Lichess or any external platform during ordinary analysis.
+
+## Current local StylePath CLI
+
+The implemented terminal mode is a local, read-only `StylePath` analysis harness:
+
+```bash
+npm run style:lines -- --fen "<fen>"
+npm run style:lines -- --raw-file game.txt --watch --refresh-ms 2000
+```
+
+It generates one mixed teaching line per enabled local style engine:
+
+```text
+Patricia -> Maia 1900 -> Patricia -> Maia 1900 -> ...
+Jackal   -> Maia 1900 -> Jackal   -> Maia 1900 -> ...
+Seer     -> Maia 1900 -> Seer     -> Maia 1900 -> ...
+```
+
+The side to move after FEN or RAW SAN ingestion is treated as the Player side. Odd plies are produced by that line's local style engine, even plies by Maia 1900. Stockfish 19 and Lichess probes are intentionally out of scope for this CLI mode.
+
+Watch mode keeps per-engine line state and extends from the current tail. Increasing the horizon does not restart from the root or recalculate already accepted plies. Patricia and Seer use fixed depth 13, Jackal uses fixed depth 8, and Maia 1900 uses 3 seconds movetime. Output is rendered as ordinary SAN movetext with provenance retained in domain data.
 
 ## HumanPath is not a principal variation
 

@@ -85,6 +85,7 @@ Turn domain requests into local engine/model calls and return domain-shaped resu
 
 ### Owns
 
+- local style-engine adapter configuration;
 - Stockfish adapter configuration;
 - Maia adapter configuration;
 - process lifecycle;
@@ -104,6 +105,7 @@ Turn domain requests into local engine/model calls and return domain-shaped resu
 
 - UCI `bestmove g1f3` becomes a domain move only after checking it is legal in the supplied `PositionSnapshot`.
 - Maia top-k probabilities are adapter data until one configured move selection is validated and wrapped in provenance.
+- A local style engine's `bestmove` or explicitly configured legal PV fallback is adapter data until the move is validated against the current `PositionSnapshot`.
 
 ## External Idea Probe Context
 
@@ -149,6 +151,12 @@ Import positions, games, and metadata for analysis without mutating external gam
 - Ordinary analysis never sends move submissions, challenge actions, chat, resign, or abort commands.
 - Imported positions are validated before entering Scenario Analysis.
 - Platform credentials stay outside domain data, logs, fixtures, and documentation.
+
+## Local StylePath runtime policy
+
+The current CLI mode keeps per-engine line state in the imperative shell. Patricia and Seer provide player-side plies at fixed depth 13, Jackal at fixed depth 8, and Maia 1900 provides opponent plies with a 3 second movetime. Horizon growth extends each line from its tail. Root restarts happen only when the input position changes or the process restarts.
+
+Transient provider failures are not converted into fabricated moves. Affected lines retain causal error information and retry the same ply when the failure is retryable. Jackal has a documented UCI compatibility fallback: after timeout, a legal first move from the latest observed PV may be used only for Jackal.
 
 ## Run Registry Context
 

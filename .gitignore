@@ -1,8 +1,46 @@
+# Dependencies and build output
 node_modules/
 dist/
+build/
 coverage/
+.nyc_output/
+
+# TypeScript / test caches
+*.tsbuildinfo
+.eslintcache
+.jest-cache/
+
+# Environment, secrets, and local runtime config
 .env
 .env.*
 !.env.example
-.local/
+*token*
+*secret*
+*.pem
+*.key
 engines.local.json
+
+# Local engine binaries, weights, archives, and source builds
+.local/
+*.nnue
+*.pb.gz
+*.bin
+*.exe
+*.tar
+*.tar.gz
+*.zip
+
+# Local logs and generated session dumps
+*.log
+*.tmp
+*.jsonl
+docs/*.jsonl
+
+# Local scratch inputs / conversation notes
+docs/chess.md
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
