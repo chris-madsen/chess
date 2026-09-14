@@ -37,6 +37,8 @@ export type HumanPathProviders = Readonly<{
 
 export type LocalStyleEngineProvider = ProviderProfile & Readonly<{
   provideMove: MoveProvider;
+  opponent?: MoveProvider;
+  label?: string;
 }>;
 
 export type StylePathProviders = Readonly<{

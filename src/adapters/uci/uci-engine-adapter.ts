@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface, type Interface } from "node:readline";
 import type { ChessRulesPort } from "../../application/ports/chess-rules";
 import type { MoveProvider, ProviderRequest, ProviderSearchLimit } from "../../application/ports/providers";
+import type { PositionSnapshot } from "../../domain/chess/position";
 import type { MoveSource, ProviderIdentity } from "../../domain/provenance/provenance";
 import { makeRequestId } from "../../domain/chess/value-objects";
 import { domainError, type DomainError } from "../../domain/shared/errors";
@@ -45,6 +46,15 @@ const goCommand = (limit: ProviderSearchLimit): string => {
 };
 
 const optionCommand = (option: UciOption): string => `setoption name ${option.name} value ${String(option.value)}`;
+
+const positionCommand = (position: PositionSnapshot): string => {
+  const moves = position.uciPosition.moves.length > 0
+    ? ` moves ${position.uciPosition.moves.map(String).join(" ")}`
+    : "";
+  return position.uciPosition.base === "startpos"
+    ? `position startpos${moves}`
+    : `position fen ${String(position.uciPosition.fen)}${moves}`;
+};
 
 class UciSession {
   private readonly child: ChildProcessWithoutNullStreams;
@@ -204,7 +214,7 @@ export const createUciMoveProvider = (
       const timeoutMs = timeoutMsFor(config, limit);
       session.send("isready");
       await session.waitFor(line => line.trim() === "readyok", timeoutMs);
-      session.send(`position fen ${String(request.position.fen)}`);
+      session.send(positionCommand(request.position));
       session.send(goCommand(limit));
       const bestMoveLine = await session.waitFor(
         line => line.startsWith("bestmove "),

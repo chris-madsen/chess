@@ -19,6 +19,24 @@ test("position intelligence parses SAN and UCI legal moves", () => {
   expect(chess.parseLegalMove(position, "e2e5").tag).toBe("Err");
 });
 
+test("positions retain UCI history for history-aware engines", () => {
+  const rawPosition = mustOk(chess.ingestRawGame("1. e4 e6 2. Nc3 d6"));
+  expect(rawPosition.uciPosition).toEqual({
+    base: "startpos",
+    moves: ["e2e4", "e7e6", "b1c3", "d7d6"]
+  });
+
+  const fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+  const fenPosition = mustOk(chess.ingestPosition(fen));
+  const move = mustOk(chess.parseLegalMove(fenPosition, "e4"));
+  const nextPosition = mustOk(chess.applyMove(fenPosition, move));
+  expect(nextPosition.uciPosition).toEqual({
+    base: "fen",
+    fen,
+    moves: ["e2e4"]
+  });
+});
+
 test("position facts include material checks captures and terminal status", () => {
   const position = mustOk(chess.ingestPosition("4k3/8/8/8/8/8/8/4K2r w - - 0 1"));
   const facts = mustOk(chess.computeFacts(position));

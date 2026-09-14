@@ -56,6 +56,6 @@ await runUciSmoke({
 await runUciSmoke({
   name: "Maia-9 via Lc0",
   command: ".local/chess-engines/bin/maia9",
-  goCommand: "go nodes 1",
+  goCommand: "go movetime 4000",
   expected: ["id name Lc0", "maia-1900.pb.gz", "uciok", "readyok", "bestmove"]
 });

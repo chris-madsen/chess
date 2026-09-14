@@ -16,9 +16,16 @@ The system SHALL access Patricia, Jackal, Seer, and Maia through provider ports 
 - THEN Stockfish 19 is not invoked
 - AND the selected local style engine is invoked instead.
 
-### Scenario: CSTal deferred
+### Scenario: Windows CSTal engines stay local
 
-- GIVEN the first local StylePath increment
+- GIVEN the Windows CSTal suite is selected
 - WHEN the default engine registry is loaded
-- THEN CSTal variants are documented as future engines
-- AND they are not enabled unless a supported runtime is explicitly configured later.
+- THEN CSTal ABSURD and CSTal EXTREME are loaded from ignored local Windows `.exe` paths
+- AND they are exposed only as `LOCAL_STYLE_ENGINE` providers.
+
+### Scenario: Maia3 provides Windows CSTal opponent replies
+
+- GIVEN the Windows CSTal suite is selected
+- WHEN an even opponent ply is requested
+- THEN Maia3 79M is invoked through UCI
+- AND its move provenance remains source `MAIA`.

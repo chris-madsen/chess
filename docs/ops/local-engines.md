@@ -22,7 +22,7 @@ engines.local.json
 
 - Stockfish: official Stockfish 19 Linux x86-64 universal release.
 - Lc0: Nix `nixpkgs#lc0`, version `0.32.1`.
-- Maia-9: CSSLab `maia-1900.pb.gz` from `CSSLab/maia-chess` release `v1.0`, run through Lc0 with `--backend=eigen` and `go movetime 3000` for human-policy style probing.
+- Maia-9: CSSLab `maia-1900.pb.gz` from `CSSLab/maia-chess` release `v1.0`, run through Lc0 with `--backend=eigen` and `go movetime 4000` for human-policy style probing.
 
 ## Verification
 
@@ -35,7 +35,7 @@ npm run verify:engines:local
 Expected behavior:
 
 - Stockfish returns `id name Stockfish 19`, `uciok`, `readyok`, and a `bestmove`.
-- Maia-9/Lc0 loads `maia-1900.pb.gz`, returns `uciok`, `readyok`, and a `bestmove` for `go movetime 3000`. Runtime config gives Maia 6 CPU worker threads, matching task/search workers, `MinibatchSize=32`, and `RamLimitMb=10240`.
+- Maia-9/Lc0 loads `maia-1900.pb.gz`, returns `uciok`, `readyok`, and a `bestmove` for `go movetime 4000`. Runtime config gives Maia 6 CPU worker threads, matching task/search workers, `MinibatchSize=32`, and `RamLimitMb=10240`.
 
 This command is intentionally not part of CI because the runtime files are local-only.
 
@@ -47,12 +47,35 @@ This command is intentionally not part of CI because the runtime files are local
 
 ## Local StylePath engines
 
-The first StylePath CLI increment uses these local providers:
+The Linux StylePath CLI suite uses these local providers:
 
 - Patricia: latest GitHub release, prefer `patricia_v3` on Linux.
 - Jackal: latest GitHub release, prefer Linux `x86-64-v3` with `x86-64-v2` fallback.
 - Seer: build a local Linux UCI binary from source because current release assets are Windows executables.
-- CSTal: deferred; public v2.07 style builds are Windows `.exe` files and require Wine or another explicit runtime.
+
+The Windows CSTal suite is selected with:
+
+```bash
+npm run style:lines:cstal -- --fen "<fen>"
+npm run style:lines:cstal -- --maia3-elo 1800 --fen "<fen>"
+npm run style:lines:cstal -- --cstal-opponent maia1900 --fen "<fen>"
+```
+
+It uses:
+
+- CSTal ABSURD: `Chess-System-Tal-NNUE-2` v2.07 AVX2 Windows build.
+- CSTal EXTREME: `Chess-System-Tal-NNUE-2` v2.07 AVX2 Windows build.
+- Maia3 79M: `maia3-uci --model maia3-79m`, or `python -m maia3.uci --model maia3-79m`, with `go movetime 4000`. Maia3 runs with `Elo`, `SelfElo`, and `OppoElo` from `--maia3-elo` (default `1900`), `Temperature=1.0`, `TopP=1.0`, `MultiPV=5`, and `--use-uci-history`. The Python Maia3 UCI wrapper handles those Maia-specific options; Lc0-style worker and memory options are not sent to Maia3. StylePath sends UCI history as `position startpos moves ...` for raw games and as `position fen ... moves ...` for continuations from an arbitrary FEN.
+- Maia 1900: CSSLab `maia-1900.pb.gz` through Lc0 Windows CPU DNNL with the `blas` backend. Select it with `--cstal-opponent maia1900`. These comparison lines use the same `go movetime 4000` limit as the local Maia 1900 StylePath runtime, with 4 worker/search threads in the Windows CSTal suite.
+
+Run:
+
+```bash
+npm run install:cstal-windows
+npm run verify:cstal-windows
+```
+
+The installer writes ignored local paths to `engines.local.json` as `cstalAbsurdPath`, `cstalExtremePath`, and a default Maia3 command. On older CPUs, replace the CSTal AVX2 paths with scalar `.exe` paths if AVX2 does not start.
 
 All local engines are invoked through UCI adapters. Their raw output is untrusted until the returned move is validated against the current `PositionSnapshot`.
 
@@ -62,9 +85,9 @@ The Jackal 2.0.0 Linux release binary may require `GLIBC_2.39`. If the host has 
 
 ## Adaptive StylePath watch
 
-Patricia and Seer use 2 CPU threads and `Hash=10240`. Jackal keeps 1 CPU thread for stability and also uses `Hash=10240`. Maia uses 6 CPU threads and `RamLimitMb=10240`.
+Patricia and Seer use 2 CPU threads and `Hash=10240`. Jackal keeps 1 CPU thread for stability and also uses `Hash=10240`. CSTal ABSURD/EXTREME use 2 CPU threads per process in the Windows suite. Maia uses 6 CPU threads in the Linux local suite and 4 CPU threads for Maia 1900 comparison lines in the Windows CSTal suite.
 
-The StylePath CLI no longer accepts a user-facing `--horizon` flag. It starts at horizon 8 full moves. Patricia and Seer start at fixed style-engine depth 13; Jackal starts at fixed depth 8 because it is much slower on tactical positions. Watch mode updates each engine line independently as new plies are appended. Because all current style engines have fixed configured depths, watch mode does not increase the displayed global style depth into meaningless large values. Stable lines extend horizon by 2 full moves after 10 stable seconds. Horizon extension continues from the current tail and must not recalculate already accepted plies. There is no product-level maximum; stopping the CLI stops analysis. Technical guards remain: UCI requests are queued per provider, subprocesses are cleaned up on failure where possible, and depth-based UCI requests use generous timeouts derived from the requested depth. Transient provider timeouts remain visible and retry the same ply after a short backoff; no move is invented.
+The StylePath CLI no longer accepts a user-facing `--horizon` flag. It starts at horizon 8 full moves. Patricia and Seer start at fixed style-engine depth 13; CSTal ABSURD and CSTal EXTREME start at fixed style-engine depth 14; Jackal starts at fixed depth 8 because it is much slower on tactical positions. Watch mode updates engine lines independently as new plies are appended. Because all current style engines have fixed configured depths, watch mode does not increase the displayed global style depth into meaningless large values. Stable lines extend horizon by 2 full moves after 10 stable seconds. Horizon extension continues from the current tail and must not recalculate already accepted plies. There is no product-level maximum; stopping the CLI stops analysis. Technical guards remain: UCI requests are queued per provider, subprocesses are cleaned up on failure where possible, and depth-based UCI requests use generous timeouts derived from the requested depth. Transient provider timeouts remain visible and retry the same ply after a short backoff; no move is invented.
 
 ### Jackal UCI quirk
 

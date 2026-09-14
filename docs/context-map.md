@@ -154,7 +154,7 @@ Import positions, games, and metadata for analysis without mutating external gam
 
 ## Local StylePath runtime policy
 
-The current CLI mode keeps per-engine line state in the imperative shell. Patricia and Seer provide player-side plies at fixed depth 13, Jackal at fixed depth 8, and Maia 1900 provides opponent plies with a 3 second movetime. Horizon growth extends each line from its tail. Root restarts happen only when the input position changes or the process restarts.
+The current CLI mode keeps per-engine line state in the imperative shell. Patricia and Seer provide player-side plies at fixed depth 13, CSTal ABSURD/EXTREME at fixed depth 14, Jackal at fixed depth 8, and the Maia opponent model provides opponent plies with a 4 second movetime. Horizon growth extends each line from its tail. Root restarts happen only when the input position changes or the process restarts.
 
 Transient provider failures are not converted into fabricated moves. Affected lines retain causal error information and retry the same ply when the failure is retryable. Jackal has a documented UCI compatibility fallback: after timeout, a legal first move from the latest observed PV may be used only for Jackal.
 
