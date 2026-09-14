@@ -69,9 +69,32 @@ Jackal   -> Maia 1900 -> Jackal   -> Maia 1900 -> ...
 Seer     -> Maia 1900 -> Seer     -> Maia 1900 -> ...
 ```
 
-The side to move after FEN or RAW SAN ingestion is treated as the Player side. Odd plies are produced by that line's local style engine, even plies by Maia 1900. Stockfish 19 and Lichess probes are intentionally out of scope for this CLI mode.
+On Windows, the CSTal suite can be selected explicitly:
 
-Watch mode keeps per-engine line state and extends from the current tail. Increasing the horizon does not restart from the root or recalculate already accepted plies. Patricia and Seer use fixed depth 13, Jackal uses fixed depth 8, and Maia 1900 uses 3 seconds movetime. Output is rendered as ordinary SAN movetext with provenance retained in domain data.
+```bash
+npm run style:lines:cstal -- --fen "<fen>"
+npm run style:lines:cstal -- --maia3-elo 1800 --fen "<fen>"
+npm run style:lines -- --engine-suite cstal-windows --fen "<fen>"
+npm run style:lines:cstal:maia1900 -- --fen "<fen>"
+```
+
+That suite generates two lines for the selected Maia opponent. The default opponent is Maia3 79M, with `--maia3-elo` available to change Maia3 Elo conditioning:
+
+```text
+CSTal ABSURD  -> Maia3 79M  -> CSTal ABSURD  -> Maia3 79M  -> ...
+CSTal EXTREME -> Maia3 79M  -> CSTal EXTREME -> Maia3 79M  -> ...
+```
+
+Use `--cstal-opponent maia1900` for the classic Maia 1900 comparison:
+
+```text
+CSTal ABSURD  -> Maia 1900 -> CSTal ABSURD  -> Maia 1900 -> ...
+CSTal EXTREME -> Maia 1900 -> CSTal EXTREME -> Maia 1900 -> ...
+```
+
+The side to move after FEN or RAW SAN ingestion is treated as the Player side. Odd plies are produced by that line's local style engine, even plies by the configured Maia opponent model. Stockfish 19 and Lichess probes are intentionally out of scope for this CLI mode.
+
+Watch mode keeps per-engine line state and extends from the current tail. Increasing the horizon does not restart from the root or recalculate already accepted plies. Patricia and Seer use fixed depth 13, Jackal uses fixed depth 8, CSTal ABSURD/EXTREME use fixed depth 14, and the Maia opponent model uses 4 seconds movetime. Output is rendered as ordinary SAN movetext with provenance retained in domain data.
 
 ## HumanPath is not a principal variation
 

@@ -1,5 +1,6 @@
 import {
   createChessJsRulesAdapter,
+  createWindowsCstalStylePathProviders,
   generateStylePaths
 } from "../src/wiring/index.ts";
 import {
@@ -80,6 +81,74 @@ test("local StylePath FEN input creates three engine lines", async () => {
   expect(lines).toHaveLength(3);
   expect(lines.map(line => line.line.label)).toEqual(["Patricia StylePath", "Jackal StylePath", "Seer StylePath"]);
   expect(lines.every(line => line.line.mode === "StylePath")).toBe(true);
+});
+
+test("Windows CSTal suite configures ABSURD and EXTREME StylePath lines with Maia3", () => {
+  const providers = createWindowsCstalStylePathProviders(chess, {
+    cstalAbsurdPath: "C:\\engines\\cstal-absurd.exe",
+    cstalExtremePath: "C:\\engines\\cstal-extreme.exe",
+    maia9Path: "C:\\engines\\lc0.exe",
+    maia9Args: ["--weights=C:\\engines\\maia-1900.pb.gz", "--backend=blas"],
+    maia3Command: "python",
+    maia3Args: ["-m", "maia3.uci", "--model", "maia3-79m", "--device", "cpu", "--no-use-amp"]
+  });
+
+  expect(providers.styleEngines.map(engine => engine.key)).toEqual([
+    "cstal-absurd-maia3",
+    "cstal-extreme-maia3"
+  ]);
+  expect(providers.styleEngines.map(engine => engine.label)).toEqual([
+    "CSTal ABSURD vs Maia3 79M StylePath",
+    "CSTal EXTREME vs Maia3 79M StylePath"
+  ]);
+  expect(providers.styleEngines.every(engine => engine.source === "LOCAL_STYLE_ENGINE")).toBe(true);
+  expect(providers.styleEngines.every(engine => engine.opponent === undefined)).toBe(true);
+  expect(providers.styleEngines.every(engine => engine.configuration.styleDepth === 14)).toBe(true);
+});
+
+test("Windows CSTal suite can select Maia 1900 instead of Maia3", () => {
+  const providers = createWindowsCstalStylePathProviders(chess, {
+    cstalAbsurdPath: "C:\\engines\\cstal-absurd.exe",
+    cstalExtremePath: "C:\\engines\\cstal-extreme.exe",
+    maia9Path: "C:\\engines\\lc0.exe",
+    maia9Args: ["--weights=C:\\engines\\maia-1900.pb.gz", "--backend=blas"],
+    maia3Command: "python"
+  }, { opponent: "maia1900" });
+
+  expect(providers.styleEngines.map(engine => engine.key)).toEqual([
+    "cstal-absurd-maia1900",
+    "cstal-extreme-maia1900"
+  ]);
+  expect(providers.styleEngines.map(engine => engine.label)).toEqual([
+    "CSTal ABSURD vs Maia 1900 StylePath",
+    "CSTal EXTREME vs Maia 1900 StylePath"
+  ]);
+  expect(providers.styleEngines.every(engine => engine.configuration.styleDepth === 14)).toBe(true);
+});
+
+test("CSTal StylePath provenance stays distinct from Maia3 provenance", async () => {
+  const position = mustOk(chess.ingestPosition(startFen));
+  const absurd = fakeStyleEngine("cstal-absurd", "CSTal ABSURD", { 1: "e2e4", 3: "g1f3" });
+  const maia3Provider = { name: "maia3", displayName: "Maia3 79M", version: "maia3-79m" };
+  const maia3 = providerFromMoves("MAIA", maia3Provider, { 2: "e7e5", 4: "b8c6" }, "maia3");
+  const lines = mustOk(await generateStylePaths(chess, {
+    maia: maia3,
+    styleEngines: [absurd]
+  }, {
+    lineId: "cstal-order",
+    start: position,
+    horizon: mustOk(makeScenarioHorizon(4))
+  }));
+  const line = lines[0].line;
+
+  expect(line.label).toBe("CSTal ABSURD StylePath");
+  expect(line.plies.map(ply => ply.provenance.provider.displayName)).toEqual([
+    "CSTal ABSURD",
+    "Maia3 79M",
+    "CSTal ABSURD",
+    "Maia3 79M"
+  ]);
+  expect(line.plies.map(ply => ply.provenance.source)).toEqual(["LOCAL_STYLE_ENGINE", "MAIA", "LOCAL_STYLE_ENGINE", "MAIA"]);
 });
 
 

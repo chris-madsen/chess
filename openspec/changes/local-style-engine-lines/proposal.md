@@ -11,8 +11,9 @@ LeelaAlien and Boris-Trapsky challenges are controlled by external bot policy an
 ## Scope
 
 - Add local style-engine source semantics for Patricia, Jackal, and Seer.
+- Add a Windows CSTal suite for ABSURD and EXTREME.
 - Add a `StylePath` generator and CLI for FEN and RAW SAN game files.
-- Keep Maia 1900 as the opponent-response provider.
+- Keep Maia 1900 as the Linux local-suite opponent-response provider and use Maia3 79M for the Windows CSTal suite.
 - Add UCI process adapters behind application ports.
 - Add local install/verification scripts for enabled local style engines.
 
@@ -20,5 +21,4 @@ LeelaAlien and Boris-Trapsky challenges are controlled by external bot policy an
 
 - Stockfish 19 continuation in this CLI mode.
 - Lichess challenge probes in this CLI mode.
-- CSTal runtime integration until a supported Wine or Linux runtime is configured.
 - UI beyond terminal output.

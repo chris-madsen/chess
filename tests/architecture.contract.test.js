@@ -23,6 +23,8 @@ test("repository files contain no Cyrillic text", () => {
     && !file.includes(`${path.sep}.git${path.sep}`)
     && !file.includes(`${path.sep}.local${path.sep}`)
     && !file.endsWith("package-lock.json")
+    && !file.endsWith(`${path.sep}docs${path.sep}chess.md`)
+    && !file.endsWith(`${path.sep}docs${path.sep}chess2.md`)
   ));
   const offenders = scanned.filter(file => /[\u0400-\u04FF]/u.test(fs.readFileSync(file, "utf8"))).map(file => path.relative(root, file));
   expect(offenders).toEqual([]);

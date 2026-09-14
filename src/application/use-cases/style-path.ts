@@ -12,7 +12,7 @@ export type GenerateStylePathRequest = Readonly<{
   start: PositionSnapshot;
   horizon: ScenarioHorizon;
   styleDepth?: number;
-  onProgress?: (line: ScenarioLine) => void;
+  onProgress?: (line: ScenarioLine, engineKey?: string, styleDepth?: number) => void;
 }>;
 
 export type StylePathLineResult = Readonly<{
@@ -103,7 +103,7 @@ const providerForPly = (
 ): Readonly<{ source: MoveSource; provider: MoveProvider }> => (
   plyNumber % 2 === 1
     ? { source: "LOCAL_STYLE_ENGINE", provider: styleEngine.provideMove }
-    : { source: "MAIA", provider: maia }
+    : { source: "MAIA", provider: styleEngine.opponent ?? maia }
 );
 
 export const generateStylePath = async (
@@ -116,7 +116,7 @@ export const generateStylePath = async (
   const styleDepth = styleDepthForEngine(styleEngine, request.styleDepth);
   let currentPosition = request.start;
   const plies: ScenarioPly[] = [];
-  const label = `${styleEngine.identity.displayName} StylePath`;
+  const label = styleEngine.label ?? `${styleEngine.identity.displayName} StylePath`;
 
   for (let plyNumber = 1; plyNumber <= horizon; plyNumber += 1) {
     const factsResult = chess.computeFacts(currentPosition);
@@ -169,7 +169,7 @@ export const generateStylePath = async (
       move: legalMove.value,
       provenance: providedResult.value.provenance
     });
-    request.onProgress?.(progressLine(request.start, request.horizon, label, [...plies]));
+    request.onProgress?.(progressLine(request.start, request.horizon, label, [...plies]), styleEngine.key, styleDepth);
 
     const nextPosition = chess.applyMove(currentPosition, legalMove.value);
     if (isErr(nextPosition)) {
@@ -179,7 +179,7 @@ export const generateStylePath = async (
   }
 
   const completed = completeLine(request.start, request.horizon, label, plies, "Complete");
-  request.onProgress?.(completed);
+  request.onProgress?.(completed, styleEngine.key, styleDepth);
   return ok(completed);
 };
 
@@ -191,7 +191,8 @@ export const generateStylePaths = async (
   const lines = await Promise.all(providers.styleEngines.map(async styleEngine => {
     const lineResult = await generateStylePath(chess, { maia: providers.maia }, styleEngine, {
       ...request,
-      lineId: `${request.lineId}-${styleEngine.key}`
+      lineId: `${request.lineId}-${styleEngine.key}`,
+      onProgress: (line, engineKey, progressStyleDepth) => request.onProgress?.(line, engineKey ?? styleEngine.key, progressStyleDepth)
     });
     if (isErr(lineResult)) {
       return lineResult;

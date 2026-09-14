@@ -96,18 +96,19 @@ const testPorts = (
   readTextFile,
   styleMoves = fullGameStyleMoves,
   maiaMoves = fullGameMaiaMoves,
-  seenRequests = []
+  seenRequests = [],
+  styleEngines = [{
+    key: "patricia",
+    source: "LOCAL_STYLE_ENGINE",
+    identity: localStyleEngineProvider("patricia", "Patricia", "test"),
+    configuration: {},
+    provideMove: scriptedProvider("LOCAL_STYLE_ENGINE", localStyleEngineProvider("patricia", "Patricia", "test"), styleMoves, seenRequests)
+  }]
 ) => ({
   chess,
   providers: {
     maia: scriptedProvider("MAIA", maiaProvider(), maiaMoves, seenRequests),
-    styleEngines: [{
-      key: "patricia",
-      source: "LOCAL_STYLE_ENGINE",
-      identity: localStyleEngineProvider("patricia", "Patricia", "test"),
-      configuration: {},
-      provideMove: scriptedProvider("LOCAL_STYLE_ENGINE", localStyleEngineProvider("patricia", "Patricia", "test"), styleMoves, seenRequests)
-    }]
+    styleEngines
   },
   readTextFile,
   write: jest.fn(),
@@ -134,6 +135,87 @@ test("CLI rejects removed user --horizon flag", () => {
   const result = parseCliOptions(["--fen", startFen, "--horizon", "6"]);
   expect(result.tag).toBe("Err");
   expect(result.error.code).toBe("INVALID_HORIZON");
+});
+
+test("CLI parses cstal-windows suite and renders CSTal lines", async () => {
+  const options = mustOk(parseCliOptions(["--fen", startFen, "--engine-suite", "cstal-windows"]));
+  const seenRequests = [];
+  const styleEngines = [
+    {
+      key: "cstal-absurd",
+      source: "LOCAL_STYLE_ENGINE",
+      identity: localStyleEngineProvider("cstal-absurd", "CSTal ABSURD", "test"),
+      configuration: { styleDepth: 13 },
+      provideMove: scriptedProvider("LOCAL_STYLE_ENGINE", localStyleEngineProvider("cstal-absurd", "CSTal ABSURD", "test"), fullGameStyleMoves, seenRequests)
+    },
+    {
+      key: "cstal-extreme",
+      source: "LOCAL_STYLE_ENGINE",
+      identity: localStyleEngineProvider("cstal-extreme", "CSTal EXTREME", "test"),
+      configuration: { styleDepth: 13 },
+      provideMove: scriptedProvider("LOCAL_STYLE_ENGINE", localStyleEngineProvider("cstal-extreme", "CSTal EXTREME", "test"), fullGameStyleMoves, seenRequests)
+    }
+  ];
+  const ports = testPorts(() => "", fullGameStyleMoves, fullGameMaiaMoves, seenRequests, styleEngines);
+  const result = await analyzeStylePathsOnce(options, ports);
+  const text = mustOk(result);
+
+  expect(options.engineSuite).toBe("cstal-windows");
+  expect(text).toContain("## CSTal ABSURD StylePath depth 13 horizon 8");
+  expect(text).toContain("## CSTal EXTREME StylePath depth 13 horizon 8");
+  expect(text).toContain("1. e4 e5 2. Nf3 Nc6");
+});
+
+test("CLI parses CSTal opponent selection", () => {
+  const options = mustOk(parseCliOptions(["--fen", startFen, "--engine-suite", "cstal-windows", "--cstal-opponent", "maia1900", "--maia3-elo", "1800"]));
+  expect(options.engineSuite).toBe("cstal-windows");
+  expect(options.cstalOpponent).toBe("maia1900");
+  expect(options.maia3Elo).toBe(1800);
+
+  const invalid = parseCliOptions(["--fen", startFen, "--engine-suite", "cstal-windows", "--cstal-opponent", "both"]);
+  expect(invalid.tag).toBe("Err");
+  expect(invalid.error.path).toBe("cli.cstalOpponent");
+
+  const invalidElo = parseCliOptions(["--fen", startFen, "--engine-suite", "cstal-windows", "--maia3-elo", "wat"]);
+  expect(invalidElo.tag).toBe("Err");
+  expect(invalidElo.error.path).toBe("cli.maia3Elo");
+});
+
+test("CLI one-shot writes an analyzing frame before slow providers finish", async () => {
+  const slowStyle = {
+    key: "slow-cstal",
+    source: "LOCAL_STYLE_ENGINE",
+    identity: localStyleEngineProvider("slow-cstal", "Slow CSTal", "test"),
+    configuration: { styleDepth: 14 },
+    provideMove: async request => {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const parsed = chess.parseLegalMove(request.position, "e2e4");
+      if (parsed.tag === "Err") return parsed;
+      return {
+        tag: "Ok",
+        value: {
+          move: parsed.value,
+          provenance: {
+            source: "LOCAL_STYLE_ENGINE",
+            provider: localStyleEngineProvider("slow-cstal", "Slow CSTal", "test"),
+            status: "ENGINE_GENERATED",
+            requestId: makeRequestId("slow-cstal-1"),
+            inputPositionHash: request.position.hash,
+            configuration: {}
+          }
+        }
+      };
+    }
+  };
+  const ports = testPorts(() => "", fullGameStyleMoves, fullGameMaiaMoves, [], [slowStyle]);
+  const promise = runCli(["--fen", startFen], ports);
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  expect(ports.write).toHaveBeenCalled();
+  expect(ports.write.mock.calls[0][0]).toContain("## Slow CSTal StylePath depth 14 horizon 8");
+  expect(ports.write.mock.calls[0][0]).toContain("status: Analyzing");
+
+  await expect(promise).resolves.toBe(0);
 });
 
 test("CLI one-shot RAW file appends continuation to original movetext", async () => {

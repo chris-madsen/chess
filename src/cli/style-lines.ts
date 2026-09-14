@@ -11,7 +11,7 @@ import type { PositionSnapshot } from "../domain/chess/position";
 import type { ScenarioLine, ScenarioPly } from "../domain/scenario-lines/scenario-line";
 import type { DomainError } from "../domain/shared/errors";
 import { isErr, type Result } from "../domain/shared/result";
-import { createLocalStylePathProviders } from "../wiring/local-style-engines";
+import { createLocalStylePathProviders, createWindowsCstalStylePathProviders, type WindowsCstalOpponent } from "../wiring/local-style-engines";
 
 export type CliInput =
   | Readonly<{ tag: "Fen"; value: string }>
@@ -21,6 +21,9 @@ export type CliOptions = Readonly<{
   input: CliInput;
   watchMode: boolean;
   refreshMs: number;
+  engineSuite: "local-style" | "cstal-windows";
+  cstalOpponent: WindowsCstalOpponent;
+  maia3Elo: number;
 }>;
 
 export type AnalysisSettings = Readonly<{
@@ -77,7 +80,7 @@ const renderWatchUpdateFrame = (text: string, previousLineCount: number): string
     : `\x1b[${previousLineCount}F${WATCH_CLEAR_TO_END}${text}`
 );
 
-const usage = `Usage:\n  npm run style:lines -- --fen "<fen>" [--watch]\n  npm run style:lines -- --raw-file game.txt [--watch]\n\nOptions:\n  --fen <fen>          Analyze a FEN position.\n  --raw-file <path>   Read RAW SAN game notation from a text file.\n  --watch             Re-read changed input and refresh output every 2 seconds.\n  --refresh-ms <ms>   Watch render interval, default 2000.\n\nAdaptive watch starts at depth 13 and horizon 8 full moves. Stable lines increase depth every 5 seconds and horizon every 10 seconds while the process is running.\n`;
+const usage = `Usage:\n  npm run style:lines -- --fen "<fen>" [--watch]\n  npm run style:lines -- --raw-file game.txt [--watch]\n  npm run style:lines:cstal -- --fen "<fen>" [--watch]\n\nOptions:\n  --fen <fen>                 Analyze a FEN position.\n  --raw-file <path>          Read RAW SAN game notation from a text file.\n  --engine-suite <id>        Engine suite: local-style or cstal-windows. Default local-style.\n  --cstal-opponent <id>      CSTal opponent: maia3 or maia1900. Default maia3.\n  --maia3-elo <rating>       Maia3 Elo conditioning, integer 1..4000. Default 1900.\n  --watch                    Re-read changed input and refresh output every 2 seconds.\n  --refresh-ms <ms>          Watch render interval, default 2000.\n\nAdaptive watch starts at depth 13 and horizon 8 full moves. Stable lines increase depth every 5 seconds and horizon every 10 seconds while the process is running.\n`;
 
 const valueAfter = (args: readonly string[], name: string): string | undefined => {
   const index = args.indexOf(name);
@@ -87,6 +90,9 @@ const valueAfter = (args: readonly string[], name: string): string | undefined =
 export const parseCliOptions = (args: readonly string[]): Result<CliOptions, DomainError> => {
   const fen = valueAfter(args, "--fen");
   const rawFile = valueAfter(args, "--raw-file");
+  const engineSuiteRaw = valueAfter(args, "--engine-suite") ?? "local-style";
+  const cstalOpponentRaw = valueAfter(args, "--cstal-opponent") ?? "maia3";
+  const maia3EloRaw = valueAfter(args, "--maia3-elo") ?? "1900";
   if ((fen === undefined && rawFile === undefined) || (fen !== undefined && rawFile !== undefined)) {
     return {
       tag: "Err",
@@ -120,12 +126,49 @@ export const parseCliOptions = (args: readonly string[]): Result<CliOptions, Dom
       }
     };
   }
+  if (engineSuiteRaw !== "local-style" && engineSuiteRaw !== "cstal-windows") {
+    return {
+      tag: "Err",
+      error: {
+        code: "INVALID_MOVE_NOTATION",
+        path: "cli.engineSuite",
+        message: "--engine-suite must be local-style or cstal-windows",
+        details: { value: engineSuiteRaw }
+      }
+    };
+  }
+  if (cstalOpponentRaw !== "maia3" && cstalOpponentRaw !== "maia1900") {
+    return {
+      tag: "Err",
+      error: {
+        code: "INVALID_MOVE_NOTATION",
+        path: "cli.cstalOpponent",
+        message: "--cstal-opponent must be maia3 or maia1900",
+        details: { value: cstalOpponentRaw }
+      }
+    };
+  }
+  const maia3Elo = Number(maia3EloRaw);
+  if (!Number.isInteger(maia3Elo) || maia3Elo < 1 || maia3Elo > 4000) {
+    return {
+      tag: "Err",
+      error: {
+        code: "INVALID_MOVE_NOTATION",
+        path: "cli.maia3Elo",
+        message: "--maia3-elo must be an integer between 1 and 4000",
+        details: { value: maia3EloRaw }
+      }
+    };
+  }
   return {
     tag: "Ok",
     value: {
       input: fen === undefined ? { tag: "RawFile", path: rawFile as string } : { tag: "Fen", value: fen },
       watchMode: args.includes("--watch"),
-      refreshMs
+      refreshMs,
+      engineSuite: engineSuiteRaw,
+      cstalOpponent: cstalOpponentRaw,
+      maia3Elo
     }
   };
 };
@@ -309,7 +352,7 @@ const renderWatchProgress = (
       return;
     }
     lines.push(
-      `## ${engine.identity.displayName} StylePath depth ${styleDepthForCliEngine(engine, progress.settings.styleDepth)} horizon ${progress.settings.horizonMoves}`,
+      `## ${engine.label ?? `${engine.identity.displayName} StylePath`} depth ${styleDepthForCliEngine(engine, progress.settings.styleDepth)} horizon ${progress.settings.horizonMoves}`,
       "status: Analyzing",
       ""
     );
@@ -407,15 +450,90 @@ export const analyzeStylePathsOnce = async (
   return isErr(snapshot) ? snapshot : { tag: "Ok", value: snapshot.value.text };
 };
 
-const printResult = (result: Result<string, DomainError>, ports: Pick<CliPorts, "write" | "writeError">): void => {
-  if (isErr(result)) {
-    ports.writeError(`${result.error.code}: ${result.error.message}\n`);
-    return;
-  }
-  ports.write(result.value);
-};
-
 const sleep = (milliseconds: number): Promise<void> => new Promise(resolve => setTimeout(resolve, milliseconds));
+
+const runOneShotStreaming = async (
+  options: CliOptions,
+  ports: CliPorts,
+  settings: AnalysisSettings = INITIAL_ANALYSIS_SETTINGS
+): Promise<number> => {
+  const inputResult = ingestInput(options, ports);
+  if (isErr(inputResult)) {
+    ports.writeError(`${inputResult.error.code}: ${inputResult.error.message}\n`);
+    return 1;
+  }
+  const horizonResult = makeScenarioHorizon(settings.horizonMoves * 2);
+  if (isErr(horizonResult)) {
+    ports.writeError(`${horizonResult.error.code}: ${horizonResult.error.message}\n`);
+    return 1;
+  }
+
+  const ingested = inputResult.value;
+  const partialResults = new Map<string, StylePathLineResult>();
+  let lastRenderedLineCount = 0;
+  let renderTimer: ReturnType<typeof setTimeout> | undefined;
+  let lastProgressRenderAtMs = 0;
+  const progressRenderIntervalMs = Math.min(Math.max(options.refreshMs, 100), 500);
+  const render = (): void => {
+    const text = renderWatchProgress({
+      startedAtMs: Date.now(),
+      ingested,
+      settings,
+      partialResults
+    }, ports.providers, Date.now());
+    ports.write(renderWatchUpdateFrame(text, lastRenderedLineCount));
+    lastRenderedLineCount = renderedLineCount(text);
+    lastProgressRenderAtMs = Date.now();
+  };
+  const scheduleProgressRender = (): void => {
+    if (renderTimer !== undefined) {
+      return;
+    }
+    const elapsedMs = Date.now() - lastProgressRenderAtMs;
+    if (elapsedMs >= progressRenderIntervalMs) {
+      render();
+      return;
+    }
+    renderTimer = setTimeout(() => {
+      renderTimer = undefined;
+      render();
+    }, progressRenderIntervalMs - elapsedMs);
+  };
+  const cancelScheduledRender = (): void => {
+    if (renderTimer === undefined) {
+      return;
+    }
+    clearTimeout(renderTimer);
+    renderTimer = undefined;
+  };
+
+  render();
+  const linesResult = await generateStylePaths(ports.chess, ports.providers, {
+    lineId: `style-${ingested.position.hash}`,
+    start: ingested.position,
+    horizon: horizonResult.value,
+    styleDepth: settings.styleDepth,
+    onProgress: (line, engineKey, progressStyleDepth) => {
+      const key = engineKey ?? line.label;
+      partialResults.set(key, {
+        engineKey: key,
+        line,
+        ...(progressStyleDepth !== undefined ? { styleDepth: progressStyleDepth } : {})
+      });
+      scheduleProgressRender();
+    }
+  });
+  cancelScheduledRender();
+  if (isErr(linesResult)) {
+    ports.writeError(`${linesResult.error.code}: ${linesResult.error.message}\n`);
+    return 1;
+  }
+
+  partialResults.clear();
+  linesResult.value.forEach(result => partialResults.set(result.engineKey, result));
+  render();
+  return 0;
+};
 
 type ContinuousLineState = {
   currentPosition: PositionSnapshot;
@@ -528,7 +646,7 @@ const runWatch = async (options: CliOptions, ports: CliPorts): Promise<void> => 
           line: scenarioLineForState(
             ingested.position,
             horizonResult.value,
-            `${engine.identity.displayName} StylePath`,
+            engine.label ?? `${engine.identity.displayName} StylePath`,
             state
           ),
           styleDepth: styleDepthForCliEngine(engine, targetSettings.styleDepth)
@@ -615,7 +733,7 @@ const runWatch = async (options: CliOptions, ports: CliPorts): Promise<void> => 
         }
 
         const isStylePly = plyNumber % 2 === 1;
-        const provider = isStylePly ? styleEngine.provideMove : ports.providers.maia;
+        const provider = isStylePly ? styleEngine.provideMove : styleEngine.opponent ?? ports.providers.maia;
         const expectedSource = isStylePly ? "LOCAL_STYLE_ENGINE" : "MAIA";
         const providerRequest = isStylePly
           ? {
@@ -760,7 +878,14 @@ export const runCli = async (args: readonly string[], ports?: Partial<CliPorts>)
   const chess = ports?.chess ?? createChessJsRulesAdapter();
   const fullPorts: CliPorts = {
     chess,
-    providers: ports?.providers ?? createLocalStylePathProviders(chess),
+    providers: ports?.providers ?? (
+      parsed.value.engineSuite === "cstal-windows"
+        ? createWindowsCstalStylePathProviders(chess, undefined, {
+          opponent: parsed.value.cstalOpponent,
+          maia3Elo: parsed.value.maia3Elo
+        })
+        : createLocalStylePathProviders(chess)
+    ),
     readTextFile: ports?.readTextFile ?? ((path: string): string => readFileSync(path, "utf8")),
     write: ports?.write ?? process.stdout.write.bind(process.stdout),
     writeError: ports?.writeError ?? process.stderr.write.bind(process.stderr)
@@ -769,9 +894,7 @@ export const runCli = async (args: readonly string[], ports?: Partial<CliPorts>)
     await runWatch(parsed.value, fullPorts);
     return 0;
   }
-  const result = await analyzeStylePathsOnce(parsed.value, fullPorts);
-  printResult(result, fullPorts);
-  return isErr(result) ? 1 : 0;
+  return runOneShotStreaming(parsed.value, fullPorts);
 };
 
 if (process.argv[1] !== undefined && basename(process.argv[1]) === "style-lines.ts") {

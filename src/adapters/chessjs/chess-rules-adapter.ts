@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { Chess, type Move } from "chess.js";
 import type { ChessRulesPort } from "../../application/ports/chess-rules";
 import type { LegalMove } from "../../domain/chess/moves";
-import type { PositionSnapshot } from "../../domain/chess/position";
+import type { PositionSnapshot, UciPositionCommand } from "../../domain/chess/position";
 import {
   makeFen,
   makePositionHash,
@@ -10,7 +10,8 @@ import {
   makeUciMove,
   type Fen,
   type PositionHash,
-  type Side
+  type Side,
+  type UciMove
 } from "../../domain/chess/value-objects";
 import type { PositionFacts, MaterialInventory } from "../../domain/position-intelligence/facts";
 import { domainError, type DomainError } from "../../domain/shared/errors";
@@ -40,16 +41,18 @@ const stripRawGameNoise = (rawGame: string): string => rawGame
   .replace(/\s+/g, " ")
   .trim();
 
-const applyRawSanGame = (rawGame: string): Result<Chess, DomainError> => {
+const applyRawSanGame = (rawGame: string): Result<Readonly<{ chess: Chess; uciMoves: readonly UciMove[] }>, DomainError> => {
   const chess = new Chess();
+  const uciMoves: UciMove[] = [];
   const cleaned = stripRawGameNoise(rawGame);
   if (cleaned.length === 0) {
-    return ok(chess);
+    return ok({ chess, uciMoves });
   }
   const tokens = cleaned.split(" ").filter(Boolean);
   for (const [index, token] of tokens.entries()) {
     try {
-      chess.move(token);
+      const move = chess.move(token);
+      uciMoves.push(makeUciMove(uciFromMove(move)));
     } catch (error) {
       return err(domainError("INVALID_RAW_GAME", `rawGame.moves.${index + 1}`, "RAW SAN game contains an illegal or unparseable move", {
         token,
@@ -57,7 +60,7 @@ const applyRawSanGame = (rawGame: string): Result<Chess, DomainError> => {
       }));
     }
   }
-  return ok(chess);
+  return ok({ chess, uciMoves });
 };
 
 const makeChess = (fen: string, path: string): Result<Chess, DomainError> => {
@@ -70,14 +73,19 @@ const makeChess = (fen: string, path: string): Result<Chess, DomainError> => {
 
 const legalMovesFromChess = (chess: Chess): readonly LegalMove[] => chess.moves({ verbose: true }).map(toLegalMove);
 
-const snapshotFromChess = (chess: Chess, hashFen: (fen: Fen) => PositionHash): PositionSnapshot => {
+const snapshotFromChess = (
+  chess: Chess,
+  hashFen: (fen: Fen) => PositionHash,
+  uciPosition?: UciPositionCommand
+): PositionSnapshot => {
   const fen = makeFen(chess.fen());
   return {
     tag: "PositionSnapshot",
     fen,
     sideToMove: sideFromTurn(chess.turn()),
     hash: hashFen(fen),
-    legalMoves: legalMovesFromChess(chess)
+    legalMoves: legalMovesFromChess(chess),
+    uciPosition: uciPosition ?? { base: "fen", fen, moves: [] }
   };
 };
 
@@ -139,7 +147,9 @@ export const createChessJsRulesAdapter = (): ChessRulesPort => {
     },
     ingestRawGame: (rawGame: string): Result<PositionSnapshot, DomainError> => {
       const chessResult = applyRawSanGame(rawGame);
-      return chessResult.tag === "Err" ? chessResult : ok(snapshotFromChess(chessResult.value, hashFen));
+      return chessResult.tag === "Err"
+        ? chessResult
+        : ok(snapshotFromChess(chessResult.value.chess, hashFen, { base: "startpos", moves: chessResult.value.uciMoves }));
     },
     parseLegalMove: (position: PositionSnapshot, rawMove: string): Result<LegalMove, DomainError> => {
       const chessResult = makeChess(position.fen, "position.fen");
@@ -157,9 +167,14 @@ export const createChessJsRulesAdapter = (): ChessRulesPort => {
         return chessResult;
       }
       const applied = tryMove(chessResult.value, move.uci);
-      return applied === null
-        ? err(domainError("ILLEGAL_MOVE", "move", "Cannot apply illegal move", { move: move.uci, fen: position.fen }))
-        : ok(snapshotFromChess(chessResult.value, hashFen));
+      if (applied === null) {
+        return err(domainError("ILLEGAL_MOVE", "move", "Cannot apply illegal move", { move: move.uci, fen: position.fen }));
+      }
+      const uciPosition = {
+        ...position.uciPosition,
+        moves: [...position.uciPosition.moves, makeUciMove(uciFromMove(applied))]
+      };
+      return ok(snapshotFromChess(chessResult.value, hashFen, uciPosition));
     },
     computeFacts: (position: PositionSnapshot): Result<PositionFacts, DomainError> => {
       const chessResult = makeChess(position.fen, "position.fen");

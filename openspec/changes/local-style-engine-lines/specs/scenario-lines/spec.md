@@ -10,6 +10,14 @@ The system SHALL generate one `StylePath` ScenarioLine for each enabled local st
 - THEN the system creates three ScenarioLines
 - AND their labels identify the originating local style engine.
 
+### Scenario: Windows CSTal suite creates local style lines
+
+- GIVEN a valid FEN position
+- AND the Windows CSTal engine suite is selected
+- WHEN local StylePath analysis is requested
+- THEN the system creates two ScenarioLines
+- AND their labels are `CSTal ABSURD StylePath` and `CSTal EXTREME StylePath`.
+
 ### Scenario: Source order alternates local style engine and Maia
 
 - GIVEN a local StylePath line for a player-to-move position
@@ -18,6 +26,15 @@ The system SHALL generate one `StylePath` ScenarioLine for each enabled local st
 - AND ply 2 is requested from Maia 1900
 - AND ply 3 is requested from the same local style engine
 - AND ply 4 is requested from Maia 1900.
+
+### Scenario: CSTal source order alternates CSTal and Maia3
+
+- GIVEN a Windows CSTal StylePath line for a player-to-move position
+- WHEN the line is generated to horizon four
+- THEN ply 1 is requested from that line's CSTal engine
+- AND ply 2 is requested from Maia3 79M
+- AND ply 3 is requested from the same CSTal engine
+- AND ply 4 is requested from Maia3 79M.
 
 ### Scenario: Provider failure is isolated
 

@@ -159,6 +159,7 @@ If a command is a placeholder or cannot run because implementation is absent, re
 Local StylePath contract tests cover:
 
 - valid FEN creates one line per enabled local style engine;
+- Windows CSTal suite creates ABSURD and EXTREME StylePath lines;
 - RAW SAN game text reaches the same final position as equivalent replay;
 - side-to-move after input ingestion defines the Player side;
 - source order is LocalStyleEngine, Maia, LocalStyleEngine, Maia;
@@ -167,4 +168,4 @@ Local StylePath contract tests cover:
 
 Live local-engine checks are opt-in and verify configured Patricia, Jackal, Seer, and Maia UCI readiness without requiring external platform access.
 
-Local StylePath CLI tests also assert that the user-facing `--horizon` flag is rejected, adaptive defaults start at horizon 8, Jackal uses a lower configured depth than Patricia/Seer, fixed per-engine depths do not trigger meaningless global depth escalation, stable-line policy extends horizon every 10 seconds, rendered output is SAN movetext without UCI-in-parentheses ambiguity, watch redraws do not use global terminal reset/clear sequences, and watch mode refreshes continuously even when the input file is unchanged. Transient provider timeouts are represented honestly and retried on the same ply without inventing moves.
+Local StylePath CLI tests also assert that the user-facing `--horizon` flag is rejected, adaptive defaults start at horizon 8, Jackal uses a lower configured depth than Patricia/Seer/CSTal, fixed per-engine depths do not trigger meaningless global depth escalation, stable-line policy extends horizon every 10 seconds, rendered output is SAN movetext without UCI-in-parentheses ambiguity, watch redraws do not use global terminal reset/clear sequences, and watch mode refreshes continuously even when the input file is unchanged. Transient provider timeouts are represented honestly and retried on the same ply without inventing moves.
