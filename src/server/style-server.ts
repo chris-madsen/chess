@@ -207,6 +207,8 @@ const normalizeJobRequest = (body: unknown): NormalizedJobRequest | DomainError 
   };
 };
 
+const CSTAL_STYLE_DEPTH = 14;
+
 const numberConfigValue = (value: unknown): number | undefined => (
   typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined
 );
@@ -351,7 +353,7 @@ class StyleJobQueue {
       createdAt: now.toISOString(),
       settings: {
         horizonMoves: Math.min(INITIAL_ANALYSIS_SETTINGS.horizonMoves, request.maxFullMoves),
-        styleDepth: INITIAL_ANALYSIS_SETTINGS.styleDepth,
+        styleDepth: CSTAL_STYLE_DEPTH,
         maxFullMoves: request.maxFullMoves,
         refreshMs: request.refreshMs,
         timeoutMs: request.timeoutMs,
@@ -372,7 +374,7 @@ class StyleJobQueue {
       ...(job.completedAt !== undefined ? { completedAt: job.completedAt.toISOString() } : {}),
       settings: {
         horizonMoves: job.targetHorizonMoves,
-        styleDepth: INITIAL_ANALYSIS_SETTINGS.styleDepth,
+        styleDepth: CSTAL_STYLE_DEPTH,
         maxFullMoves: job.request.maxFullMoves,
         refreshMs: job.request.refreshMs,
         timeoutMs: job.request.timeoutMs,
