@@ -205,7 +205,7 @@ const fullmoveFromFen = (fen: string): number => {
 
 const sideToMoveFromFen = (fen: string): "white" | "black" => sideFromFenTurn(fen.trim().split(/\s+/)[1] ?? "w");
 
-const ingestInput = (options: CliOptions, ports: Pick<CliPorts, "chess" | "readTextFile">): Result<IngestedCliInput, DomainError> => {
+export const ingestInput = (options: CliOptions, ports: Pick<CliPorts, "chess" | "readTextFile">): Result<IngestedCliInput, DomainError> => {
   if (options.input.tag === "Fen") {
     const position = ports.chess.ingestPosition(options.input.value);
     if (isErr(position)) {
@@ -255,7 +255,7 @@ const wrapMovetext = (text: string, width = 72): string => {
   return lines.join("\n");
 };
 
-const formatSanMovetext = (
+export const formatSanMovetext = (
   sanMoves: readonly string[],
   startFullmove: number,
   startSide: "white" | "black"
