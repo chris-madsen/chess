@@ -262,7 +262,7 @@ export const renderStylePathResults = (
       lines.push(`status: ${line.status}`);
     }
     if (line.error !== undefined) {
-      lines.push(`error: ${line.error.code} ${line.error.message}`);
+      lines.push(renderErrorLine(line.error));
     }
     lines.push("");
   });
@@ -444,6 +444,22 @@ const scenarioLineForState = (
 const isTransientProviderError = (error: DomainError): boolean => (
   error.code === "PROVIDER_TIMEOUT" || error.code === "PROVIDER_UNAVAILABLE"
 );
+
+const stringDetail = (error: DomainError, key: string): string | undefined => {
+  const value = error.details?.[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+};
+
+const renderErrorLine = (error: DomainError): string => {
+  const provider = stringDetail(error, "engine");
+  const cause = stringDetail(error, "cause");
+  const suffix = [provider !== undefined ? `provider=${provider}` : undefined, cause !== undefined ? `cause=${cause}` : undefined]
+    .filter((part): part is string => part !== undefined)
+    .join("; ");
+  return suffix.length > 0
+    ? `error: ${error.code} ${error.message} (${suffix})`
+    : `error: ${error.code} ${error.message}`;
+};
 
 const hasAdaptiveStyleDepth = (providers: StylePathProviders): boolean => (
   providers.styleEngines.some(engine => numberConfigValue(engine.configuration.styleDepth) === undefined)

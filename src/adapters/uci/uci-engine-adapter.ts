@@ -36,6 +36,31 @@ type PendingWait = Readonly<{
   timer: NodeJS.Timeout;
 }>;
 
+type ManagedUciSession = Readonly<{ stop: () => void }>;
+
+const liveSessions = new Set<ManagedUciSession>();
+let processCleanupRegistered = false;
+
+const stopAllLiveSessions = (): void => {
+  [...liveSessions].forEach(session => session.stop());
+};
+
+const ensureProcessCleanupRegistered = (): void => {
+  if (processCleanupRegistered) {
+    return;
+  }
+  processCleanupRegistered = true;
+  process.once("exit", stopAllLiveSessions);
+  process.once("SIGINT", () => {
+    stopAllLiveSessions();
+    process.exit(130);
+  });
+  process.once("SIGTERM", () => {
+    stopAllLiveSessions();
+    process.exit(143);
+  });
+};
+
 const goCommand = (limit: ProviderSearchLimit): string => {
   switch (limit.tag) {
     case "Depth": return `go depth ${limit.depth}`;
@@ -49,9 +74,6 @@ const optionCommand = (option: UciOption): string => `setoption name ${option.na
 class UciSession {
   private readonly child: ChildProcessWithoutNullStreams;
   private readonly rl: Interface;
-  private readonly cleanupOnExit = (): void => { this.stop(); };
-  private readonly cleanupOnSigint = (): void => { this.stop(); process.exit(130); };
-  private readonly cleanupOnSigterm = (): void => { this.stop(); process.exit(143); };
   private pending: PendingWait | null = null;
   private closed = false;
 
@@ -61,11 +83,16 @@ class UciSession {
     this.rl.on("line", line => this.onLine(line));
     this.child.stderr.on("data", () => undefined);
     this.child.stdin.on("error", error => this.failPending(error));
-    this.child.once("exit", () => this.failPending(new Error("UCI engine exited")));
-    this.child.once("error", error => this.failPending(error));
-    process.once("exit", this.cleanupOnExit);
-    process.once("SIGINT", this.cleanupOnSigint);
-    process.once("SIGTERM", this.cleanupOnSigterm);
+    this.child.once("exit", () => {
+      this.failPending(new Error("UCI engine exited"));
+      this.stop();
+    });
+    this.child.once("error", error => {
+      this.failPending(error);
+      this.stop();
+    });
+    liveSessions.add(this);
+    ensureProcessCleanupRegistered();
   }
 
   public send(command: string): void {
@@ -103,18 +130,20 @@ class UciSession {
       return;
     }
     this.closed = true;
-    process.off("exit", this.cleanupOnExit);
-    process.off("SIGINT", this.cleanupOnSigint);
-    process.off("SIGTERM", this.cleanupOnSigterm);
+    liveSessions.delete(this);
     try {
-      if (!this.child.stdin.destroyed && this.child.stdin.writable) {
+      if (this.child.exitCode === null && !this.child.stdin.destroyed && this.child.stdin.writable) {
         this.child.stdin.write("quit\n");
       }
     } catch {
       // best-effort cleanup
     }
-    this.rl.close();
-    if (!this.child.killed) {
+    try {
+      this.rl.close();
+    } catch {
+      // best-effort cleanup
+    }
+    if (this.child.exitCode === null && !this.child.killed) {
       this.child.kill("SIGTERM");
     }
   }
@@ -177,12 +206,17 @@ const providerFailure = (config: UciEngineConfig, error: unknown): Result<string
 
 const initializeSession = async (config: UciEngineConfig): Promise<UciSession> => {
   const session = new UciSession(config);
-  session.send("uci");
-  await session.waitFor(line => line.trim() === "uciok", config.timeoutMs);
-  config.options.forEach(option => session.send(optionCommand(option)));
-  session.send("isready");
-  await session.waitFor(line => line.trim() === "readyok", config.timeoutMs);
-  return session;
+  try {
+    session.send("uci");
+    await session.waitFor(line => line.trim() === "uciok", config.timeoutMs);
+    config.options.forEach(option => session.send(optionCommand(option)));
+    session.send("isready");
+    await session.waitFor(line => line.trim() === "readyok", config.timeoutMs);
+    return session;
+  } catch (error) {
+    session.stop();
+    throw error;
+  }
 };
 
 export const createUciMoveProvider = (

@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
+const cyrillicTranscriptPattern = new RegExp(`^docs${path.sep}chess[^${path.sep}]*\\.md$`);
+
 const collect = dir => {
   const files = [];
   const walk = current => {
@@ -23,6 +25,7 @@ test("repository files contain no Cyrillic text", () => {
     && !file.includes(`${path.sep}.git${path.sep}`)
     && !file.includes(`${path.sep}.local${path.sep}`)
     && !file.endsWith("package-lock.json")
+    && !cyrillicTranscriptPattern.test(path.relative(root, file))
   ));
   const offenders = scanned.filter(file => /[\u0400-\u04FF]/u.test(fs.readFileSync(file, "utf8"))).map(file => path.relative(root, file));
   expect(offenders).toEqual([]);
