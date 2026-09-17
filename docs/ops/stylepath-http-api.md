@@ -135,3 +135,49 @@ Invoke-RestMethod https://chess.network-communications.net/api/style-lines `
 - Keep the Cloudflare tunnel token outside git.
 - Prefer Cloudflare Access or WAF rules as an additional control if the endpoint is reachable by clients outside your own automation.
 - Rotate tokens if they are printed into terminals that are logged or shared.
+
+## CLI watch via the public API
+
+The local CLI can read `game.txt` from the current machine while taking the fully constructed StylePath lines from the public API job stream:
+
+```bash
+npm run style:lines -- --raw-file game.txt --watch --refresh-ms 2000
+```
+
+For RAW-file watch mode the default bot engine is `tal`, which maps to the server-side Windows CSTal suite and renders the two API lines returned by the job stream:
+
+- `CSTal ABSURD vs Maia3 79M StylePath`
+- `CSTal EXTREME vs Maia3 79M StylePath`
+
+Equivalent explicit form:
+
+```bash
+npm run style:lines -- --raw-file game.txt --watch --refresh-ms 2000 --bot-engine tal
+```
+
+To force the old local-provider orchestration instead of the API-backed server lines:
+
+```bash
+npm run style:lines -- --raw-file game.txt --watch --refresh-ms 2000 --bot-engine local
+```
+
+The API-backed CLI mode reads the RAW game file locally, submits it as `rawGameBase64` to:
+
+```text
+POST https://chess.network-communications.net/v1/style-lines/jobs
+```
+
+and renders snapshots from:
+
+```text
+GET https://chess.network-communications.net/v1/style-lines/jobs/{jobId}/events
+```
+
+Configure authentication with one of:
+
+```bash
+export CHESS_STYLE_API_TOKEN='...'
+export CHESS_STYLE_API_TOKEN_FILE=/path/to/style-server-token.txt
+```
+
+On the current workstation, the fallback token file path is `/media/ilja/DATA/chess/chess-api.ken`. The token value itself must never be committed.

@@ -455,6 +455,7 @@ class StyleJobQueue {
       watchMode: false,
       refreshMs: job.request.refreshMs,
       engineSuite: "cstal-windows",
+      botEngine: "tal",
       cstalOpponent: job.request.cstalOpponent,
       maia3Elo: job.request.maia3Elo
     };

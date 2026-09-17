@@ -268,3 +268,73 @@ test("CLI watch mode refreshes continuously with local block redraw", async () =
   process.emit("SIGINT");
   await expect(promise).resolves.toBe(0);
 });
+
+test("CLI bot engine defaults to Tal and validates selection", () => {
+  const options = mustOk(parseCliOptions(["--raw-file", "game.txt", "--watch"]));
+  expect(options.botEngine).toBe("tal");
+
+  const local = mustOk(parseCliOptions(["--raw-file", "game.txt", "--watch", "--bot-engine", "local"]));
+  expect(local.botEngine).toBe("local");
+
+  const invalid = parseCliOptions(["--raw-file", "game.txt", "--watch", "--bot-engine", "unknown"]);
+  expect(invalid.tag).toBe("Err");
+  expect(invalid.error.path).toBe("cli.botEngine");
+});
+
+test("CLI RAW watch with default Tal reads local file and renders API job events", async () => {
+  const createdRequests = [];
+  const api = {
+    createJob: async request => {
+      createdRequests.push(request);
+      return { tag: "Ok", value: "job-1" };
+    },
+    streamEvents: async (jobId, onSnapshot, signal) => {
+      expect(jobId).toBe("job-1");
+      onSnapshot({
+        jobId,
+        status: "running",
+        settings: { horizonMoves: 8, styleDepth: 13, maxFullMoves: 80, refreshMs: 2000, timeoutMs: 300000, cstalOpponent: "maia3", maia3Elo: 1900 },
+        input: { fen: startFen, sideToMove: "white" },
+        lines: [{
+          engineKey: "cstal-absurd-maia3",
+          label: "CSTal ABSURD vs Maia3 79M StylePath",
+          status: "Terminal",
+          styleDepth: 14,
+          sanMovetext: "1. e4 e5 2. Nf3#",
+          plies: [{ index: 1, san: "e4", uci: "e2e4", source: "LOCAL_STYLE_ENGINE", provider: "CSTal ABSURD" }]
+        }]
+      }, "progress");
+      await new Promise(resolve => signal.addEventListener("abort", resolve, { once: true }));
+      return { tag: "Ok", value: undefined };
+    }
+  };
+  const ports = {
+    readTextFile: path => {
+      expect(path).toBe("game.txt");
+      return "1. e4 c5";
+    },
+    write: jest.fn(),
+    writeError: jest.fn(),
+    styleJobApi: api
+  };
+
+  const promise = runCli(["--raw-file", "game.txt", "--watch", "--refresh-ms", "2000"], ports);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  process.emit("SIGINT");
+  await expect(promise).resolves.toBe(0);
+
+  expect(createdRequests).toEqual([expect.objectContaining({
+    rawGame: "1. e4 c5",
+    botEngine: "tal",
+    cstalOpponent: "maia3",
+    maia3Elo: 1900,
+    refreshMs: 2000,
+    maxFullMoves: 80,
+    timeoutMs: 300000
+  })]);
+  const output = ports.write.mock.calls.map(call => call[0]).join("\n");
+  expect(output).toContain("CSTal ABSURD vs Maia3 79M StylePath");
+  expect(output).toContain("1. e4 e5 2. Nf3#");
+  expect(output).toContain("StylePath API job job-1");
+  expect(output).not.toContain("Patricia StylePath");
+});
