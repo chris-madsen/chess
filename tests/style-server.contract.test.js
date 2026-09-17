@@ -181,22 +181,33 @@ test("Style server maps base64 raw game and CSTal params into provider factory",
   }
 });
 
-test("Style server queues jobs FIFO and rejects when the queue is full", async () => {
+test("Style server cancels an unfinished job when a new job is posted", async () => {
   const never = new Promise(() => undefined);
-  const { server, port } = await listen(createStyleLineJobServer({ token, concurrency: 1, queueSize: 1 }, {
+  let providerBuilds = 0;
+  const { server, port } = await listen(createStyleLineJobServer({ token }, {
     chess,
-    createProviders: () => providersFor(() => never)
+    createProviders: () => {
+      providerBuilds += 1;
+      const build = providerBuilds;
+      return providersFor(() => build === 1 ? never : "d8h4");
+    }
   }));
   try {
-    const body = { rawGameBase64: rawBase64("1. e4"), timeoutMs: 5000 };
+    const body = { rawGameBase64: rawBase64("1. f3 e5 2. g4"), timeoutMs: 5000 };
     const first = await requestJson(port, "POST", "/v1/style-lines/jobs", body);
+    const firstEventsPromise = collectSse(port, first.body.jobId, ["cancelled"]);
     const second = await requestJson(port, "POST", "/v1/style-lines/jobs", body);
-    const third = await requestJson(port, "POST", "/v1/style-lines/jobs", body);
     expect(first.status).toBe(202);
     expect(second.status).toBe(202);
-    expect(third.status).toBe(429);
-    await requestJson(port, "DELETE", `/v1/style-lines/jobs/${first.body.jobId}`);
-    await requestJson(port, "DELETE", `/v1/style-lines/jobs/${second.body.jobId}`);
+    expect(second.body.jobId).not.toBe(first.body.jobId);
+
+    const firstEvents = await firstEventsPromise;
+    expect(firstEvents.at(-1).type).toBe("cancelled");
+    expect(firstEvents.at(-1).data.status).toBe("cancelled");
+
+    const secondEvents = await collectSse(port, second.body.jobId, ["complete"]);
+    expect(secondEvents.at(-1).type).toBe("complete");
+    expect(secondEvents.at(-1).data.status).toBe("complete");
   } finally {
     await close(server);
   }

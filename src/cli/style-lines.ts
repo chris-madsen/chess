@@ -603,6 +603,131 @@ const renderWatchProgress = (
   return `${lines.join("\n").trimEnd()}\n`;
 };
 
+type StyleApiLineSnapshot = Readonly<{
+  engineKey: string;
+  label: string;
+  status: "Incomplete" | "Complete" | "Terminal";
+  styleDepth: number;
+  sanMovetext: string;
+  plies: readonly Readonly<{ san: string; uci: string }>[];
+  error?: DomainError;
+}>;
+
+type StyleApiJobSnapshot = Readonly<{
+  jobId: string;
+  status: "queued" | "running" | "complete" | "error" | "cancelled";
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  settings: Readonly<{
+    horizonMoves: number;
+    styleDepth: number;
+    maxFullMoves: number;
+    refreshMs: number;
+    timeoutMs: number;
+    cstalOpponent: WindowsCstalOpponent;
+    maia3Elo: number;
+  }>;
+  input?: Readonly<{
+    fen: string;
+    sideToMove: "white" | "black";
+  }>;
+  lines: readonly StyleApiLineSnapshot[];
+  error?: DomainError;
+}>;
+
+type StyleApiConfig = Readonly<{
+  baseUrl: string;
+  token: string;
+}>;
+
+const localStyleServerTokenPath = ".local/style-server-token.txt";
+
+const readStyleApiConfig = (): StyleApiConfig | undefined => {
+  const tokenFromEnv = process.env.STYLE_SERVER_TOKEN?.trim();
+  const token = tokenFromEnv !== undefined && tokenFromEnv.length > 0
+    ? tokenFromEnv
+    : existsSync(localStyleServerTokenPath)
+      ? readFileSync(localStyleServerTokenPath, "utf8").trim()
+      : "";
+  if (token.length === 0) {
+    return undefined;
+  }
+  const host = process.env.STYLE_SERVER_HOST ?? "127.0.0.1";
+  const port = process.env.STYLE_SERVER_PORT ?? "8787";
+  return {
+    baseUrl: (process.env.STYLE_SERVER_URL ?? `http://${host}:${port}`).replace(/\/+$/, ""),
+    token
+  };
+};
+
+const apiOpponentLabel = (opponent: WindowsCstalOpponent): string => opponent === "maia1900" ? "Maia 1900" : "Maia3 79M";
+
+const emptyApiLines = (settings: StyleApiJobSnapshot["settings"]): readonly StyleApiLineSnapshot[] => [
+  {
+    engineKey: `cstal-absurd-${settings.cstalOpponent === "maia1900" ? "maia1900" : "maia3"}`,
+    label: `CSTal ABSURD vs ${apiOpponentLabel(settings.cstalOpponent)} StylePath`,
+    status: "Incomplete",
+    styleDepth: settings.styleDepth,
+    sanMovetext: "",
+    plies: []
+  },
+  {
+    engineKey: `cstal-extreme-${settings.cstalOpponent === "maia1900" ? "maia1900" : "maia3"}`,
+    label: `CSTal EXTREME vs ${apiOpponentLabel(settings.cstalOpponent)} StylePath`,
+    status: "Incomplete",
+    styleDepth: settings.styleDepth,
+    sanMovetext: "",
+    plies: []
+  }
+];
+
+export const styleApiSnapshotSignature = (snapshot: StyleApiJobSnapshot): string => (
+  [
+    snapshot.jobId,
+    snapshot.status,
+    snapshot.settings.horizonMoves,
+    snapshot.input?.fen ?? "pending",
+    snapshot.error?.code ?? "",
+    ...snapshot.lines.map(line => [
+      line.engineKey,
+      line.status,
+      line.error?.code ?? "",
+      line.plies.map(ply => ply.uci).join(",")
+    ].join(":"))
+  ].join("|")
+);
+
+export const renderStyleApiJobSnapshot = (
+  snapshot: StyleApiJobSnapshot,
+  nowIso = new Date().toISOString()
+): string => {
+  const lines: string[] = [];
+  const lineSnapshots = snapshot.lines.length > 0 ? snapshot.lines : emptyApiLines(snapshot.settings);
+  lineSnapshots.forEach(line => {
+    lines.push(`## ${line.label} depth ${line.styleDepth} horizon ${snapshot.settings.horizonMoves}`);
+    lines.push(line.sanMovetext.length > 0 ? line.sanMovetext : "status: Analyzing");
+    if (line.sanMovetext.length > 0) {
+      lines.push(`status: ${line.status}`);
+    }
+    if (line.error !== undefined) {
+      lines.push(`error: ${line.error.code} ${line.error.message}`);
+    }
+    lines.push("");
+  });
+  lines.push(
+    `StylePath API job ${snapshot.jobId} @ ${nowIso}`,
+    `Job status: ${snapshot.status}`,
+    `Position: ${snapshot.input?.fen ?? "pending"}`,
+    `Player side inferred from turn: ${snapshot.input?.sideToMove ?? "pending"}`,
+    `API settings: bot engine tal, opponent ${snapshot.settings.cstalOpponent}, Maia3 Elo ${snapshot.settings.maia3Elo}, refresh ${snapshot.settings.refreshMs}ms, max ${snapshot.settings.maxFullMoves} full moves`
+  );
+  if (snapshot.error !== undefined) {
+    lines.push(`Job error: ${snapshot.error.code} ${snapshot.error.message}`);
+  }
+  return `${lines.join("\n").trimEnd()}\n`;
+};
+
 export type StylePathRenderedSnapshot = Readonly<{
   text: string;
   lineSignature: string;
@@ -1224,6 +1349,194 @@ const runWatch = async (options: CliOptions, ports: CliPorts): Promise<void> => 
   });
 };
 
+type SseEvent = Readonly<{
+  type: string;
+  data: unknown;
+}>;
+
+const parseSseFrame = (frame: string): SseEvent | undefined => {
+  const eventLine = frame.split("\n").find(line => line.startsWith("event: "));
+  const dataLines = frame
+    .split("\n")
+    .filter(line => line.startsWith("data: "))
+    .map(line => line.slice("data: ".length));
+  if (eventLine === undefined || dataLines.length === 0) {
+    return undefined;
+  }
+  return {
+    type: eventLine.slice("event: ".length),
+    data: JSON.parse(dataLines.join("\n")) as unknown
+  };
+};
+
+const isStyleApiJobSnapshot = (data: unknown): data is StyleApiJobSnapshot => (
+  data !== null
+  && typeof data === "object"
+  && typeof (data as { jobId?: unknown }).jobId === "string"
+  && typeof (data as { status?: unknown }).status === "string"
+  && typeof (data as { settings?: unknown }).settings === "object"
+  && Array.isArray((data as { lines?: unknown }).lines)
+);
+
+const streamStyleApiEvents = async (
+  response: Response,
+  onSnapshot: (snapshot: StyleApiJobSnapshot) => void
+): Promise<void> => {
+  if (response.body === null) {
+    throw new Error("StylePath API did not return a stream");
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const read = await reader.read();
+    if (read.done) {
+      break;
+    }
+    buffer += decoder.decode(read.value, { stream: true });
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? "";
+    for (const frame of frames) {
+      const event = parseSseFrame(frame);
+      if (event === undefined || !isStyleApiJobSnapshot(event.data)) {
+        continue;
+      }
+      onSnapshot(event.data);
+    }
+  }
+};
+
+const runStyleApiWatch = async (
+  options: CliOptions,
+  ports: Pick<CliPorts, "readTextFile" | "write" | "writeError">,
+  api: StyleApiConfig
+): Promise<number> => {
+  if (options.input.tag !== "RawFile") {
+    return 1;
+  }
+  const rawFilePath = options.input.path;
+  let stopped = false;
+  let generation = 0;
+  let lastRenderedLineCount = 0;
+  let lastRenderedSignature = "";
+  let activeAbort: AbortController | undefined;
+  let activeJobId: string | undefined;
+  let fileWatcher: ReturnType<typeof watch> | undefined;
+  let refreshTimer: NodeJS.Timeout | undefined;
+
+  const render = (snapshot: StyleApiJobSnapshot): void => {
+    const signature = styleApiSnapshotSignature(snapshot);
+    if (signature === lastRenderedSignature) {
+      return;
+    }
+    lastRenderedSignature = signature;
+    const text = renderStyleApiJobSnapshot(snapshot);
+    ports.write(renderWatchUpdateFrame(text, lastRenderedLineCount));
+    lastRenderedLineCount = renderedLineCount(text);
+  };
+
+  const startJob = async (): Promise<void> => {
+    generation += 1;
+    const currentGeneration = generation;
+    activeAbort?.abort();
+    activeAbort = new AbortController();
+    const abort = activeAbort;
+    let rawGame = "";
+    try {
+      rawGame = ports.readTextFile(rawFilePath);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      ports.writeError(`Failed to read ${rawFilePath}: ${message}\n`);
+      return;
+    }
+
+    try {
+      const created = await fetch(`${api.baseUrl}/v1/style-lines/jobs`, {
+        method: "POST",
+        signal: abort.signal,
+        headers: {
+          "authorization": `Bearer ${api.token}`,
+          "content-type": "application/json",
+          "cf-ipcountry": "EE"
+        },
+        body: JSON.stringify({
+          rawGameBase64: Buffer.from(rawGame, "utf8").toString("base64"),
+          engineSuite: "cstal-windows",
+          cstalOpponent: options.cstalOpponent,
+          maia3Elo: options.maia3Elo,
+          refreshMs: options.refreshMs,
+          maxFullMoves: 80,
+          timeoutMs: 300_000
+        })
+      });
+      if (!created.ok) {
+        ports.writeError(`StylePath API POST failed: ${created.status} ${await created.text()}\n`);
+        return;
+      }
+      const createdBody = await created.json() as { jobId?: unknown };
+      if (typeof createdBody.jobId !== "string") {
+        ports.writeError("StylePath API POST did not return jobId\n");
+        return;
+      }
+      activeJobId = createdBody.jobId;
+      const stream = await fetch(`${api.baseUrl}/v1/style-lines/jobs/${encodeURIComponent(createdBody.jobId)}/events`, {
+        signal: abort.signal,
+        headers: {
+          "authorization": `Bearer ${api.token}`,
+          "cf-ipcountry": "EE"
+        }
+      });
+      if (!stream.ok) {
+        ports.writeError(`StylePath API stream failed: ${stream.status} ${await stream.text()}\n`);
+        return;
+      }
+      await streamStyleApiEvents(stream, snapshot => {
+        if (!stopped && currentGeneration === generation) {
+          render(snapshot);
+        }
+      });
+    } catch (error) {
+      if (!abort.signal.aborted) {
+        const message = error instanceof Error ? error.message : String(error);
+        ports.writeError(`StylePath API request failed: ${message}\n`);
+      }
+    }
+  };
+
+  void startJob();
+  try {
+    fileWatcher = watch(rawFilePath, () => { void startJob(); });
+  } catch {
+    // The keepalive timer below preserves watch-mode lifetime if fs.watch is unavailable.
+  }
+  refreshTimer = setInterval(() => undefined, options.refreshMs);
+
+  await new Promise<void>(resolve => {
+    const stop = (): void => {
+      stopped = true;
+      generation += 1;
+      activeAbort?.abort();
+      if (activeJobId !== undefined) {
+        void fetch(`${api.baseUrl}/v1/style-lines/jobs/${encodeURIComponent(activeJobId)}`, {
+          method: "DELETE",
+          headers: {
+            "authorization": `Bearer ${api.token}`,
+            "cf-ipcountry": "EE"
+          }
+        }).catch(() => undefined);
+      }
+      fileWatcher?.close();
+      if (refreshTimer !== undefined) clearInterval(refreshTimer);
+      process.off("SIGINT", stop);
+      process.off("SIGTERM", stop);
+      resolve();
+    };
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
+  });
+  return 0;
+};
+
 export const runCli = async (args: readonly string[], ports?: Partial<CliPorts>): Promise<number> => {
   if (args.includes("--help") || args.includes("-h")) {
     (ports?.write ?? process.stdout.write.bind(process.stdout))(usage);
@@ -1233,6 +1546,16 @@ export const runCli = async (args: readonly string[], ports?: Partial<CliPorts>)
   if (isErr(parsed)) {
     (ports?.writeError ?? process.stderr.write.bind(process.stderr))(`${parsed.error.message}\n\n${usage}`);
     return 2;
+  }
+  if (ports === undefined && parsed.value.watchMode && parsed.value.input.tag === "RawFile") {
+    const api = readStyleApiConfig();
+    if (api !== undefined) {
+      return runStyleApiWatch(parsed.value, {
+        readTextFile: (path: string): string => readFileSync(path, "utf8"),
+        write: process.stdout.write.bind(process.stdout),
+        writeError: process.stderr.write.bind(process.stderr)
+      }, api);
+    }
   }
   const chess = ports?.chess ?? createChessJsRulesAdapter();
   const apiBackedWatch = shouldUseApiBackedWatch(parsed.value);
