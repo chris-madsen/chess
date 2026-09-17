@@ -6,7 +6,7 @@ This guide publishes the local read-only Chess Trainer StylePath API from a Wind
 
 ```text
 Client
-  -> https://chess-api.example.com/api/style-lines
+  -> https://chess.network-communications.net/api/style-lines
   -> Cloudflare Tunnel
   -> cloudflared Windows Service
   -> http://127.0.0.1:8787/api/style-lines
@@ -50,26 +50,26 @@ Invoke-RestMethod http://127.0.0.1:8787/api/style-lines -Method Post -Headers $h
 In Cloudflare Zero Trust / Cloudflare One:
 
 1. Go to **Networks / Tunnels**.
-2. Create a tunnel, for example `chess-trainer-windows`.
+2. Create a tunnel, `chess-trainer-windows`.
 3. Select the Windows connector and copy the tunnel token / install command.
 4. Add a public hostname route:
-   - hostname: `chess-api.example.com`;
+   - hostname: `chess.network-communications.net`;
    - service: `http://127.0.0.1:8787`.
 
-Cloudflare requires the domain to be in your Cloudflare account before publishing a stable hostname.
+The Cloudflare tunnel and DNS record for `chess.network-communications.net` are already created. Install the Windows connector with the saved tunnel token to bring the route online.
 
 ## 3. Install cloudflared as a Windows Service
 
 Run PowerShell as Administrator and use the helper script:
 
 ```powershell
-scripts\install-cloudflared-windows.ps1 -TunnelToken "<token-from-cloudflare>"
+scripts\install-cloudflared-windows.ps1 -TunnelToken "<token-from-private-channel>"
 ```
 
 Equivalent direct command:
 
 ```powershell
-cloudflared.exe service install <token-from-cloudflare>
+cloudflared.exe service install <token-from-private-channel>
 ```
 
 Do not write the tunnel token to repository files. If you need a persistent secret store, use Windows service configuration, Windows Credential Manager, or your deployment tool.
@@ -79,7 +79,7 @@ Do not write the tunnel token to repository files. If you need a persistent secr
 ```powershell
 $headers = @{ Authorization = "Bearer <CHESS_TRAINER_API_TOKEN>" }
 $body = @{ fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" } | ConvertTo-Json
-Invoke-RestMethod https://chess-api.example.com/api/style-lines -Method Post -Headers $headers -ContentType "application/json" -Body $body
+Invoke-RestMethod https://chess.network-communications.net/api/style-lines -Method Post -Headers $headers -ContentType "application/json" -Body $body
 ```
 
 ## Safety notes
