@@ -77,6 +77,38 @@ npm run verify:cstal-windows
 
 The installer writes ignored local paths to `engines.local.json` as `cstalAbsurdPath`, `cstalExtremePath`, and a default Maia3 command. On older CPUs, replace the CSTal AVX2 paths with scalar `.exe` paths if AVX2 does not start.
 
+### Windows StylePath HTTP API
+
+The Windows CSTal runtime can also be exposed as a local HTTP/SSE job server for a Linux client on the same trusted network:
+
+```bash
+set STYLE_SERVER_TOKEN=<secret>
+set STYLE_SERVER_HOST=0.0.0.0
+set STYLE_SERVER_PORT=8787
+set STYLE_ALLOWED_COUNTRIES=EE
+npm run style:server
+```
+
+When `STYLE_ALLOWED_COUNTRIES` is set, protected API endpoints require Cloudflare's `CF-IPCountry` header to match one of the comma-separated country codes. Use `EE` to allow Estonia only. `/health` remains unauthenticated for tunnel health checks.
+
+Create a job by sending `game.txt` as base64:
+
+```bash
+curl -sS -X POST http://WINDOWS_HOST:8787/v1/style-lines/jobs \
+  -H "Authorization: Bearer $STYLE_SERVER_TOKEN" \
+  -H "content-type: application/json" \
+  -d '{"rawGameBase64":"...","engineSuite":"cstal-windows","cstalOpponent":"maia3","maia3Elo":2100,"refreshMs":2000,"maxFullMoves":80,"timeoutMs":300000}'
+```
+
+Then stream events:
+
+```bash
+curl -N -H "Authorization: Bearer $STYLE_SERVER_TOKEN" \
+  http://WINDOWS_HOST:8787/v1/style-lines/jobs/<jobId>/events
+```
+
+The server returns structured JSON events (`queued`, `started`, `progress`, `complete`, `error`, `cancelled`) and closes the SSE stream after the final event. `GET /v1/style-lines/jobs/<jobId>` returns the latest snapshot, and `DELETE /v1/style-lines/jobs/<jobId>` cancels queued or running work. Jobs are in-memory only; restarting the server drops job state. The default runtime allows one active job and a small FIFO queue.
+
 All local engines are invoked through UCI adapters. Their raw output is untrusted until the returned move is validated against the current `PositionSnapshot`.
 
 ### Jackal compatibility note
