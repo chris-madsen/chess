@@ -107,7 +107,9 @@ curl -N -H "Authorization: Bearer $STYLE_SERVER_TOKEN" \
   http://WINDOWS_HOST:8787/v1/style-lines/jobs/<jobId>/events
 ```
 
-The server returns structured JSON events (`queued`, `started`, `progress`, `complete`, `error`, `cancelled`) and closes the SSE stream after the final event. `GET /v1/style-lines/jobs/<jobId>` returns the latest snapshot, and `DELETE /v1/style-lines/jobs/<jobId>` cancels queued or running work. Jobs are in-memory only; restarting the server drops job state. The default runtime allows one active job and a small FIFO queue.
+The server returns structured JSON events (`queued`, `started`, `progress`, `complete`, `error`, `cancelled`) and closes the SSE stream after the final event. `GET /v1/style-lines/jobs/<jobId>` returns the latest snapshot, and `DELETE /v1/style-lines/jobs/<jobId>` cancels running work. Jobs are in-memory only; restarting the server drops job state. The server keeps a single latest job: posting a new job cancels any unfinished previous job and starts the new calculation immediately.
+
+When `npm run style:lines -- --raw-file game.txt --watch` runs on the Windows host and `STYLE_SERVER_TOKEN` or `.local/style-server-token.txt` is available, the CLI uses the local StylePath API instead of starting another in-process engine set. The CLI consumes SSE progress, deduplicates repeated snapshots, and redraws one live terminal frame. If stdout is redirected to a file, the ANSI redraw codes are preserved as text; run it in a normal terminal to see the live view.
 
 All local engines are invoked through UCI adapters. Their raw output is untrusted until the returned move is validated against the current `PositionSnapshot`.
 

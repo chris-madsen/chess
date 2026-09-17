@@ -28,7 +28,9 @@ export type ProviderProfile = Readonly<{
   configuration: Readonly<Record<string, unknown>>;
 }>;
 
-export type MoveProvider = (request: ProviderRequest) => Promise<Result<ProvidedMove, DomainError>>;
+export type MoveProvider = ((request: ProviderRequest) => Promise<Result<ProvidedMove, DomainError>>) & Readonly<{
+  dispose?: () => void;
+}>;
 
 export type HumanPathProviders = Readonly<{
   maia: MoveProvider;

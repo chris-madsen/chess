@@ -41,8 +41,6 @@ type ServerConfig = Readonly<{
   token: string;
   host: string;
   port: number;
-  concurrency: number;
-  queueSize: number;
   allowedCountries: readonly string[];
 }>;
 
@@ -129,8 +127,6 @@ const defaultConfig = (): ServerConfig => ({
   token: process.env.STYLE_SERVER_TOKEN ?? "",
   host: process.env.STYLE_SERVER_HOST ?? "127.0.0.1",
   port: Number(process.env.STYLE_SERVER_PORT ?? "8787"),
-  concurrency: Number(process.env.STYLE_SERVER_CONCURRENCY ?? "1"),
-  queueSize: Number(process.env.STYLE_SERVER_QUEUE_SIZE ?? "8"),
   allowedCountries: (process.env.STYLE_ALLOWED_COUNTRIES ?? "")
     .split(",")
     .map(country => country.trim().toUpperCase())
@@ -257,8 +253,6 @@ class StyleJobQueue {
   private readonly makeJobId: () => string;
   private readonly config: ServerConfig;
   private readonly jobs = new Map<string, StyleJob>();
-  private readonly queue: StyleJob[] = [];
-  private active = 0;
 
   constructor(config: ServerConfig, ports: StyleServerPorts = {}) {
     this.config = config;
@@ -272,9 +266,7 @@ class StyleJobQueue {
   }
 
   public create(request: NormalizedJobRequest): StyleJob | DomainError {
-    if (this.queue.length >= this.config.queueSize && this.active >= this.config.concurrency) {
-      return { code: "PROVIDER_UNAVAILABLE", path: "jobs", message: "StylePath job queue is full" };
-    }
+    this.cancelUnfinishedJobs();
     const now = this.now();
     const job: StyleJob = {
       id: this.makeJobId(),
@@ -292,8 +284,7 @@ class StyleJobQueue {
     job.snapshot = this.emptySnapshot(job.id, request, now);
     this.jobs.set(job.id, job);
     this.emit(job, "queued");
-    this.queue.push(job);
-    this.pump();
+    void this.run(job);
     return job;
   }
 
@@ -306,15 +297,7 @@ class StyleJobQueue {
     if (job === undefined || job.finalEmitted) {
       return false;
     }
-    const queuedIndex = this.queue.findIndex(item => item.id === jobId);
-    if (queuedIndex >= 0) {
-      this.queue.splice(queuedIndex, 1);
-    }
-    job.abort.abort();
-    job.status = "cancelled";
-    job.completedAt = this.now();
-    this.emit(job, "cancelled", true);
-    this.pump();
+    this.cancelJob(job);
     return true;
   }
 
@@ -337,18 +320,28 @@ class StyleJobQueue {
     });
   }
 
-  private pump(): void {
-    while (this.active < this.config.concurrency && this.queue.length > 0) {
-      const job = this.queue.shift();
-      if (job === undefined || job.finalEmitted) {
-        continue;
+  private cancelUnfinishedJobs(): void {
+    this.jobs.forEach(job => {
+      if (!job.finalEmitted) {
+        this.cancelJob(job);
       }
-      this.active += 1;
-      void this.run(job).finally(() => {
-        this.active -= 1;
-        this.pump();
-      });
-    }
+    });
+  }
+
+  private cancelJob(job: StyleJob): void {
+    job.abort.abort();
+    this.disposeProviders(job);
+    job.status = "cancelled";
+    job.completedAt = this.now();
+    this.emit(job, "cancelled", true);
+  }
+
+  private disposeProviders(job: StyleJob): void {
+    job.providers?.maia.dispose?.();
+    job.providers?.styleEngines.forEach(engine => {
+      engine.provideMove.dispose?.();
+      engine.opponent?.dispose?.();
+    });
   }
 
   private emptySnapshot(jobId: string, request: NormalizedJobRequest, now: Date): JobSnapshot {
@@ -622,6 +615,7 @@ class StyleJobQueue {
       await Promise.race([Promise.all(engineRuns), sleep(0)]);
     } finally {
       clearTimeout(timeout);
+      this.disposeProviders(job);
       if (job.abort.signal.aborted && !job.finalEmitted) {
         job.status = "cancelled";
         job.completedAt = this.now();

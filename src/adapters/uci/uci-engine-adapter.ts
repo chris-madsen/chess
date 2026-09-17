@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface, type Interface } from "node:readline";
 import type { ChessRulesPort } from "../../application/ports/chess-rules";
-import type { MoveProvider, ProviderRequest, ProviderSearchLimit } from "../../application/ports/providers";
+import type { MoveProvider, ProvidedMove, ProviderRequest, ProviderSearchLimit } from "../../application/ports/providers";
 import type { PositionSnapshot } from "../../domain/chess/position";
 import type { MoveSource, ProviderIdentity } from "../../domain/provenance/provenance";
 import { makeRequestId } from "../../domain/chess/value-objects";
@@ -247,7 +247,16 @@ export const createUciMoveProvider = (
     }
   };
 
-  return async (request: ProviderRequest) => {
+  const dispose = (): void => {
+    const currentSession = sessionPromise;
+    sessionPromise = null;
+    queue = Promise.resolve(ok(""));
+    if (currentSession !== null) {
+      void currentSession.then(session => session.stop(), () => undefined);
+    }
+  };
+
+  const provider: MoveProvider = Object.assign(async (request: ProviderRequest): Promise<Result<ProvidedMove, DomainError>> => {
     const limit = request.searchLimit ?? config.limit;
     queue = queue.then(() => requestBestMove(request, limit), () => requestBestMove(request, limit));
     const bestMoveResult = await queue;
@@ -279,5 +288,6 @@ export const createUciMoveProvider = (
         observedAtIso: new Date().toISOString()
       }
     });
-  };
+  }, { dispose });
+  return provider;
 };

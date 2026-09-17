@@ -7,6 +7,8 @@ import {
   analyzeStylePathsOnce,
   nextAdaptiveAnalysisState,
   parseCliOptions,
+  renderStyleApiJobSnapshot,
+  styleApiSnapshotSignature,
   runCli
 } from "../src/cli/style-lines.ts";
 import { createChessJsRulesAdapter } from "../src/wiring/index.ts";
@@ -267,4 +269,51 @@ test("CLI watch mode refreshes continuously with local block redraw", async () =
   }
   process.emit("SIGINT");
   await expect(promise).resolves.toBe(0);
+});
+
+test("CLI API snapshot renderer is stable for duplicate progress events", () => {
+  const snapshot = {
+    jobId: "job-1",
+    status: "running",
+    createdAt: "2026-09-17T18:00:00.000Z",
+    settings: {
+      horizonMoves: 8,
+      styleDepth: 14,
+      maxFullMoves: 80,
+      refreshMs: 2000,
+      timeoutMs: 300000,
+      cstalOpponent: "maia3",
+      maia3Elo: 2100
+    },
+    input: {
+      fen: startFen,
+      sideToMove: "white"
+    },
+    lines: [
+      {
+        engineKey: "cstal-absurd-maia3",
+        label: "CSTal ABSURD vs Maia3 79M StylePath",
+        status: "Incomplete",
+        styleDepth: 14,
+        sanMovetext: "1. e4 e6",
+        plies: [{ san: "e4", uci: "e2e4" }, { san: "e6", uci: "e7e6" }]
+      },
+      {
+        engineKey: "cstal-extreme-maia3",
+        label: "CSTal EXTREME vs Maia3 79M StylePath",
+        status: "Incomplete",
+        styleDepth: 14,
+        sanMovetext: "1. e4 e6",
+        plies: [{ san: "e4", uci: "e2e4" }, { san: "e6", uci: "e7e6" }]
+      }
+    ]
+  };
+  const rendered = renderStyleApiJobSnapshot(snapshot, "2026-09-17T18:00:01.000Z");
+  expect((rendered.match(/## CSTal ABSURD/g) ?? []).length).toBe(1);
+  expect((rendered.match(/## CSTal EXTREME/g) ?? []).length).toBe(1);
+  expect(rendered).toContain("StylePath API job job-1");
+  expect(styleApiSnapshotSignature(snapshot)).toBe(styleApiSnapshotSignature({
+    ...snapshot,
+    createdAt: "2026-09-17T18:00:02.000Z"
+  }));
 });
