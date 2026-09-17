@@ -10,7 +10,7 @@ const engines = [
   ["Patricia", config.patriciaPath, [], "go movetime 200"],
   ["Jackal", config.jackalPath, [], "go movetime 200"],
   ["Seer", config.seerPath, [], "go movetime 200"],
-  ["Maia 1900", config.maia9Path, [], "go nodes 1"]
+  ["Maia 1900", config.maia9Path, Array.isArray(config.maia9Args) ? config.maia9Args : [], "go movetime 4000"]
 ];
 
 const verify = ([name, command, args, go]) => new Promise(resolve => {
@@ -49,7 +49,7 @@ const verify = ([name, command, args, go]) => new Promise(resolve => {
     resolve(result);
   };
 
-  const timer = setTimeout(() => finish({ name, ok: false, reason: "timeout" }), 15000);
+  const timer = setTimeout(() => finish({ name, ok: false, reason: "timeout" }), 120000);
 
   child.stdin.on("error", () => undefined);
   child.once("error", error => finish({ name, ok: false, reason: error.message }));

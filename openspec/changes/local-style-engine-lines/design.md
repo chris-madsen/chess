@@ -29,13 +29,21 @@ Each enabled local style engine produces an independent line. Provider failures 
 
 ## Enabled engines
 
-V1 enables Patricia, Jackal, and Seer. CSTal has useful E1162-EAS, ABSURD, and EXTREME releases, but the public release artifacts are Windows executables; integration is deferred until Wine or a Linux-compatible runtime is explicitly configured.
+The default local suite enables Patricia, Jackal, and Seer. The Windows CSTal suite enables CSTal ABSURD and CSTal EXTREME from `Chess-System-Tal-NNUE-2` v2.07 Windows AVX2 builds, with scalar builds as the fallback when AVX2 does not start.
+
+The Windows suite keeps the same mixed-line semantics:
+
+```text
+CSTal ABSURD  -> Maia3 79M -> CSTal ABSURD  -> Maia3 79M -> ...
+CSTal EXTREME -> Maia3 79M -> CSTal EXTREME -> Maia3 79M -> ...
+```
 
 ## CLI input
 
 - FEN mode validates a FEN string directly.
 - RAW file mode parses ordinary SAN move text from the initial position, normalizes it to a final `PositionSnapshot`, and infers Player side from side-to-move.
-- User-facing `--horizon` is removed. Local StylePath analysis starts at horizon 8 full moves. Patricia and Seer start at depth 13; Jackal starts at depth 8 to keep watch updates responsive.
+- User-facing `--horizon` is removed. Local StylePath analysis starts at horizon 8 full moves. Patricia, Seer, CSTal ABSURD, and CSTal EXTREME start at depth 13; Jackal starts at depth 8 to keep watch updates responsive.
+- `--engine-suite cstal-windows` selects the Windows CSTal suite. The default remains `local-style`.
 - Watch mode reacts to file changes through `fs.watch` when available and has a polling fallback. Rendering refreshes with the latest completed or partial engine-line results.
 - The current local style engines have fixed configured depths: Patricia and Seer depth 13, Jackal depth 8. Watch mode must not raise the global style-depth display into meaningless large values when every engine already has a fixed depth override.
 - If the rendered line signature is stable for 10 seconds, watch mode increases horizon by 2 full moves. Horizon extension has no product-level maximum; generous subprocess timeouts, serial request queues, and clean shutdown remain technical guards.
@@ -58,4 +66,4 @@ Jackal is treated as a local style engine with a documented UCI compatibility qu
 
 ### Runtime resource defaults
 
-Patricia and Seer SHOULD run with 2 CPU threads and a 10 GB hash budget. Jackal SHOULD run with 1 CPU thread and a 10 GB hash budget. Maia 1900 SHOULD run with 3 seconds movetime, 6 CPU threads/task workers/searchers, `MinibatchSize=32`, and a 10 GB RAM limit. These defaults are adapter configuration and must not leak into the pure domain model.
+Patricia and Seer SHOULD run with 2 CPU threads and a 10 GB hash budget. Jackal SHOULD run with 1 CPU thread and a 10 GB hash budget. The Maia opponent model SHOULD run with 5 seconds movetime, 6 CPU threads/task workers/searchers, `MinibatchSize=32`, and a 10 GB RAM limit. These defaults are adapter configuration and must not leak into the pure domain model.
