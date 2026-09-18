@@ -10,4 +10,14 @@ export type ForcedMateVerifierRequest = Readonly<{
   terminalPosition: PositionSnapshot;
 }>;
 
+export type ForcedMateProof = Readonly<{
+  status: "VERIFIED" | "NOT_VERIFIED";
+  provider: string;
+  limits: Readonly<Record<string, unknown>>;
+  terminalPositionHash: string;
+  proofReference?: string;
+}>;
+
+export type ForcedMateProofProvider = (request: ForcedMateVerifierRequest) => Promise<Result<ForcedMateProof, DomainError>>;
+
 export type ForcedMateVerifier = (request: ForcedMateVerifierRequest) => Promise<Result<ForcedMateVerification, DomainError>>;

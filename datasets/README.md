@@ -7,9 +7,12 @@ Each line has this shape:
 ```json
 {
   "caseId": "anastasia-0001",
+  "datasetVersion": "pattern-mvp-v1",
   "split": "evaluation",
+  "exampleKind": "positive",
   "fen": "<canonical FEN>",
   "family": "ANASTASIA",
+  "sourcePositionHash": "<hash of the ingested FEN>",
   "source": {
     "kind": "licensed-dataset",
     "reference": "source identifier or URL",
@@ -27,5 +30,7 @@ The MVP core catalog contains 19 families: `ANASTASIA`, `ARABIAN`, `BACK_RANK`, 
 The separate tactical motif catalog contains 15 mechanisms, including attraction, clearance, deflection, discovered attack/check, double check, interference, pin, sacrifice, skewer, x-ray attack, capturing defender, exposed king, kingside attack, and attacking f2/f7. Motifs are not `PatternFamily` values.
 
 The repository does not include copied `deadly` or puzzle data until its license and redistribution terms are verified. Catalog metadata is not evidence that a family has positive seeds or a completed benchmark corpus; those remain explicit dataset work.
+
+`exampleKind=hard_negative` is reserved for visually similar but tactically invalid positions. The parser now validates the source-position hash before any rollout starts. Canonical geometry keys are derived at analysis time and are not supplied as trusted dataset input.
 
 The acceptance benchmark requires at least 300 independent cases with separate `calibration` and `evaluation` splits. Do not treat the runner's result as a positive MVP finding while the report is `INCONCLUSIVE` or forced-mate verification is unavailable.

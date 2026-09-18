@@ -8,9 +8,12 @@ const startFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 test("dataset parser freezes a valid JSONL case", () => {
   const result = parsePatternDataset(chess, JSON.stringify({
     caseId: "control-0001",
+    datasetVersion: "test-v1",
     split: "evaluation",
+    exampleKind: "control",
     fen: startFen,
     family: "ANASTASIA",
+    sourcePositionHash: String(chess.hashFen(startFen)),
     source: { kind: "fixture", reference: "local-test", license: "test" }
   }), 8, 8);
 
@@ -23,6 +26,22 @@ test("dataset parser rejects malformed JSONL before engine work", () => {
   const result = parsePatternDataset(chess, "{not-json}", 8, 8);
   expect(result.tag).toBe("Err");
   expect(result.error.path).toBe("dataset.line.1");
+});
+
+test("dataset parser rejects a mismatched source position hash", () => {
+  const result = parsePatternDataset(chess, JSON.stringify({
+    caseId: "bad-hash-0001",
+    datasetVersion: "test-v1",
+    split: "evaluation",
+    exampleKind: "hard_negative",
+    fen: startFen,
+    family: "ANASTASIA",
+    sourcePositionHash: "not-the-fen-hash",
+    source: { kind: "fixture", reference: "local-test", license: "test" }
+  }), 8, 8);
+
+  expect(result.tag).toBe("Err");
+  expect(result.error.path).toBe("dataset.line.1.sourcePositionHash");
 });
 
 test("paired confidence interval is deterministic", () => {

@@ -40,8 +40,11 @@ export type PatternExperimentComparison = Readonly<{
 
 export type PatternExperimentCase = Readonly<{
   caseId: string;
+  datasetVersion: string;
   split: "calibration" | "evaluation";
+  exampleKind: "positive" | "hard_negative" | "control";
   family: PatternFamilyId;
+  sourcePositionHash: string;
   source: Readonly<{ kind: string; reference: string; license?: string }>;
   position: PositionSnapshot;
   horizon: ScenarioHorizon;
@@ -50,8 +53,11 @@ export type PatternExperimentCase = Readonly<{
 
 export type PatternExperimentResult = Readonly<{
   caseId: string;
+  datasetVersion: string;
   split: PatternExperimentCase["split"];
+  exampleKind: PatternExperimentCase["exampleKind"];
   family: PatternFamilyId;
+  sourcePositionHash: string;
   source: PatternExperimentCase["source"];
   baseline: StylePathLineResult;
   alternative: StylePathLineResult;
@@ -266,8 +272,11 @@ export const runPatternSelectionExperiment = async (
   if (isErr(comparison)) return err(comparison.error);
   return ok({
     caseId: experimentCase.caseId,
+    datasetVersion: experimentCase.datasetVersion,
     split: experimentCase.split,
+    exampleKind: experimentCase.exampleKind,
     family: experimentCase.family,
+    sourcePositionHash: experimentCase.sourcePositionHash,
     source: experimentCase.source,
     baseline: baseline.value,
     alternative: alternative.value,

@@ -7,9 +7,12 @@ import { err, isErr, ok, type Result } from "../../domain/shared/result";
 
 export type PatternDatasetEntry = Readonly<{
   caseId: string;
+  datasetVersion: string;
   split: "calibration" | "evaluation";
+  exampleKind: "positive" | "hard_negative" | "control";
   fen: string;
   family: PatternFamilyId;
+  sourcePositionHash: string;
   source: Readonly<{ kind: string; reference: string; license?: string }>;
   expected?: Readonly<{ terminalMate?: boolean; mateLength?: number }>;
 }>;
@@ -21,16 +24,22 @@ export const ingestPatternDatasetEntry = (raw: unknown, path = "dataset.entry"):
   const source = raw.source;
   const expected = raw.expected;
   if (typeof raw.caseId !== "string" || raw.caseId.length === 0) return err(domainError("INVALID_RAW_GAME", `${path}.caseId`, "caseId is required"));
+  if (typeof raw.datasetVersion !== "string" || raw.datasetVersion.length === 0) return err(domainError("INVALID_RAW_GAME", `${path}.datasetVersion`, "datasetVersion is required"));
   if (raw.split !== "calibration" && raw.split !== "evaluation") return err(domainError("INVALID_RAW_GAME", `${path}.split`, "split must be calibration or evaluation"));
+  if (raw.exampleKind !== "positive" && raw.exampleKind !== "hard_negative" && raw.exampleKind !== "control") return err(domainError("INVALID_RAW_GAME", `${path}.exampleKind`, "exampleKind must be positive, hard_negative, or control"));
   if (typeof raw.fen !== "string" || raw.fen.length === 0) return err(domainError("INVALID_FEN", `${path}.fen`, "fen is required"));
   if (typeof raw.family !== "string" || !isPatternFamilyId(raw.family)) return err(domainError("INVALID_RAW_GAME", `${path}.family`, "unsupported PatternFamily"));
+  if (typeof raw.sourcePositionHash !== "string" || raw.sourcePositionHash.length === 0) return err(domainError("INVALID_RAW_GAME", `${path}.sourcePositionHash`, "sourcePositionHash is required"));
   if (!isRecord(source) || typeof source.kind !== "string" || typeof source.reference !== "string") return err(domainError("INVALID_RAW_GAME", `${path}.source`, "source.kind and source.reference are required"));
   if (expected !== undefined && !isRecord(expected)) return err(domainError("INVALID_RAW_GAME", `${path}.expected`, "expected must be an object"));
   return ok({
     caseId: raw.caseId,
+    datasetVersion: raw.datasetVersion,
     split: raw.split,
+    exampleKind: raw.exampleKind,
     fen: raw.fen,
     family: raw.family as PatternFamilyId,
+    sourcePositionHash: raw.sourcePositionHash,
     source: {
       kind: source.kind,
       reference: source.reference,
@@ -70,10 +79,19 @@ export const parsePatternDataset = (
     if (isErr(position)) {
       return err(position.error);
     }
+    if (String(position.value.hash) !== entry.value.sourcePositionHash) {
+      return err(domainError("INVALID_RAW_GAME", `dataset.line.${index + 1}.sourcePositionHash`, "sourcePositionHash does not match the ingested FEN", {
+        expected: String(position.value.hash),
+        received: entry.value.sourcePositionHash
+      }));
+    }
     cases.push({
       caseId: entry.value.caseId,
+      datasetVersion: entry.value.datasetVersion,
       split: entry.value.split,
+      exampleKind: entry.value.exampleKind,
       family: entry.value.family,
+      sourcePositionHash: entry.value.sourcePositionHash,
       source: entry.value.source,
       position: position.value,
       horizon: horizon.value,

@@ -1,7 +1,7 @@
-import { runPatternSelectionExperiment, tracePatternLine, selectPatternLine } from "../src/wiring/index.ts";
+import { createForcedMateVerifier, runPatternSelectionExperiment, tracePatternLine, selectPatternLine } from "../src/wiring/index.ts";
 import { createChessJsRulesAdapter } from "../src/adapters/chessjs/chess-rules-adapter.ts";
 import { createInMemoryAnalysisCache } from "../src/adapters/cache/in-memory-analysis-cache.ts";
-import { assessPattern, makePatternLineOutcome, makePlyIndex, makeRequestId, makeScenarioHorizon, playerProvider, localStyleEngineProvider, isErr, PATTERN_FAMILY_CATALOG, TACTICAL_MOTIF_CATALOG } from "../src/domain/index.ts";
+import { assessPattern, canonicalizePatternPosition, makePatternLineOutcome, makePlyIndex, makeRequestId, makeScenarioHorizon, playerProvider, localStyleEngineProvider, isErr, PATTERN_FAMILY_CATALOG, TACTICAL_MOTIF_CATALOG } from "../src/domain/index.ts";
 
 const chess = createChessJsRulesAdapter();
 const startFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
@@ -45,6 +45,33 @@ test("tactical motifs remain a separate catalog", () => {
   expect(TACTICAL_MOTIF_CATALOG).toHaveLength(15);
   expect(TACTICAL_MOTIF_CATALOG.some(definition => definition.id === "SACRIFICE")).toBe(true);
   expect(PATTERN_FAMILY_CATALOG.some(definition => definition.id === "SACRIFICE")).toBe(false);
+});
+
+test("canonical pattern state is invariant under file mirror", () => {
+  const first = mustOk(chess.ingestPosition("7k/6R1/5N2/8/8/8/8/K7 w - - 0 1"));
+  const mirrored = mustOk(chess.ingestPosition("k7/1R6/2N5/8/8/8/8/7K w - - 0 1"));
+  const firstCanonical = canonicalizePatternPosition(first, mustOk(chess.computeFacts(first)));
+  const mirroredCanonical = canonicalizePatternPosition(mirrored, mustOk(chess.computeFacts(mirrored)));
+  expect(firstCanonical.key).toBe(mirroredCanonical.key);
+  expect(firstCanonical.pieces).toEqual(mirroredCanonical.pieces);
+});
+
+test("forced-mate verifier requires an independent proof for a terminal mate", async () => {
+  const terminal = mustOk(chess.ingestPosition("7k/6Q1/6K1/8/8/8/8/8 b - - 0 1"));
+  const provider = async request => ({
+    tag: "Ok",
+    value: {
+      status: "VERIFIED",
+      provider: "independent-test-provider",
+      limits: { depth: 24 },
+      terminalPositionHash: String(request.terminalPosition.hash),
+      proofReference: "test-proof"
+    }
+  });
+  const verifier = createForcedMateVerifier(chess, provider);
+  const result = mustOk(await verifier({ start: terminal, line: {}, terminalPosition: terminal }));
+  expect(result.status).toBe("VERIFIED");
+  expect(result.provider).toBe("independent-test-provider");
 });
 
 test("background position identity does not require an exact historical FEN", () => {
@@ -154,8 +181,11 @@ test("paired runner uses only ABSURD and EXTREME and records cache reuse", async
   const position = mustOk(chess.ingestPosition(startFen));
   const experimentCase = {
     caseId: "test-0001",
+    datasetVersion: "test-v1",
     split: "evaluation",
+    exampleKind: "control",
     family: "ANASTASIA",
+    sourcePositionHash: String(position.hash),
     source: { kind: "fixture", reference: "test" },
     position,
     horizon: mustOk(makeScenarioHorizon(1)),

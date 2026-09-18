@@ -59,6 +59,25 @@ The MVP SHALL expose the planned tactical motifs as a separate `TacticalMotif` c
 - THEN it receives motif metadata
 - AND no `PatternAssessment` is created without an explicit mating-family target
 
+## Requirement: Canonicalize pattern geometry
+
+Pattern geometry SHALL be represented relative to the defending king and SHALL canonicalize file/rank mirror symmetries and attacker/defender roles. Canonicalization SHALL not use an exact FEN string as the pattern identity.
+
+### Scenario: Mirrored geometry
+
+- GIVEN two legal positions that differ only by a board-file mirror
+- WHEN their canonical pattern positions are built
+- THEN their canonical keys are equal
+- AND the defending king is represented at relative coordinate `(0, 0)`
+
+## Requirement: Preserve dataset provenance and hard negatives
+
+Every dataset entry SHALL include a dataset version, example kind (`positive`, `hard_negative`, or `control`), and a source-position hash that matches the ingested FEN. A mismatched hash SHALL be rejected before engine work.
+
+## Requirement: Validate independent forced-mate proofs
+
+The forced-mate verifier ACL SHALL reject proofs for non-checkmate terminal positions, missing provider/limits, or a terminal-position hash mismatch. It SHALL never upgrade a pattern score or terminal mate fact into `VERIFIED` without an independent provider proof.
+
 ## Requirement: Canonicalize reusable state
 
 The system SHALL identify reusable chess state using piece placement, side to move, castling rights, and en-passant state, while keeping rule and history context separate.

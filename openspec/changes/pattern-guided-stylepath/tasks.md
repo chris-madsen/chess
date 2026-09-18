@@ -10,6 +10,9 @@
 - [x] Extend the deterministic symbolic scorer and dataset validation to all Lichess core families.
 - [x] Add 15 extended named mate families without changing the PatternFamily ADT boundary.
 - [x] Add a separate 15-entry tactical motif catalog without treating motifs as mating families.
+- [x] Add deterministic king-centric canonicalization with file/rank symmetry.
+- [x] Require dataset version, example kind, and source-position hash for dataset entries.
+- [x] Add fail-closed forced-mate verifier ACL validation for independent provider proofs.
 - [x] Add deterministic symbolic PatternProgress policy.
 - [x] Add prefix-only ABSURD versus EXTREME selector.
 - [x] Add dataset schema/ingest and paired experiment report.
