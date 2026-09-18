@@ -58,9 +58,14 @@ const createLiveRenderer = (): { render: (text: string, final?: boolean) => void
   let compactLength = 0;
   const ansi = ansiLiveOutputSupported();
   const compact = (text: string): string => {
-    const singleLine = text.replace(/\s+/gu, " ").trim();
-    if (singleLine.length <= 72) return singleLine;
-    return `${singleLine.slice(0, 34)} ... ${singleLine.slice(-34)}`;
+    const moveBlocks = text.split(/\n(?=## |########)/u)
+      .filter(block => block.startsWith("## "))
+      .map(block => block.replace(/^## [^\n]+\n/u, "").split("\n").filter(line => line.trim().length > 0 && !line.trim().startsWith("(")).join(" "))
+      .map(block => block.replace(/\s+/gu, " ").trim())
+      .filter(block => block.length > 0);
+    const singleLine = (moveBlocks.sort((first, second) => second.length - first.length)[0] ?? text).replace(/\s+/gu, " ").trim();
+    if (singleLine.length <= 76) return `live line: ${singleLine}`;
+    return `live line: ${singleLine.slice(0, 34)} ... ${singleLine.slice(-38)}`;
   };
   return {
     render: (text, final = false) => {
