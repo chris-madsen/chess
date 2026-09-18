@@ -22,8 +22,10 @@ export type PositionStateKey = Readonly<{
 }>;
 
 export type CacheNamespace =
+  | "PATTERN_CONTEXT"
   | "POSITION_EVALUATION"
   | "MAIA_RESPONSE"
+  | "ENGINE_MOVE"
   | "PATTERN_ASSESSMENT"
   | "ROLLOUT_SUFFIX";
 
@@ -115,10 +117,10 @@ const historyFromPosition = (position: PositionSnapshot): HistorySignature | und
   return moves.length === 0 ? undefined : makeHistorySignature(fnv1a64(moves.join(" ")));
 };
 
-export const positionStateKey = (position: PositionSnapshot): PositionStateKey => {
+export const positionStateKey = (position: PositionSnapshot, historyPolicy: "ignore" | "include" = "include"): PositionStateKey => {
   const fields = String(position.fen).trim().split(/\s+/);
   const halfmoveClock = Number.parseInt(fields[4] ?? "0", 10);
-  const historySignature = historyFromPosition(position);
+  const historySignature = historyPolicy === "include" ? historyFromPosition(position) : undefined;
   return {
     tag: "PositionStateKey",
     zobrist: zobristFromFen(String(position.fen)),
@@ -150,10 +152,11 @@ export const analysisCacheKey = (input: Readonly<{
   position: PositionSnapshot;
   configuration: Readonly<Record<string, unknown>>;
   modelVersion?: PatternModelVersion;
+  historyPolicy?: "ignore" | "include";
 }>): AnalysisCacheKey => ({
   tag: "AnalysisCacheKey",
   namespace: input.namespace,
-  position: positionStateKey(input.position),
+  position: positionStateKey(input.position, input.historyPolicy ?? (input.namespace === "MAIA_RESPONSE" || input.namespace === "ROLLOUT_SUFFIX" ? "include" : "ignore")),
   configuration: providerConfigFingerprint(input.configuration),
   ...(input.modelVersion === undefined ? {} : { modelVersion: input.modelVersion })
 });

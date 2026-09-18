@@ -14,7 +14,21 @@ export type PatternDatasetEntry = Readonly<{
   family: PatternFamilyId;
   sourcePositionHash: string;
   source: Readonly<{ kind: string; reference: string; license?: string }>;
-  expected?: Readonly<{ terminalMate?: boolean; mateLength?: number }>;
+  solutionMoves?: readonly string[];
+  trajectory?: readonly PatternTrajectoryState[];
+  expected?: PatternGroundTruth;
+}>;
+
+export type PatternTrajectoryState = Readonly<{
+  ply: number;
+  fen: string;
+  distanceToTerminal: number;
+}>;
+
+export type PatternGroundTruth = Readonly<{
+  terminalMate?: boolean;
+  mateLength?: number;
+  terminalFamily?: PatternFamilyId;
 }>;
 
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -32,6 +46,14 @@ export const ingestPatternDatasetEntry = (raw: unknown, path = "dataset.entry"):
   if (typeof raw.sourcePositionHash !== "string" || raw.sourcePositionHash.length === 0) return err(domainError("INVALID_RAW_GAME", `${path}.sourcePositionHash`, "sourcePositionHash is required"));
   if (!isRecord(source) || typeof source.kind !== "string" || typeof source.reference !== "string") return err(domainError("INVALID_RAW_GAME", `${path}.source`, "source.kind and source.reference are required"));
   if (expected !== undefined && !isRecord(expected)) return err(domainError("INVALID_RAW_GAME", `${path}.expected`, "expected must be an object"));
+  const normalizedSolutionMoves = Array.isArray(raw.solutionMoves)
+    ? raw.solutionMoves
+    : typeof raw.solutionMoves === "string" ? raw.solutionMoves.split(/\s+/u).filter(Boolean) : undefined;
+  if (normalizedSolutionMoves !== undefined && normalizedSolutionMoves.some(move => typeof move !== "string" || move.length === 0)) return err(domainError("INVALID_RAW_GAME", `${path}.solutionMoves`, "solutionMoves must contain non-empty strings"));
+  if (raw.trajectory !== undefined && (!Array.isArray(raw.trajectory) || raw.trajectory.some(state => !isRecord(state) || typeof state.ply !== "number" || typeof state.fen !== "string" || typeof state.distanceToTerminal !== "number"))) return err(domainError("INVALID_RAW_GAME", `${path}.trajectory`, "trajectory must contain ply, fen, and distanceToTerminal"));
+  const expectedRecord = isRecord(expected) ? expected : undefined;
+  const terminalFamily = expectedRecord?.terminalFamily;
+  if (terminalFamily !== undefined && (typeof terminalFamily !== "string" || !isPatternFamilyId(terminalFamily))) return err(domainError("INVALID_RAW_GAME", `${path}.expected.terminalFamily`, "unsupported terminal family"));
   return ok({
     caseId: raw.caseId,
     datasetVersion: raw.datasetVersion,
@@ -45,10 +67,18 @@ export const ingestPatternDatasetEntry = (raw: unknown, path = "dataset.entry"):
       reference: source.reference,
       ...(typeof source.license === "string" ? { license: source.license } : {})
     },
-    ...(isRecord(expected) ? {
+    ...(normalizedSolutionMoves === undefined ? {} : { solutionMoves: normalizedSolutionMoves as string[] }),
+    ...(Array.isArray(raw.trajectory) ? {
+      trajectory: raw.trajectory.map(state => {
+        const record = state as Record<string, unknown>;
+        return { ply: record.ply as number, fen: record.fen as string, distanceToTerminal: record.distanceToTerminal as number };
+      })
+    } : {}),
+    ...(expectedRecord ? {
       expected: {
-        ...(typeof expected.terminalMate === "boolean" ? { terminalMate: expected.terminalMate } : {}),
-        ...(typeof expected.mateLength === "number" ? { mateLength: expected.mateLength } : {})
+        ...(typeof expectedRecord.terminalMate === "boolean" ? { terminalMate: expectedRecord.terminalMate } : {}),
+        ...(typeof expectedRecord.mateLength === "number" ? { mateLength: expectedRecord.mateLength } : {}),
+        ...(typeof terminalFamily === "string" ? { terminalFamily: terminalFamily as PatternFamilyId } : {})
       }
     } : {})
   });
@@ -93,6 +123,9 @@ export const parsePatternDataset = (
       family: entry.value.family,
       sourcePositionHash: entry.value.sourcePositionHash,
       source: entry.value.source,
+      ...(entry.value.solutionMoves === undefined ? {} : { solutionMoves: entry.value.solutionMoves }),
+      ...(entry.value.trajectory === undefined ? {} : { trajectory: entry.value.trajectory }),
+      ...(entry.value.expected === undefined ? {} : { expected: entry.value.expected }),
       position: position.value,
       horizon: horizon.value,
       prefixPlies

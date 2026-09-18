@@ -1,6 +1,7 @@
 import type { PositionSnapshot } from "../chess/position";
 import type { Side } from "../chess/value-objects";
 import type { PositionFacts } from "../position-intelligence/facts";
+import { extractPatternPositionContext, legacyPatternAnalysisContext, type PatternAnalysisContext } from "./context";
 
 export type CanonicalPatternPiece = Readonly<{
   role: "attacker" | "defender";
@@ -17,8 +18,6 @@ export type CanonicalPatternPosition = Readonly<{
   key: string;
 }>;
 
-type BoardPiece = Readonly<{ piece: string; file: number; rank: number }>;
-
 const pieceType = (piece: string): CanonicalPatternPiece["type"] | undefined => {
   const type = piece.toLowerCase();
   return ["p", "n", "b", "r", "q", "k"].includes(type)
@@ -28,29 +27,9 @@ const pieceType = (piece: string): CanonicalPatternPiece["type"] | undefined => 
 
 const pieceSide = (piece: string): Side => piece === piece.toUpperCase() ? "white" : "black";
 
-const boardFromFen = (fen: string): readonly BoardPiece[] => {
-  const board: BoardPiece[] = [];
-  let rank = 7;
-  let file = 0;
-  for (const token of String(fen).trim().split(/\s+/u)[0] ?? "") {
-    if (token === "/") {
-      rank -= 1;
-      file = 0;
-    } else if (/^[1-8]$/u.test(token)) {
-      file += Number(token);
-    } else {
-      board.push({ piece: token, file, rank });
-      file += 1;
-    }
-  }
-  return board;
-};
-
-const kingFor = (pieces: readonly BoardPiece[], side: Side): BoardPiece | undefined => pieces.find(piece => pieceSide(piece.piece) === side && pieceType(piece.piece) === "k");
-
 const encode = (
-  pieces: readonly BoardPiece[],
-  targetKing: BoardPiece,
+  pieces: readonly Readonly<{ piece: string; file: number; rank: number }>[],
+  targetKing: Readonly<{ piece: string; file: number; rank: number }>,
   attackingSide: Side,
   fileSign: 1 | -1,
   rankSign: 1 | -1
@@ -68,13 +47,18 @@ const encode = (
 
 export const canonicalizePatternPosition = (
   position: PositionSnapshot,
-  facts: PositionFacts
+  facts: PositionFacts,
+  analysis?: PatternAnalysisContext
 ): CanonicalPatternPosition => {
-  const attackingSide = facts.isCheckmate
-    ? facts.sideToMove === "white" ? "black" : "white"
-    : facts.sideToMove;
-  const pieces = boardFromFen(String(position.fen));
-  const targetKing = kingFor(pieces, attackingSide === "white" ? "black" : "white") ?? { piece: "k", file: 4, rank: 0 };
+  const resolvedAnalysis = analysis ?? legacyPatternAnalysisContext(facts);
+  const context = extractPatternPositionContext(position, facts, resolvedAnalysis);
+  const attackingSide = resolvedAnalysis.attackerSide;
+  const pieces = context.relevantPieces.map(piece => ({
+    piece: piece.side === "white" ? piece.type.toUpperCase() : piece.type,
+    file: piece.square.file,
+    rank: piece.square.rank
+  }));
+  const targetKing = { piece: "k", file: context.targetKing.file, rank: context.targetKing.rank };
   const orientations = ([1, -1] as const).flatMap(fileSign => ([1, -1] as const).map(rankSign => encode(pieces, targetKing, attackingSide, fileSign, rankSign)));
   const key = `roles:attacker-defender|${[...orientations].sort()[0] ?? ""}`;
   const canonicalOrientation = [...orientations].sort()[0] ?? "";

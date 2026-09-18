@@ -8,6 +8,8 @@ export * from "./cache/state-cache";
 export * from "./patterns/pattern";
 export * from "./patterns/motifs";
 export * from "./patterns/canonical";
+export * from "./patterns/context";
+export * from "./patterns/matchers";
 export * from "./patterns/outcomes";
 export * from "./position-intelligence/facts";
 export * from "./provenance/provenance";

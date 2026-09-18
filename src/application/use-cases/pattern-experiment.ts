@@ -9,6 +9,7 @@ import { assessPattern, analysisCacheKey, isPatternAssessment, makeCacheEntry, m
 import { makePatternLineOutcome, type ForcedMateVerification, type PatternLineOutcome } from "../../domain/patterns/outcomes";
 import type { ScenarioLine } from "../../domain/scenario-lines/scenario-line";
 import type { ScenarioHorizon } from "../../domain/chess/value-objects";
+import type { PatternGroundTruth, PatternTrajectoryState } from "../experiments/pattern-dataset";
 import { domainError } from "../../domain/shared/errors";
 import { err, isErr, ok, type Result } from "../../domain/shared/result";
 
@@ -46,6 +47,9 @@ export type PatternExperimentCase = Readonly<{
   family: PatternFamilyId;
   sourcePositionHash: string;
   source: Readonly<{ kind: string; reference: string; license?: string }>;
+  solutionMoves?: readonly string[];
+  trajectory?: readonly PatternTrajectoryState[];
+  expected?: PatternGroundTruth;
   position: PositionSnapshot;
   horizon: ScenarioHorizon;
   prefixPlies: number;

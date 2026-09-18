@@ -1,6 +1,7 @@
 import type { PositionSnapshot } from "../chess/position";
 import type { Side } from "../chess/value-objects";
 import type { PositionFacts } from "../position-intelligence/facts";
+import { legacyPatternAnalysisContext, type PatternAnalysisContext } from "./context";
 
 export type PatternFamilyId =
   | "ANASTASIA"
@@ -115,6 +116,8 @@ export type PatternAssessment = Readonly<{
   progress: number;
   state: PatternState;
   evidence: readonly PatternEvidence[];
+  missingConditions?: readonly string[];
+  contradictions?: readonly string[];
   modelVersion: string;
 }>;
 
@@ -190,10 +193,10 @@ const distance = (first: Readonly<{ file: number; rank: number }>, second: Reado
   Math.max(Math.abs(first.file - second.file), Math.abs(first.rank - second.rank))
 );
 
-export const extractPatternFeatures = (position: PositionSnapshot, facts: PositionFacts): PatternFeatures => {
+export const extractPatternFeatures = (position: PositionSnapshot, facts: PositionFacts, analysis?: PatternAnalysisContext): PatternFeatures => {
   const board = boardFromFen(String(position.fen));
-  const attackingSide = facts.isCheckmate ? opposite(facts.sideToMove) : facts.sideToMove;
-  const targetKing = findKing(board, opposite(attackingSide));
+  const attackingSide = analysis?.attackerSide ?? legacyPatternAnalysisContext(facts).attackerSide;
+  const targetKing = findKing(board, analysis?.defenderSide ?? opposite(attackingSide));
   const adjacent = adjacentSquares(targetKing.file, targetKing.rank);
   const adjacentFriendlyBlockers = adjacent.filter(square => {
     const piece = board[square.rank]?.[square.file];
@@ -387,9 +390,10 @@ export const assessPattern = (
   position: PositionSnapshot,
   facts: PositionFacts,
   family: PatternFamilyId,
-  previousSimilarity = 0
+  previousSimilarity = 0,
+  analysis?: PatternAnalysisContext
 ): PatternAssessment => {
-  const features = extractPatternFeatures(position, facts);
+  const features = extractPatternFeatures(position, facts, analysis);
   const scored = scoreFamily(family, features);
   const similarity = clamp(scored.score);
   return {

@@ -65,6 +65,20 @@ const validFen = fen => {
     return false;
   }
 };
+const parseUci = uci => ({ from: uci.slice(0, 2), to: uci.slice(2, 4), ...(uci.length > 4 ? { promotion: uci[4] } : {}) });
+const makeTrajectory = (fen, solutionMoves) => {
+  try {
+    const game = new Chess(fen);
+    const states = [{ ply: 0, fen: game.fen(), distanceToTerminal: solutionMoves.length }];
+    for (const [index, uci] of solutionMoves.entries()) {
+      game.move(parseUci(uci));
+      states.push({ ply: index + 1, fen: game.fen(), distanceToTerminal: solutionMoves.length - index - 1 });
+    }
+    return { states, terminalMate: game.isCheckmate() };
+  } catch {
+    return undefined;
+  }
+};
 const counts = new Map([...themeFamilies.values()].map(family => [family, 0]));
 const hardNegativeCounts = new Map([...themeFamilies.values()].map(family => [family, 0]));
 const selected = [];
@@ -102,6 +116,9 @@ const main = async () => {
     const matchingFamily = [...themeFamilies.entries()].find(([theme, family]) => themes.has(theme) && (counts.get(family) ?? 0) < targetPerFamily);
     if (matchingFamily !== undefined) {
       const [theme, family] = matchingFamily;
+      const solutionMoves = row.Moves.split(/\s+/u).filter(Boolean);
+      const trajectory = makeTrajectory(fen, solutionMoves);
+      if (trajectory === undefined) continue;
       selected.push({
         caseId: `${family.toLowerCase()}-${row.PuzzleId}`,
         datasetVersion,
@@ -111,9 +128,10 @@ const main = async () => {
         family,
         sourcePositionHash: hashFen(fen),
         source: { kind: "lichess-puzzle-database", reference: `${sourceReference}#${row.PuzzleId}`, license: sourceLicense },
-        expected: { terminalMate: true },
+        expected: { terminalMate: trajectory.terminalMate, ...(trajectory.terminalMate ? { mateLength: solutionMoves.length, terminalFamily: family } : {}) },
         sourceTheme: theme,
-        solutionMoves: row.Moves,
+        solutionMoves,
+        trajectory: trajectory.states,
         rating: Number(row.Rating),
         gameUrl: row.GameUrl
       });
@@ -124,6 +142,9 @@ const main = async () => {
     const negativeFamily = [...themeFamilies.values()].find(family => (hardNegativeCounts.get(family) ?? 0) < hardNegativePerFamily && !themes.has([...themeFamilies.entries()].find(([, candidate]) => candidate === family)?.[0] ?? ""));
     if (negativeFamily !== undefined && [...themeFamilies.keys()].some(theme => themes.has(theme))) {
       const sourceTheme = [...themes].find(theme => themeFamilies.has(theme)) ?? "other-mate-theme";
+      const solutionMoves = row.Moves.split(/\s+/u).filter(Boolean);
+      const trajectory = makeTrajectory(fen, solutionMoves);
+      if (trajectory === undefined) continue;
       hardNegatives.push({
         caseId: `hard-negative-${negativeFamily.toLowerCase()}-${row.PuzzleId}`,
         datasetVersion,
@@ -135,7 +156,8 @@ const main = async () => {
         source: { kind: "lichess-puzzle-database-hard-negative", reference: `${sourceReference}#${row.PuzzleId}`, license: sourceLicense },
         sourceTheme,
         negativeAgainst: negativeFamily,
-        solutionMoves: row.Moves,
+        solutionMoves,
+        trajectory: trajectory.states,
         rating: Number(row.Rating),
         gameUrl: row.GameUrl
       });
@@ -144,6 +166,9 @@ const main = async () => {
       continue;
     }
     if (controls.length < controlCount && ![...themeFamilies.keys()].some(theme => themes.has(theme))) {
+      const solutionMoves = row.Moves.split(/\s+/u).filter(Boolean);
+      const trajectory = makeTrajectory(fen, solutionMoves);
+      if (trajectory === undefined) continue;
       controls.push({
         caseId: `control-${row.PuzzleId}`,
         datasetVersion,
@@ -154,7 +179,8 @@ const main = async () => {
         sourcePositionHash: hashFen(fen),
         source: { kind: "lichess-puzzle-database-control", reference: `${sourceReference}#${row.PuzzleId}`, license: sourceLicense },
         sourceTheme: "control",
-        solutionMoves: row.Moves,
+        solutionMoves,
+        trajectory: trajectory.states,
         rating: Number(row.Rating),
         gameUrl: row.GameUrl
       });

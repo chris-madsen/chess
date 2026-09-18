@@ -10,6 +10,8 @@ export { fetchRemoteStylePaths, makeRemoteStylePathConfig, type RemoteStylePathC
 export { parsePatternDataset, ingestPatternDatasetEntry } from "../application/experiments/pattern-dataset";
 export { pairedDifference95, summarizePatternExperiment } from "../application/experiments/pattern-report";
 export { PATTERN_FAMILY_CATALOG, PATTERN_FAMILY_IDS, isPatternFamilyId } from "../domain/patterns/pattern";
+export { makePatternAnalysisContext, extractPatternPositionContext } from "../domain/patterns/context";
+export { assessPatternContext, patternMatcherFor, retrievePatternFamilies } from "../domain/patterns/matchers";
 export { LICHESS_MATE_PATTERN_CATALOG, MATE_PATTERN_SOURCE_CATALOG, TACTICAL_MOTIF_SOURCE_CATALOG } from "../application/experiments/mate-pattern-catalog";
 export { createLocalStylePathProviders, createWindowsCstalStylePathProviders, loadLocalEnginePaths, type LocalEnginePaths, type WindowsCstalOpponent, type WindowsCstalOptions } from "./local-style-engines";
 export { createUciMoveProvider } from "../adapters/uci/uci-engine-adapter";
