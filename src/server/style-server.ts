@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { randomUUID } from "node:crypto";
 import { createChessJsRulesAdapter } from "../adapters/chessjs/chess-rules-adapter";
@@ -43,6 +45,19 @@ type ServerConfig = Readonly<{
   port: number;
   allowedCountries: readonly string[];
 }>;
+
+const localStyleServerTokenPath = ".local/style-server-token.txt";
+
+export const readStyleServerToken = (tokenPath = localStyleServerTokenPath): string => {
+  const tokenFromEnv = process.env.STYLE_SERVER_TOKEN?.trim();
+  if (tokenFromEnv !== undefined && tokenFromEnv.length > 0) {
+    return tokenFromEnv;
+  }
+  if (!existsSync(tokenPath)) {
+    return "";
+  }
+  return readFileSync(tokenPath, "utf8").trim();
+};
 
 type JobLineSnapshot = Readonly<{
   engineKey: string;
@@ -124,7 +139,7 @@ export type StyleServerPorts = Readonly<{
 }>;
 
 const defaultConfig = (): ServerConfig => ({
-  token: process.env.STYLE_SERVER_TOKEN ?? "",
+  token: readStyleServerToken(),
   host: process.env.STYLE_SERVER_HOST ?? "127.0.0.1",
   port: Number(process.env.STYLE_SERVER_PORT ?? "8787"),
   allowedCountries: (process.env.STYLE_ALLOWED_COUNTRIES ?? "")
@@ -132,6 +147,28 @@ const defaultConfig = (): ServerConfig => ({
     .map(country => country.trim().toUpperCase())
     .filter(Boolean)
 });
+
+const windowsListeningPids = (port: number): number[] => {
+  if (process.platform !== "win32") return [];
+  const output = execFileSync("netstat.exe", ["-ano", "-p", "tcp"], { encoding: "utf8" });
+  const pids = new Set<number>();
+  for (const line of output.split(/\r?\n/)) {
+    const match = /^\s*TCP\s+\S+:([0-9]+)\s+\S+\s+LISTENING\s+([0-9]+)\s*$/i.exec(line);
+    if (match !== null && Number(match[1]) === port) {
+      const pid = Number(match[2]);
+      if (pid > 0 && pid !== process.pid) pids.add(pid);
+    }
+  }
+  return [...pids];
+};
+
+const stopWindowsPortOwners = (port: number): number[] => {
+  const pids = windowsListeningPids(port);
+  for (const pid of pids) {
+    execFileSync("taskkill.exe", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+  }
+  return pids;
+};
 
 const jsonResponse = (response: ServerResponse, status: number, data: unknown): void => {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8" });
@@ -707,9 +744,34 @@ export const startStyleServer = (configOverrides: Partial<ServerConfig> = {}): S
     throw new Error("STYLE_SERVER_TOKEN is required");
   }
   const server = createStyleLineJobServer(config);
-  server.listen(config.port, config.host, () => {
-    process.stdout.write(`StylePath server listening on http://${config.host}:${config.port}\n`);
+  let recoveredPort = false;
+  let retryScheduled = false;
+  let listening = false;
+  const listen = (): void => {
+    if (listening || retryScheduled) return;
+    server.listen(config.port, config.host, () => {
+      if (listening) return;
+      listening = true;
+      process.stdout.write(`StylePath server listening on http://${config.host}:${config.port}\n`);
+    });
+  };
+  server.on("error", error => {
+    const serverError = error as NodeJS.ErrnoException;
+    if (serverError.code !== "EADDRINUSE" || recoveredPort || retryScheduled || process.platform !== "win32") {
+      throw error;
+    }
+    recoveredPort = true;
+    const stoppedPids = stopWindowsPortOwners(config.port);
+    if (stoppedPids.length === 0) throw error;
+    retryScheduled = true;
+    listening = false;
+    process.stdout.write(`Port ${config.port} was busy; stopped PID(s) ${stoppedPids.join(", ")} and restarting\n`);
+    server.close(() => setTimeout(() => {
+      retryScheduled = false;
+      listen();
+    }, 250));
   });
+  listen();
   return server;
 };
 

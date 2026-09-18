@@ -16,7 +16,7 @@
     "style:lines": "tsx src/cli/style-lines.ts",
     "style:lines:cstal": "tsx src/cli/style-lines.ts --engine-suite cstal-windows",
     "style:lines:cstal:maia1900": "tsx src/cli/style-lines.ts --engine-suite cstal-windows --cstal-opponent maia1900",
-    "style:server": "tsx src/server/style-server.ts",
+    "style:server": "node scripts/start-style-server.mjs",
     "install:style-engines": "node scripts/install-local-style-engines.mjs",
     "install:cstal-windows": "node scripts/install-cstal-windows.mjs",
     "verify:cstal-windows": "node scripts/verify-cstal-windows.mjs",

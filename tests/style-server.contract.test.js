@@ -1,8 +1,11 @@
 import http from "node:http";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createChessJsRulesAdapter } from "../src/adapters/chessjs/chess-rules-adapter.ts";
 import { makeRequestId } from "../src/domain/chess/value-objects.ts";
 import { localStyleEngineProvider, maiaProvider } from "../src/domain/provenance/provenance.ts";
-import { createStyleLineJobServer } from "../src/server/style-server.ts";
+import { createStyleLineJobServer, readStyleServerToken } from "../src/server/style-server.ts";
 
 const chess = createChessJsRulesAdapter();
 const token = "test-token";
@@ -57,6 +60,21 @@ const listen = async server => new Promise(resolve => {
 });
 
 const close = async server => new Promise(resolve => server.close(resolve));
+
+test("Style server reads the local token file when the environment token is absent", () => {
+  const directory = mkdtempSync(join(tmpdir(), "chess-style-server-"));
+  const tokenPath = join(directory, "style-server-token.txt");
+  const previousToken = process.env.STYLE_SERVER_TOKEN;
+  try {
+    writeFileSync(tokenPath, "  local-test-token\n", "utf8");
+    delete process.env.STYLE_SERVER_TOKEN;
+    expect(readStyleServerToken(tokenPath)).toBe("local-test-token");
+  } finally {
+    if (previousToken === undefined) delete process.env.STYLE_SERVER_TOKEN;
+    else process.env.STYLE_SERVER_TOKEN = previousToken;
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 const requestJson = async (port, method, path, body, auth = token, extraHeaders = {}) => new Promise((resolve, reject) => {
   const payload = body === undefined ? "" : JSON.stringify(body);
