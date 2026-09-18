@@ -148,6 +148,8 @@ When `npm run style:lines -- --raw-file game.txt --watch` runs on the Windows ho
 
 All local engines are invoked through UCI adapters. Their raw output is untrusted until the returned move is validated against the current `PositionSnapshot`.
 
+Patricia can be used as a bounded root-candidate generator. The adapter sets UCI `MultiPV`, imports only the first move of each numbered PV, validates legality, and attaches engine provenance. These moves are Pattern steering proposals, not completed Patricia lines.
+
 ### Jackal compatibility note
 
 The Jackal 2.0.0 Linux release binary may require `GLIBC_2.39`. If the host has an older glibc, `scripts/install-local-style-engines.mjs` falls back to building Jackal from source. The source build pre-downloads Jackal network files from HuggingFace into `.local/chess-engines/sources/Jackal/resources/networks/` so that Cargo build-script downloads are visible and retryable.

@@ -4,6 +4,7 @@ import { createWriteStream, existsSync, mkdirSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { spawn } from "node:child_process";
 import { Chess } from "chess.js";
+import { controlledHardNegative } from "./pattern-hard-negative.mjs";
 
 const dumpUrl = "https://database.lichess.org/lichess_db_puzzle.csv.zst";
 const sourceLicense = "CC-BY-SA-4.0";
@@ -137,32 +138,26 @@ const main = async () => {
       });
       counts.set(family, (counts.get(family) ?? 0) + 1);
       usedFens.add(fen);
-      continue;
-    }
-    const negativeFamily = [...themeFamilies.values()].find(family => (hardNegativeCounts.get(family) ?? 0) < hardNegativePerFamily && !themes.has([...themeFamilies.entries()].find(([, candidate]) => candidate === family)?.[0] ?? ""));
-    if (negativeFamily !== undefined && [...themeFamilies.keys()].some(theme => themes.has(theme))) {
-      const sourceTheme = [...themes].find(theme => themeFamilies.has(theme)) ?? "other-mate-theme";
-      const solutionMoves = row.Moves.split(/\s+/u).filter(Boolean);
-      const trajectory = makeTrajectory(fen, solutionMoves);
-      if (trajectory === undefined) continue;
-      hardNegatives.push({
-        caseId: `hard-negative-${negativeFamily.toLowerCase()}-${row.PuzzleId}`,
-        datasetVersion,
-        split: (hardNegativeCounts.get(negativeFamily) ?? 0) < Math.ceil(hardNegativePerFamily / 2) ? "calibration" : "evaluation",
-        exampleKind: "hard_negative",
-        fen,
-        family: negativeFamily,
-        sourcePositionHash: hashFen(fen),
-        source: { kind: "lichess-puzzle-database-hard-negative", reference: `${sourceReference}#${row.PuzzleId}`, license: sourceLicense },
-        sourceTheme,
-        negativeAgainst: negativeFamily,
-        solutionMoves,
-        trajectory: trajectory.states,
-        rating: Number(row.Rating),
-        gameUrl: row.GameUrl
-      });
-      hardNegativeCounts.set(negativeFamily, (hardNegativeCounts.get(negativeFamily) ?? 0) + 1);
-      usedFens.add(fen);
+      const actualStartFen = trajectory.states.find(state => state.ply === 1)?.fen ?? fen;
+      if ((hardNegativeCounts.get(family) ?? 0) < hardNegativePerFamily) {
+        const perturbation = controlledHardNegative(actualStartFen, family);
+        if (perturbation !== undefined) {
+          hardNegatives.push({
+            caseId: `hard-negative-${family.toLowerCase()}-${row.PuzzleId}`,
+            datasetVersion,
+            split: (hardNegativeCounts.get(family) ?? 0) < Math.ceil(hardNegativePerFamily / 2) ? "calibration" : "evaluation",
+            exampleKind: "hard_negative",
+            fen: perturbation.fen,
+            family,
+            sourcePositionHash: hashFen(perturbation.fen),
+            source: { kind: "controlled-perturbation", reference: `${sourceReference}#${row.PuzzleId}`, license: sourceLicense },
+            expected: { terminalMate: false },
+            sourceCaseId: `${family.toLowerCase()}-${row.PuzzleId}`,
+            perturbation: { type: perturbation.transformation, square: perturbation.square, piece: perturbation.piece }
+          });
+          hardNegativeCounts.set(family, (hardNegativeCounts.get(family) ?? 0) + 1);
+        }
+      }
       continue;
     }
     if (controls.length < controlCount && ![...themeFamilies.keys()].some(theme => themes.has(theme))) {

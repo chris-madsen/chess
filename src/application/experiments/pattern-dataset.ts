@@ -17,6 +17,8 @@ export type PatternDatasetEntry = Readonly<{
   solutionMoves?: readonly string[];
   trajectory?: readonly PatternTrajectoryState[];
   expected?: PatternGroundTruth;
+  sourceCaseId?: string;
+  perturbation?: Readonly<{ type: string; square: string; piece: string }>;
 }>;
 
 export type PatternTrajectoryState = Readonly<{
@@ -54,6 +56,8 @@ export const ingestPatternDatasetEntry = (raw: unknown, path = "dataset.entry"):
   const expectedRecord = isRecord(expected) ? expected : undefined;
   const terminalFamily = expectedRecord?.terminalFamily;
   if (terminalFamily !== undefined && (typeof terminalFamily !== "string" || !isPatternFamilyId(terminalFamily))) return err(domainError("INVALID_RAW_GAME", `${path}.expected.terminalFamily`, "unsupported terminal family"));
+  const perturbation = raw.perturbation;
+  if (perturbation !== undefined && (!isRecord(perturbation) || typeof perturbation.type !== "string" || typeof perturbation.square !== "string" || typeof perturbation.piece !== "string")) return err(domainError("INVALID_RAW_GAME", `${path}.perturbation`, "perturbation must contain type, square, and piece"));
   return ok({
     caseId: raw.caseId,
     datasetVersion: raw.datasetVersion,
@@ -80,7 +84,9 @@ export const ingestPatternDatasetEntry = (raw: unknown, path = "dataset.entry"):
         ...(typeof expectedRecord.mateLength === "number" ? { mateLength: expectedRecord.mateLength } : {}),
         ...(typeof terminalFamily === "string" ? { terminalFamily: terminalFamily as PatternFamilyId } : {})
       }
-    } : {})
+    } : {}),
+    ...(typeof raw.sourceCaseId === "string" ? { sourceCaseId: raw.sourceCaseId } : {}),
+    ...(isRecord(perturbation) ? { perturbation: { type: perturbation.type as string, square: perturbation.square as string, piece: perturbation.piece as string } } : {})
   });
 };
 
@@ -129,6 +135,8 @@ export const parsePatternDataset = (
       ...(entry.value.solutionMoves === undefined ? {} : { solutionMoves: entry.value.solutionMoves }),
       ...(entry.value.trajectory === undefined ? {} : { trajectory: entry.value.trajectory }),
       ...(entry.value.expected === undefined ? {} : { expected: entry.value.expected }),
+      ...(entry.value.sourceCaseId === undefined ? {} : { sourceCaseId: entry.value.sourceCaseId }),
+      ...(entry.value.perturbation === undefined ? {} : { perturbation: entry.value.perturbation }),
       // Lichess stores the pre-puzzle position; ply 1 is the actual puzzle start.
       position: actualStart.value,
       horizon: horizon.value,

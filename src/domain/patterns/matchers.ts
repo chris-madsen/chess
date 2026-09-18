@@ -1,6 +1,6 @@
 import type { PatternFamilyId, PatternAssessment, PatternEvidence, PatternState } from "./pattern";
 import { PATTERN_FAMILY_IDS, PATTERN_MODEL_VERSION } from "./pattern";
-import { piecesOf, relationExists, type PatternPositionContext } from "./context";
+import { controlledEscapeCount, piecesOf, relationExists, type PatternPositionContext } from "./context";
 
 export type PatternMatcherResult = Readonly<{
   similarity: number;
@@ -133,6 +133,51 @@ const firstWave: readonly PatternMatcher[] = [
   }
 ];
 
+type CorePolicy = Readonly<{
+  label: string;
+  conditions: (context: PatternPositionContext) => readonly boolean[];
+  prefilter: (context: PatternPositionContext) => boolean;
+}>;
+
+const attackers = (context: PatternPositionContext) => piecesOf(context, context.analysis.attackerSide);
+const defenders = (context: PatternPositionContext) => piecesOf(context, context.analysis.defenderSide);
+const has = (context: PatternPositionContext, type: "n" | "b" | "r" | "q"): boolean => piecesOf(context, context.analysis.attackerSide, type).length > 0;
+const hasAtLeast = (context: PatternPositionContext, type: "n" | "b" | "r" | "q", count: number): boolean => piecesOf(context, context.analysis.attackerSide, type).length >= count;
+const edgeOrCorner = (context: PatternPositionContext): boolean => context.kingOnEdge || context.kingInCorner;
+
+const corePolicies: Readonly<Partial<Record<PatternFamilyId, CorePolicy>>> = {
+  BALESTRA: { label: "bishop and heavy-piece coordination", prefilter: context => has(context, "b") && has(context, "q"), conditions: context => [has(context, "b"), has(context, "q"), relationExists(context, "ATTACKS"), controlledEscapeCount(context) >= 2] },
+  BLIND_SWINE: { label: "two-rook seventh/eighth-rank pressure", prefilter: context => hasAtLeast(context, "r", 2), conditions: context => [hasAtLeast(context, "r", 2), context.kingOnHomeRank, relationExists(context, "ATTACKS", relation => relation.pieceType === "r"), controlledEscapeCount(context) >= 2] },
+  CORNER: { label: "corner confinement", prefilter: context => context.kingInCorner, conditions: context => [context.kingInCorner, has(context, "r") || has(context, "q"), controlledEscapeCount(context) >= 2, relationExists(context, "ATTACKS")] },
+  DOUBLE_BISHOP: { label: "double-bishop crossing control", prefilter: context => hasAtLeast(context, "b", 2), conditions: context => [hasAtLeast(context, "b", 2), relationExists(context, "ATTACKS", relation => relation.pieceType === "b"), controlledEscapeCount(context) >= 2, piecesOf(context, context.analysis.attackerSide, "b").some(first => piecesOf(context, context.analysis.attackerSide, "b").some(second => first.square.file !== second.square.file && first.square.rank !== second.square.rank))] },
+  DOVETAIL: { label: "queen-supported restricted king zone", prefilter: context => has(context, "q"), conditions: context => [has(context, "q"), defenders(context).length >= 2, controlledEscapeCount(context) >= 3, relationExists(context, "ATTACKS")] },
+  EPAULETTE: { label: "defender pieces block both lateral exits", prefilter: context => context.kingOnEdge, conditions: context => [context.kingOnEdge, context.escapeSquares.filter(square => square.occupiedBy === context.analysis.defenderSide).length >= 2, has(context, "q") || has(context, "r"), controlledEscapeCount(context) >= 2] },
+  HOOK: { label: "rook and knight hook geometry", prefilter: context => has(context, "r") && has(context, "n"), conditions: context => [has(context, "r"), has(context, "n"), relationExists(context, "CONTROLS_ESCAPE", relation => relation.pieceType === "n"), relationExists(context, "ATTACKS", relation => relation.pieceType === "r")] },
+  KILL_BOX: { label: "multi-piece king kill box", prefilter: context => controlledEscapeCount(context) >= 2, conditions: context => [controlledEscapeCount(context) >= 4, attackers(context).length >= 3, relationExists(context, "ATTACKS"), edgeOrCorner(context)] },
+  PILLSBURY: { label: "queen and bishop diagonal battery", prefilter: context => has(context, "q") && has(context, "b"), conditions: context => [has(context, "q"), has(context, "b"), relationExists(context, "ATTACKS", relation => relation.pieceType === "b"), controlledEscapeCount(context) >= 2] },
+  MORPHYS: { label: "rook/queen corridor with restricted king", prefilter: context => edgeOrCorner(context) && (has(context, "r") || has(context, "q")), conditions: context => [edgeOrCorner(context), has(context, "r") || has(context, "q"), relationExists(context, "ATTACKS"), controlledEscapeCount(context) >= 3] },
+  OPERA: { label: "long-range rook and minor-piece corridor", prefilter: context => has(context, "r") && (has(context, "b") || has(context, "n")), conditions: context => [has(context, "r"), has(context, "b") || has(context, "n"), relationExists(context, "ATTACKS", relation => relation.pieceType === "r"), controlledEscapeCount(context) >= 2] },
+  SWALLOWTAIL: { label: "bishop and knight escape net", prefilter: context => has(context, "b") && has(context, "n"), conditions: context => [has(context, "b"), has(context, "n"), relationExists(context, "CONTROLS_ESCAPE", relation => relation.pieceType === "n"), controlledEscapeCount(context) >= 3] },
+  TRIANGLE: { label: "three-sided diagonal/line confinement", prefilter: context => attackers(context).length >= 3, conditions: context => [attackers(context).length >= 3, relationExists(context, "ATTACKS"), controlledEscapeCount(context) >= 3, edgeOrCorner(context)] },
+  VUKOVIC: { label: "knight and rook mating net", prefilter: context => has(context, "n") && has(context, "r"), conditions: context => [has(context, "n"), has(context, "r"), relationExists(context, "CONTROLS_ESCAPE", relation => relation.pieceType === "n"), relationExists(context, "ATTACKS", relation => relation.pieceType === "r")] }
+};
+
+const coreMatcher = (family: PatternFamilyId, policy: CorePolicy): PatternMatcher => ({
+  family,
+  prefilter: policy.prefilter,
+  score: context => {
+    const conditions = policy.conditions(context);
+    const similarity = clamp(conditions.filter(Boolean).length / Math.max(1, conditions.length));
+    return {
+      similarity,
+      evidence: [evidence(policy.label, similarity), evidence("attacker controls target king zone", relationExists(context, "ATTACKS") ? 1 : 0), evidence("escape-square restriction", clamp(controlledEscapeCount(context) / 4))],
+      missingConditions: conditions.every(Boolean) ? [] : [`complete ${policy.label}`],
+      contradictions: context.kingInCorner && !context.kingOnEdge ? ["king geometry is inconsistent"] : []
+    };
+  },
+  classifyState: stateFor
+});
+
 const fallbackMatcher = (family: PatternFamilyId): PatternMatcher => ({
   family,
   prefilter: () => true,
@@ -145,7 +190,7 @@ const fallbackMatcher = (family: PatternFamilyId): PatternMatcher => ({
   classifyState: (_context: PatternMatcherResult) => "far"
 });
 
-const matcherMap: Readonly<Record<PatternFamilyId, PatternMatcher>> = Object.fromEntries(PATTERN_FAMILY_IDS.map(family => [family, firstWave.find(matcher => matcher.family === family) ?? fallbackMatcher(family)])) as Record<PatternFamilyId, PatternMatcher>;
+const matcherMap: Readonly<Record<PatternFamilyId, PatternMatcher>> = Object.fromEntries(PATTERN_FAMILY_IDS.map(family => [family, firstWave.find(matcher => matcher.family === family) ?? (corePolicies[family] === undefined ? fallbackMatcher(family) : coreMatcher(family, corePolicies[family]))])) as Record<PatternFamilyId, PatternMatcher>;
 
 export const patternMatcherFor = (family: PatternFamilyId): PatternMatcher => matcherMap[family];
 

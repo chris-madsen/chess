@@ -214,3 +214,5 @@ export CHESS_STYLE_API_TOKEN_FILE=/path/to/style-server-token.txt
 ```
 
 On the current workstation, the fallback token file path is `/media/ilja/DATA/chess/chess-api.ken`. The token value itself must never be committed.
+
+The remote experiment CLI uses `steering-100` by default to avoid accidentally submitting the complete corpus to expensive Windows engines. Use `--subset all` only for an explicit full regression run. A batch is incomplete rather than successful when a case times out or the process restarts.

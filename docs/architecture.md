@@ -92,6 +92,8 @@ Cache access is an application port. The first adapter is bounded in-memory stor
 
 The first experiment deliberately does not use MultiPV. It runs the existing CSTal ABSURD + Maia and CSTal EXTREME + Maia trajectories, scores only a configured prefix, selects one trajectory, and evaluates the complete trajectories afterward. Fixed ABSURD baseline, Pattern treatment, and deterministic control arms are reported with paired metrics. The experiment cannot report a positive result until the corpus has at least 300 independent cases and an independent forced-mate verifier is available.
 
+The rebuilt Pattern Layer adds a separate runtime steering path. It fixes attacker context at the analysis boundary, retrieves families from a relational graph, evaluates legal candidate moves before continuation, and delegates subsequent Maia/Stockfish plies to HumanPath. Patricia MultiPV supplies root proposals only. Expensive remote experiments use a bounded Windows batch pool and deterministic `steering-100` selection by default; `--subset all` is explicit.
+
 ## Primary data flow
 
 ```text

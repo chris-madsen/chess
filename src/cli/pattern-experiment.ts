@@ -23,6 +23,30 @@ const integerOption = (args: readonly string[], flag: string, fallback: number):
   return value;
 };
 
+const selectSteeringSubset = <T extends { caseId: string; family: string; exampleKind: string; split: string }>(cases: readonly T[], specification: string): readonly T[] => {
+  if (specification === "all") return cases;
+  const match = /^steering-(\d+)$/u.exec(specification);
+  if (match === null) throw new Error("--subset must be all or steering-<positive integer>");
+  const limit = Number(match[1]);
+  if (!Number.isInteger(limit) || limit < 1) throw new Error("--subset size must be positive");
+  const families = new Set(["ANASTASIA", "ARABIAN", "BACK_RANK", "BODEN", "SMOTHERED"]);
+  const eligible = cases.filter(item => families.has(item.family)).sort((first, second) => first.caseId.localeCompare(second.caseId));
+  const buckets = new Map<string, T[]>();
+  eligible.forEach(item => {
+    const key = `${item.family}:${item.exampleKind}:${item.split}`;
+    buckets.set(key, [...(buckets.get(key) ?? []), item]);
+  });
+  const selected: T[] = [];
+  const bucketList = [...buckets.values()];
+  const quota = Math.max(1, Math.floor(limit / Math.max(1, bucketList.length)));
+  bucketList.forEach(bucket => selected.push(...bucket.slice(0, quota)));
+  const selectedIds = new Set(selected.map(item => item.caseId));
+  eligible.forEach(item => {
+    if (selected.length < limit && !selectedIds.has(item.caseId)) { selected.push(item); selectedIds.add(item.caseId); }
+  });
+  return selected.slice(0, limit);
+};
+
 const runRemoteCaseWithProgress = async <T>(caseId: string, run: () => Promise<T>): Promise<T> => {
   const startedAt = Date.now();
   process.stdout.write(`${caseId}: requesting Windows CSTal ABSURD/EXTREME + Maia lines...\n`);
@@ -50,6 +74,7 @@ Options:
   --provider <remote|local>    Remote Windows API (default) or local engines.
   --api-url <url>              Remote API base URL override.
   --remote-concurrency <n>     Batch workers on Windows, default 2.
+  --subset <steering-100|all>  Deterministic expensive benchmark subset, default steering-100.
 `;
 
 const main = async (): Promise<void> => {
@@ -65,6 +90,7 @@ const main = async (): Promise<void> => {
   const prefixPlies = integerOption(args, "--prefix-plies", 8);
   const maia3Elo = integerOption(args, "--maia3-elo", 1800);
   const remoteConcurrency = integerOption(args, "--remote-concurrency", 2);
+  const subset = valueAfter(args, "--subset") ?? "steering-100";
   const providerMode = valueAfter(args, "--provider") ?? "remote";
   if (providerMode !== "remote" && providerMode !== "local") {
     process.stderr.write(`${usage}\n--provider must be remote or local.\n`);
@@ -79,7 +105,8 @@ const main = async (): Promise<void> => {
     process.exitCode = 2;
     return;
   }
-  const firstCase = dataset.value[0];
+  const selectedCases = selectSteeringSubset(dataset.value, subset);
+  const firstCase = selectedCases[0];
   if (firstCase === undefined) {
     process.stderr.write("Dataset must contain at least one case.\n");
     process.exitCode = 2;
@@ -112,7 +139,7 @@ const main = async (): Promise<void> => {
   const remoteBatch = providerMode === "remote"
     ? remoteConfig === undefined
       ? { tag: "Err" as const, error: domainError("PROVIDER_UNAVAILABLE", "remoteStyleApi", "Remote API configuration is unavailable") }
-      : await runRemoteCaseWithProgress(`batch:${dataset.value.length}`, () => fetchRemoteStylePathBatch(chess, dataset.value.map(experimentCase => ({ caseId: experimentCase.caseId, position: experimentCase.position })), firstCase.horizon, remoteConfig.value, remoteConcurrency))
+      : await runRemoteCaseWithProgress(`batch:${selectedCases.length}`, () => fetchRemoteStylePathBatch(chess, selectedCases.map(experimentCase => ({ caseId: experimentCase.caseId, position: experimentCase.position })), firstCase.horizon, remoteConfig.value, remoteConcurrency))
     : undefined;
   if (remoteBatch !== undefined && isErr(remoteBatch)) {
     process.stderr.write(`${remoteBatch.error.code}: ${remoteBatch.error.message}\n`);
@@ -120,7 +147,7 @@ const main = async (): Promise<void> => {
     return;
   }
   const results = [];
-  for (const experimentCase of dataset.value) {
+  for (const experimentCase of selectedCases) {
     const result = providerMode === "remote"
       ? remoteConfig === undefined
         ? { tag: "Err" as const, error: domainError("PROVIDER_UNAVAILABLE", "remoteStyleApi", "Remote API configuration is unavailable") }
@@ -144,6 +171,7 @@ const main = async (): Promise<void> => {
   const report = summarizePatternExperiment(datasetVersion, results);
   mkdirSync(dirname(outputPath), { recursive: true });
   const artifact = [
+    JSON.stringify({ type: "run", datasetVersion, subset, requestedCases: dataset.value.length, selectedCases: selectedCases.length, provider: providerMode, remoteConcurrency }),
     ...results.map(result => JSON.stringify({ type: "case", ...result })),
     JSON.stringify({ type: "summary", report })
   ].join("\n") + "\n";

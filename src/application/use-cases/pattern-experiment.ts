@@ -50,6 +50,8 @@ export type PatternExperimentCase = Readonly<{
   solutionMoves?: readonly string[];
   trajectory?: readonly PatternTrajectoryState[];
   expected?: PatternGroundTruth;
+  sourceCaseId?: string;
+  perturbation?: Readonly<{ type: string; square: string; piece: string }>;
   position: PositionSnapshot;
   horizon: ScenarioHorizon;
   prefixPlies: number;

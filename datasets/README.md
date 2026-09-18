@@ -40,6 +40,8 @@ metrics and are never treated as engine-generated lines.
 
 The acceptance benchmark requires at least 300 independent cases with separate `calibration` and `evaluation` splits. Do not treat the runner's result as a positive MVP finding while the report is `INCONCLUSIVE` or forced-mate verification is unavailable.
 
+Controlled hard negatives are derived from a positive actual start by a recorded critical-piece perturbation. They carry `sourceCaseId`, `perturbation`, and `expected.terminalMate: false`; unrelated puzzles must not be relabeled as hard negatives.
+
 ## Generated seed corpus
 
 The initial checked-in seed corpus is `datasets/pattern-mvp-lichess.jsonl`: 472 unique positions, 16 positives and 8 hard negatives per core family, plus 16 controls. It was generated from the public Lichess puzzle database with:

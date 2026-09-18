@@ -2,9 +2,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { availableParallelism } from "node:os";
 import { resolve } from "node:path";
 import type { ChessRulesPort } from "../application/ports/chess-rules";
+import type { CandidateGenerator } from "../application/ports/pattern-steering";
 import type { LocalStyleEngineProvider, MoveProvider, StylePathProviders } from "../application/ports/providers";
 import type { ProviderIdentity } from "../domain/provenance/provenance";
-import { createUciMoveProvider, type UciEngineConfig, type UciGoLimit } from "../adapters/uci/uci-engine-adapter";
+import { createUciCandidateGenerator, createUciMoveProvider, type UciEngineConfig, type UciGoLimit } from "../adapters/uci/uci-engine-adapter";
 
 export type LocalEnginePaths = Readonly<{
   stockfish19Path?: string;
@@ -257,6 +258,20 @@ export const createLocalStylePathProviders = (
   const styleEngines: readonly LocalStyleEngineProvider[] = engineConfigs.map(config => styleProvider(chess, config));
   const maia: MoveProvider = createUciMoveProvider(chess, maiaConfig(requirePath(paths, "maia9Path"), paths.maia9Args));
   return { maia, styleEngines };
+};
+
+export const createPatriciaCandidateGenerator = (
+  chess: ChessRulesPort,
+  paths = loadLocalEnginePaths(),
+  candidateLimit = 8
+): CandidateGenerator => {
+  const base = styleConfig("patricia", "Patricia", requirePath(paths, "patriciaPath"), "latest-local", defaultStyleDepth);
+  const config: UciEngineConfig = {
+    ...base,
+    options: [...base.options, { name: "MultiPV", value: candidateLimit }],
+    configuration: { ...base.configuration, multiPv: candidateLimit, role: "root-candidate-generator" }
+  };
+  return createUciCandidateGenerator(chess, config, candidateLimit);
 };
 
 export const createWindowsCstalStylePathProviders = (

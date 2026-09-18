@@ -16,6 +16,14 @@ export type PatternRecognitionCaseResult = Readonly<{
   candidates: readonly PatternAssessment[];
   top1Family?: PatternAssessment["family"];
   topKHit: boolean;
+  trajectory?: readonly PatternTrajectoryPoint[];
+}>;
+
+export type PatternTrajectoryPoint = Readonly<{
+  ply: number;
+  distanceToTerminal: number;
+  similarity: number;
+  state: PatternAssessment["state"];
 }>;
 
 export type RecognitionMetric = Readonly<{
@@ -37,8 +45,36 @@ export type PatternRecognitionReport = Readonly<{
     topKRecall: number;
     hardNegativeRejectionRate: number;
     familyMetrics: Readonly<Record<string, RecognitionMetric>>;
+    confusionMatrix: Readonly<Record<string, Readonly<Record<string, number>>>>;
+    proximity: ProximityMetrics;
   }>>>;
 }>;
+
+export type ProximityMetrics = Readonly<{
+  sampleCount: number;
+  meanSimilarityByDistance: Readonly<Record<string, number>>;
+  medianSimilarityByDistance: Readonly<Record<string, number>>;
+  spearmanCorrelation: number;
+  monotonicityRate: number;
+  scoreDeltaPerPly: number;
+}>;
+
+const trajectoryFor = (chess: ChessRulesPort, experimentCase: PatternExperimentCase): readonly PatternTrajectoryPoint[] | undefined => {
+  if (experimentCase.trajectory === undefined || experimentCase.trajectory.length === 0) return undefined;
+  const analysis = makePatternAnalysisContext(experimentCase.position.sideToMove);
+  return experimentCase.trajectory
+    .filter(state => state.ply >= 1)
+    .map(state => {
+      const position = chess.ingestPosition(state.fen);
+      if (isErr(position)) return undefined;
+      const facts = chess.computeFacts(position.value);
+      if (isErr(facts)) return undefined;
+      const context = extractPatternPositionContext(position.value, facts.value, analysis);
+      const assessment = retrievePatternFamilies(context, 34).find(candidate => candidate.family === experimentCase.family);
+      return assessment === undefined ? undefined : { ply: state.ply, distanceToTerminal: state.distanceToTerminal, similarity: assessment.similarity, state: assessment.state };
+    })
+    .filter((point): point is PatternTrajectoryPoint => point !== undefined);
+};
 
 export const recognizePatternCase = (
   chess: ChessRulesPort,
@@ -53,6 +89,7 @@ export const recognizePatternCase = (
     ?? retrievePatternFamilies(context, 34).find(candidate => candidate.family === experimentCase.family);
   if (target === undefined) return err(domainError("PROVIDER_UNAVAILABLE", "patternRecognizer.target", "Target family assessment was not produced"));
   const top1 = candidates[0];
+  const trajectory = trajectoryFor(chess, experimentCase);
   return ok({
     caseId: experimentCase.caseId,
     datasetVersion: experimentCase.datasetVersion,
@@ -62,7 +99,8 @@ export const recognizePatternCase = (
     target,
     candidates,
     ...(top1 === undefined ? {} : { top1Family: top1.family }),
-    topKHit: candidates.some(candidate => candidate.family === experimentCase.family)
+    topKHit: candidates.some(candidate => candidate.family === experimentCase.family),
+    ...(trajectory === undefined ? {} : { trajectory })
   });
 };
 
@@ -79,6 +117,69 @@ const familyMetric = (results: readonly PatternRecognitionCaseResult[], family: 
   return { truePositives, falsePositives, falseNegatives, precision, recall, f1: precision + recall === 0 ? 0 : (2 * precision * recall) / (precision + recall), total: positives.length + negatives.length };
 };
 
+const rank = (values: readonly number[]): readonly number[] => {
+  const sorted = values.map((value, index) => ({ value, index })).sort((a, b) => a.value - b.value || a.index - b.index);
+  const ranks = Array.from({ length: values.length }, () => 0);
+  sorted.forEach((item, index) => { ranks[item.index] = index + 1; });
+  return ranks;
+};
+
+const spearman = (xs: readonly number[], ys: readonly number[]): number => {
+  if (xs.length < 2 || xs.length !== ys.length) return 0;
+  const rx = rank(xs); const ry = rank(ys);
+  const meanX = rx.reduce((sum, value) => sum + value, 0) / rx.length;
+  const meanY = ry.reduce((sum, value) => sum + value, 0) / ry.length;
+  const numerator = rx.reduce((sum, value, index) => sum + (value - meanX) * ((ry[index] ?? 0) - meanY), 0);
+  const denominator = Math.sqrt(rx.reduce((sum, value) => sum + (value - meanX) ** 2, 0) * ry.reduce((sum, value) => sum + (value - meanY) ** 2, 0));
+  return denominator === 0 ? 0 : numerator / denominator;
+};
+
+const median = (values: readonly number[]): number => {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  const upper = sorted[middle] ?? 0;
+  return sorted.length % 2 === 0 ? ((sorted[middle - 1] ?? 0) + upper) / 2 : upper;
+};
+
+const proximity = (results: readonly PatternRecognitionCaseResult[]): ProximityMetrics => {
+  const points = results.flatMap(result => result.trajectory ?? []);
+  const groups = new Map<number, number[]>();
+  points.forEach(point => groups.set(point.distanceToTerminal, [...(groups.get(point.distanceToTerminal) ?? []), point.similarity]));
+  const distances = [...groups.keys()].sort((a, b) => a - b);
+  const means = Object.fromEntries(distances.map(distance => {
+    const values = groups.get(distance) ?? [];
+    return [String(distance), values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length)];
+  }));
+  const medians = Object.fromEntries(distances.map(distance => [String(distance), median(groups.get(distance) ?? [])]));
+  const ordered = [...points].sort((a, b) => a.distanceToTerminal - b.distanceToTerminal || a.ply - b.ply);
+  const monotonePairs = ordered.slice(1).filter((point, index) => point.similarity >= (ordered[index]?.similarity ?? 0)).length;
+  const deltas = results.flatMap(result => {
+    const trajectory = [...(result.trajectory ?? [])].sort((a, b) => a.ply - b.ply);
+    return trajectory.slice(1).map((point, index) => point.similarity - (trajectory[index]?.similarity ?? 0));
+  });
+  return {
+    sampleCount: points.length,
+    meanSimilarityByDistance: means,
+    medianSimilarityByDistance: medians,
+    spearmanCorrelation: spearman(points.map(point => -point.distanceToTerminal), points.map(point => point.similarity)),
+    monotonicityRate: ordered.length < 2 ? 0 : monotonePairs / (ordered.length - 1),
+    scoreDeltaPerPly: deltas.length === 0 ? 0 : deltas.reduce((sum, value) => sum + value, 0) / deltas.length
+  };
+};
+
+const confusionMatrix = (results: readonly PatternRecognitionCaseResult[]): Readonly<Record<string, Readonly<Record<string, number>>>> => {
+  const matrix: Record<string, Record<string, number>> = {};
+  results.filter(result => result.exampleKind === "positive").forEach(result => {
+    const predicted = result.top1Family ?? "UNRECOGNIZED";
+    matrix[result.family] ??= {};
+    const row = matrix[result.family] ?? {};
+    row[predicted] = (row[predicted] ?? 0) + 1;
+    matrix[result.family] = row;
+  });
+  return matrix;
+};
+
 const summarizeSplit = (results: readonly PatternRecognitionCaseResult[]) => {
   const positives = results.filter(result => result.exampleKind === "positive");
   const negatives = results.filter(result => result.exampleKind !== "positive");
@@ -86,7 +187,7 @@ const summarizeSplit = (results: readonly PatternRecognitionCaseResult[]) => {
   const topKRecall = rate(positives.filter(result => result.topKHit).length, positives.length);
   const hardNegativeRejectionRate = rate(negatives.filter(result => result.target.similarity < 0.65).length, negatives.length);
   const families = [...new Set(results.map(result => result.family))].sort();
-  return { total: results.length, top1Accuracy, topKRecall, hardNegativeRejectionRate, familyMetrics: Object.fromEntries(families.map(family => [family, familyMetric(results, family)])) };
+  return { total: results.length, top1Accuracy, topKRecall, hardNegativeRejectionRate, familyMetrics: Object.fromEntries(families.map(family => [family, familyMetric(results, family)])), confusionMatrix: confusionMatrix(results), proximity: proximity(results) };
 };
 
 export const summarizePatternRecognition = (datasetVersion: string, results: readonly PatternRecognitionCaseResult[]): PatternRecognitionReport => ({

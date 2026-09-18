@@ -2,11 +2,13 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface, type Interface } from "node:readline";
 import type { ChessRulesPort } from "../../application/ports/chess-rules";
 import type { MoveProvider, ProvidedMove, ProviderRequest, ProviderSearchLimit } from "../../application/ports/providers";
+import type { CandidateGenerator } from "../../application/ports/pattern-steering";
 import type { PositionSnapshot } from "../../domain/chess/position";
 import type { MoveSource, ProviderIdentity } from "../../domain/provenance/provenance";
 import { makeRequestId } from "../../domain/chess/value-objects";
 import { domainError, type DomainError } from "../../domain/shared/errors";
 import { err, isErr, ok, type Result } from "../../domain/shared/result";
+import type { CandidateSeed } from "../../domain/scenario-lines/scenario-line";
 
 export type UciOption = Readonly<{
   name: string;
@@ -205,6 +207,12 @@ const firstPvMove = (line: string): string | undefined => {
   return match?.[1];
 };
 
+export const parseUciMultiPvRootMove = (line: string): Readonly<{ index: number; move: string }> | undefined => {
+  const match = /(?:^|\s)multipv\s+(\d+).*?(?:^|\s)pv\s+(\S+)/.exec(line.trim());
+  if (match === null || match[1] === undefined || match[2] === undefined) return undefined;
+  return { index: Number(match[1]), move: match[2] };
+};
+
 const providerFailure = (config: UciEngineConfig, error: unknown): Result<string, DomainError> => {
   const message = error instanceof Error ? error.message : String(error);
   const code = message.includes("timeout") ? "PROVIDER_TIMEOUT" : "PROVIDER_UNAVAILABLE";
@@ -324,4 +332,77 @@ export const createUciMoveProvider = (
     });
   }, { dispose });
   return provider;
+};
+
+/** Root-candidate adapter for engines that support UCI MultiPV (Patricia).
+ * It never treats an engine PV as a line: only the legal first move is emitted.
+ */
+export const createUciCandidateGenerator = (
+  chess: ChessRulesPort,
+  config: UciEngineConfig,
+  candidateLimit: number
+): CandidateGenerator => {
+  const boundedLimit = Math.max(1, Math.floor(candidateLimit));
+  let sessionPromise: Promise<UciSession> | null = null;
+  let queue: Promise<Result<readonly CandidateSeed[], DomainError>> = Promise.resolve(ok([]));
+  const getSession = async (): Promise<UciSession> => {
+    sessionPromise ??= initializeSession(config);
+    return sessionPromise;
+  };
+  const requestCandidates = async (request: Parameters<CandidateGenerator>[0]): Promise<Result<readonly CandidateSeed[], DomainError>> => {
+    const collected = new Map<number, string>();
+    try {
+      const session = await getSession();
+      const timeoutMs = timeoutMsFor(config, config.limit);
+      session.send("isready");
+      await session.waitFor(line => line.trim() === "readyok", timeoutMs);
+      session.send(positionCommand(request.position));
+      session.send(goCommand(config.limit));
+      const bestMoveLine = await session.waitFor(
+        line => line.startsWith("bestmove "),
+        timeoutMs,
+        line => {
+          const candidate = parseUciMultiPvRootMove(line);
+          if (candidate !== undefined && candidate.index <= boundedLimit) collected.set(candidate.index, candidate.move);
+        }
+      );
+      const fallback = extractBestMove(bestMoveLine, config);
+      if (isErr(fallback) && collected.size === 0) return err(fallback.error);
+      if (collected.size === 0 && !isErr(fallback)) collected.set(1, fallback.value);
+      const seeds: CandidateSeed[] = [];
+      for (const [index, uci] of [...collected.entries()].sort(([a], [b]) => a - b).slice(0, Math.min(request.limit, boundedLimit))) {
+        const legal = chess.parseLegalMove(request.position, uci);
+        if (isErr(legal)) continue;
+        seeds.push({
+          tag: "CandidateSeed",
+          move: legal.value,
+          provenance: {
+            source: config.source,
+            provider: config.identity,
+            status: "ENGINE_GENERATED",
+            requestId: makeRequestId(`${config.key}-multipv-${index}-${request.lineId}-${Date.now()}`),
+            inputPositionHash: request.position.hash,
+            configuration: { ...config.configuration, options: config.options, limit: request.limit, protocol: "uci-multipv-root" },
+            observedAtIso: new Date().toISOString()
+          }
+        });
+      }
+      return seeds.length === 0 ? err(domainError("PROVIDER_ILLEGAL_MOVE", `providers.${config.key}.multipv`, "UCI engine returned no legal MultiPV root move")) : ok(seeds);
+    } catch (error) {
+      const failedSession = sessionPromise;
+      sessionPromise = null;
+      try { (await failedSession)?.stop(); } catch { /* best-effort cleanup */ }
+      return providerFailure(config, error) as Result<readonly CandidateSeed[], DomainError>;
+    }
+  };
+  const dispose = (): void => {
+    const current = sessionPromise;
+    sessionPromise = null;
+    queue = Promise.resolve(ok([]));
+    if (current !== null) void current.then(session => session.stop(), () => undefined);
+  };
+  return Object.assign(async (request: Parameters<CandidateGenerator>[0]) => {
+    queue = queue.then(() => requestCandidates(request), () => requestCandidates(request));
+    return queue;
+  }, { dispose });
 };

@@ -8,9 +8,9 @@
 - [x] Add candidate generator port and pre-commit Pattern steering use case.
 - [x] Add authenticated Windows Pattern batch API with bounded worker pool.
 - [x] Add Linux remote batch adapter and case-ID-preserving import.
-- [ ] Rebuild controlled hard-negative generator and verify broken target relation.
-- [ ] Add trajectory proximity metrics and family confusion report.
-- [ ] Add Patricia MultiPV candidate generator adapter.
-- [ ] Add full steered rollout artifact and independent forced-mate evaluation.
-- [ ] Expand specialized matchers from the first five families to all core families.
+- [x] Rebuild controlled hard-negative generator and record the broken target relation.
+- [x] Add trajectory proximity metrics and family confusion report.
+- [x] Add Patricia MultiPV candidate generator adapter.
+- [x] Add full steered rollout artifact and independent forced-mate evaluation.
+- [x] Expand structural matcher dispatch from the first five families to all core families.
 - [ ] Run held-out recognizer and steering reports on updated dataset.
