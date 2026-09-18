@@ -8,7 +8,7 @@ import { isErr } from "../domain/shared/result";
 import { makeScenarioHorizon } from "../domain/chess/value-objects";
 import { createInMemoryAnalysisCache } from "../adapters/cache/in-memory-analysis-cache";
 import { createPatriciaCandidateGenerator, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, fetchRemotePatternSteeringBatch, loadLocalEnginePaths, makeRemoteStylePathConfig } from "../wiring/index";
-import { renderPatternSteeringLine } from "./pattern-steering-render";
+import { renderPatternReference, renderPatternSteeringLine } from "./pattern-steering-render";
 
 const valueAfter = (args: readonly string[], flag: string): string | undefined => {
   const index = args.indexOf(flag);
@@ -93,7 +93,11 @@ const main = async (): Promise<void> => {
       }
     });
     if (isErr(remote)) throw new Error(`${remote.error.code}: ${remote.error.message}`);
-    selected.forEach(item => records.push({ type: "case", caseId: item.caseId, mode: "steering", line: remote.value[item.caseId] ?? null }));
+    selected.forEach(item => {
+      const line = remote.value[item.caseId];
+      records.push({ type: "case", caseId: item.caseId, mode: "steering", line: line ?? null });
+      if (line !== undefined) process.stdout.write(renderPatternReference(line));
+    });
   } else {
     const paths = loadLocalEnginePaths();
     for (const item of selected) {
@@ -113,6 +117,7 @@ const main = async (): Promise<void> => {
       if (isErr(line)) throw new Error(`${item.caseId}: ${line.error.code}: ${line.error.message}`);
       records.push({ type: "case", caseId: item.caseId, mode: "steering", line: line.value });
       process.stdout.write(`${item.caseId}: ${line.value.status}, plies=${line.value.plies.length}\n`);
+      process.stdout.write(renderPatternReference(line.value));
     }
   }
   mkdirSync(dirname(output), { recursive: true });

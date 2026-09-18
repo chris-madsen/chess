@@ -1,4 +1,6 @@
 import type { ScenarioLine } from "../domain/scenario-lines/scenario-line";
+import { MATE_PATTERN_SOURCE_CATALOG } from "../application/experiments/mate-pattern-catalog";
+import { PATTERN_FAMILY_CATALOG } from "../domain/patterns/pattern";
 
 const wrapMovetext = (text: string, width = 72): string => {
   const words = text.split(/\s+/u).filter(Boolean);
@@ -58,4 +60,29 @@ export const renderPatternSteeringLine = (caseId: string, line: ScenarioLine): s
   const header = `## ${caseId} PatternSteeredTalPath${pattern} status ${line.status}`;
   const movetext = formatSanMovetext(line);
   return `${header}\n${movetext.length === 0 ? "(no moves)" : movetext}\n\n`;
+};
+
+export const renderPatternReference = (line: ScenarioLine): string => {
+  const trace = line.decisionTraces?.at(-1);
+  const selected = trace?.candidates.find(candidate => candidate.uci === trace.selectedUci);
+  if (selected === undefined) return "";
+  const source = MATE_PATTERN_SOURCE_CATALOG.find(item => item.family === selected.targetFamily);
+  const reference = source?.reference;
+  if (reference === undefined) return `Pattern reference unavailable for ${selected.targetFamily}\n\n`;
+  const displayName = PATTERN_FAMILY_CATALOG.find(item => item.id === selected.targetFamily)?.displayName ?? selected.targetFamily;
+  const affinity = `${(Math.max(0, Math.min(1, selected.afterMaiaAffinity)) * 100).toFixed(1)}%`;
+  const trainingUrl = source?.trainingUrl;
+  return [
+    "Pattern reference",
+    `${displayName} (${selected.targetFamily}), affinity ${affinity}`,
+    "",
+    "Reference PGN:",
+    reference.pgn,
+    "",
+    ...(trainingUrl === undefined ? [] : [`Lichess theme: ${trainingUrl}`]),
+    ...(reference.gameUrl === undefined ? [] : [`Example: ${reference.gameUrl}`]),
+    ...(reference.sourceReference === undefined ? [] : [`Dataset source: ${reference.sourceReference}`]),
+    `Dataset case: ${reference.caseId}, rating ${reference.rating}`,
+    "",
+  ].join("\n");
 };

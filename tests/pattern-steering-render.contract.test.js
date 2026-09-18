@@ -1,5 +1,5 @@
 import { createChessJsRulesAdapter } from "../src/adapters/chessjs/chess-rules-adapter.ts";
-import { renderPatternSteeringLine } from "../src/cli/pattern-steering-render.ts";
+import { renderPatternReference, renderPatternSteeringLine } from "../src/cli/pattern-steering-render.ts";
 
 const chess = createChessJsRulesAdapter();
 
@@ -48,6 +48,41 @@ test("pattern steering renderer shows the selected mating pattern and affinity p
     }]
   });
   expect(rendered).toContain("## case-pattern PatternSteeredTalPath pattern MORPHYS 73.4% status Incomplete");
+});
+
+test("pattern reference renderer stays out of live frames and shows sources after completion", () => {
+  const position = chess.ingestPosition("4r3/1k6/pp3r2/1b2P2p/3R1p2/P1R2P2/1P4PP/6K1 w - - 0 35");
+  expect(position.tag).toBe("Ok");
+  const line = {
+    tag: "ScenarioLine",
+    mode: "HumanPath",
+    label: "PatternSteeredTalPath",
+    start: position.value,
+    horizon: 2,
+    plies: [],
+    status: "Terminal",
+    decisionTraces: [{
+      positionHash: position.value.hash,
+      selectedUci: "d4d7",
+      candidates: [{
+        uci: "d4d7",
+        source: "LOCAL_STYLE_ENGINE",
+        talAccepted: true,
+        targetFamily: "MORPHYS",
+        beforeAffinity: 0.31,
+        afterCandidateAffinity: 0.68,
+        afterMaiaAffinity: 0.734,
+        patternDelta: 0.424
+      }]
+    }]
+  };
+  expect(renderPatternSteeringLine("case-pattern", line)).not.toContain("Pattern reference");
+  const reference = renderPatternReference(line);
+  expect(reference).toContain("Morphy's Mate (MORPHYS), affinity 73.4%");
+  expect(reference).toContain("[FEN \"3r4/1pB3kp/2b1Pp2/1pN2RpK/1P6/7P/6r1/8 w - - 0 34\"]");
+  expect(reference).toContain("Lichess theme: https://lichess.org/training/morphysMate");
+  expect(reference).toContain("Example: https://lichess.org/5qeC9Wl2#67");
+  expect(reference).toContain("Dataset case: morphys-00y2j, rating 1572");
 });
 
 test("pattern steering renderer preserves a raw PGN prefix before continuation", () => {
