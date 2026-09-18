@@ -824,7 +824,6 @@ export const createStyleLineJobServer = (
                 lineId: `pattern-steering-${item.caseId}`,
                 horizon: horizon.value,
                 cache: patternCache,
-                maiaCacheIdentity: `${request.common.cstalOpponent ?? "maia3"}:${request.common.maia3Elo ?? 1800}`,
                 onProgress: steeringLine => updateBatchLine(batch, item.caseId, steeringLine)
               }),
               sleep(request.common.timeoutMs ?? 300_000).then(() => ({ tag: "Err" as const, error: { code: "PROVIDER_TIMEOUT" as const, path: `patternBatch.${item.caseId}`, message: "Pattern steering case timed out" } }))

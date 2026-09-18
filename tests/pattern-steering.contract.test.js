@@ -2,6 +2,7 @@ import { createChessJsRulesAdapter } from "../src/adapters/chessjs/chess-rules-a
 import { evaluatePatternSteeringCandidates, selectPatternSteeringCandidate } from "../src/wiring/index.ts";
 import { makeCandidateSeed } from "../src/domain/scenario-lines/candidate-seed.ts";
 import { makeRequestId, maiaProvider, playerProvider } from "../src/domain/index.ts";
+import { createInMemoryAnalysisCache } from "../src/adapters/cache/in-memory-analysis-cache.ts";
 
 const chess = createChessJsRulesAdapter();
 const mustOk = result => {
@@ -51,6 +52,35 @@ test("Pattern steering evaluates candidates before selecting a move and preserve
   expect(result.candidates).toHaveLength(2);
   expect(result.selected.seed.provenance.inputPositionHash).toBe(start.hash);
   expect(result.selected.afterPosition.sideToMove).toBe("black");
+});
+
+test("Pattern steering never reuses a Maia response from the analysis cache", async () => {
+  const cache = createInMemoryAnalysisCache();
+  let maiaCalls = 0;
+  const generator = async () => ({ tag: "Ok", value: [seedFor("e2e4", 1)] });
+  const maia = async request => {
+    maiaCalls += 1;
+    const move = chess.parseLegalMove(request.position, "e7e5");
+    return move.tag === "Err" ? move : { tag: "Ok", value: {
+      move: move.value,
+      provenance: {
+        source: "MAIA",
+        provider: maiaProvider("test"),
+        status: "MODELED_LOCAL",
+        requestId: makeRequestId(`maia-cache-test-${maiaCalls}`),
+        inputPositionHash: request.position.hash,
+        configuration: { elo: maiaCalls === 1 ? 600 : 2300 }
+      }
+    } };
+  };
+
+  const first = await evaluatePatternSteeringCandidates(chess, start, generator, acceptAll, maia, "maia-cache-test", 1, true, cache);
+  const second = await evaluatePatternSteeringCandidates(chess, start, generator, acceptAll, maia, "maia-cache-test", 1, true, cache);
+
+  expect(first.tag).toBe("Ok");
+  expect(second.tag).toBe("Ok");
+  expect(maiaCalls).toBe(2);
+  expect(second.value.selected.responseProvenance.configuration.elo).toBe(2300);
 });
 
 test("Pattern steering rejects candidate provenance from another position", async () => {

@@ -64,24 +64,9 @@ const familiesFor = async (position: PositionSnapshot, context: import("../../do
   return assessments;
 };
 
-const maiaResponseFor = async (chess: ChessRulesPort, position: PositionSnapshot, maia: MoveProvider, lineId: string, cache?: AnalysisCachePort, maiaCacheIdentity = "unknown"): Promise<Result<ProvidedMove, DomainError>> => {
-  if (cache !== undefined) {
-    const key = analysisCacheKey({ namespace: "MAIA_RESPONSE", position, configuration: { provider: "maia", policy: "argmax-response", identity: maiaCacheIdentity } });
-    const hit = await cache.get(key);
-    if (!isErr(hit)) {
-      const cachedMove = hit.value?.value.moveUci;
-      const cachedProvenance = hit.value?.value.provenance;
-      if (typeof cachedMove === "string" && cachedProvenance !== undefined) {
-        const legal = chess.parseLegalMove(position, cachedMove);
-        if (!isErr(legal)) return ok({ move: legal.value, provenance: cachedProvenance as ProvidedMove["provenance"] });
-      }
-    }
-    const response = await maia({ position, lineId, ply: 2 });
-    if (!isErr(response)) await cache.put(makeCacheEntry({ key, schemaVersion: 1, createdAtIso: new Date().toISOString(), value: { moveUci: String(response.value.move.uci), provenance: response.value.provenance } }));
-    return response;
-  }
-  return maia({ position, lineId, ply: 2 });
-};
+const maiaResponseFor = async (position: PositionSnapshot, maia: MoveProvider, lineId: string): Promise<Result<ProvidedMove, DomainError>> => (
+  maia({ position, lineId, ply: 2 })
+);
 
 export const selectPatternSteeringCandidate = (
   candidates: readonly PatternSteeringCandidate[]
@@ -99,8 +84,7 @@ export const evaluatePatternSteeringCandidates = async (
   lineId: string,
   limit = 8,
   includeMaiaResponse = true,
-  cache?: AnalysisCachePort,
-  maiaCacheIdentity = "unknown"
+  cache?: AnalysisCachePort
 ): Promise<Result<PatternSteeringDecision, DomainError>> => {
   const facts = chess.computeFacts(position);
   if (isErr(facts)) return err(facts.error);
@@ -140,7 +124,7 @@ export const evaluatePatternSteeringCandidates = async (
       evaluated.push({ seed, tactical: tacticalAssessment, afterPosition: after.value, beforeFamilies, afterFamilies, postResponseFamilies: afterFamilies, targetFamily: progress.targetFamily, beforeScore: progress.beforeScore, afterCandidateScore: progress.afterCandidateScore, afterResponseScore: progress.afterResponseScore, patternDelta: progress.delta, progress: progress.delta });
       continue;
     }
-    const response = await maiaResponseFor(chess, after.value, maia, lineId, cache, maiaCacheIdentity);
+    const response = await maiaResponseFor(after.value, maia, lineId);
     if (isErr(response)) return err(response.error);
     if (response.value.provenance.source !== "MAIA") return err(domainError("SOURCE_SEQUENCE_VIOLATION", "patternSteering.maia.source", "Steering response must come from Maia", { source: response.value.provenance.source }));
     const responseMove = chess.parseLegalMove(after.value, response.value.move.uci);
