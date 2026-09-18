@@ -142,6 +142,27 @@ test("target session live renderer stays compact and defers references to final 
   expect(final).toContain("reference unavailable because the target branch did not finish");
 });
 
+test("target session renderer keeps only the three shortest terminal targets", () => {
+  const position = chess.ingestPosition("4r3/1k6/pp3r2/1b2P2p/3R1p2/P1R2P2/1P4PP/6K1 w - - 0 35");
+  expect(position.tag).toBe("Ok");
+  const families = ["MORPHYS", "EPAULETTE", "CORNER", "DOVETAIL", "BALESTRA"];
+  const lengths = [5, 1, 3, 2, 4];
+  const rendered = renderPatternTargetSession("case-ranked", {
+    discovery: { tag: "ScenarioLine", mode: "HumanPath", label: "PatternSteeredTalPath", start: position.value, horizon: 10, plies: [], status: "Complete" },
+    targets: families.map((targetFamily, index) => ({
+      targetFamily,
+      triggerPly: 0,
+      triggerAffinity: 0.97,
+      position: position.value,
+      prefixPlies: [],
+      line: { tag: "ScenarioLine", mode: "HumanPath", label: "Target", start: position.value, horizon: 10, plies: Array.from({ length: lengths[index] }, () => ({ tag: "ScenarioPly", index: 1, move: { san: "e4", uci: "e2e4" }, provenance: {} })), status: "Terminal" }
+    }))
+  });
+  expect(rendered.match(/^## case-ranked Target /gmu)).toHaveLength(3);
+  expect(rendered.indexOf("Dovetail Mate")).toBeLessThan(rendered.indexOf("Corner Mate"));
+  expect(rendered).not.toContain("Morphy's Mate");
+});
+
 test("pattern steering renderer preserves a raw PGN prefix before continuation", () => {
   const position = chess.ingestRawGame("1. e4 e5 2. Nf3");
   expect(position.tag).toBe("Ok");

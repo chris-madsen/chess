@@ -8,6 +8,20 @@ import { generatePatternSteeredTalPath } from "./pattern-steered-tal-path";
 
 export const MAX_PATTERN_TARGETS = 3;
 
+export const rankPatternTargets = <T extends Readonly<{ targetFamily: string; line?: Readonly<{ status: string; plies: readonly unknown[] }> }>>(
+  targets: readonly T[],
+  limit = MAX_PATTERN_TARGETS
+): readonly T[] => [...targets]
+  .sort((first, second) => {
+    const firstTerminal = first.line?.status === "Terminal";
+    const secondTerminal = second.line?.status === "Terminal";
+    if (firstTerminal !== secondTerminal) return firstTerminal ? -1 : 1;
+    const firstPlies = first.line?.plies.length ?? Number.POSITIVE_INFINITY;
+    const secondPlies = second.line?.plies.length ?? Number.POSITIVE_INFINITY;
+    return firstPlies - secondPlies || first.targetFamily.localeCompare(second.targetFamily);
+  })
+  .slice(0, Math.min(MAX_PATTERN_TARGETS, Math.max(1, limit)));
+
 export type PatternTargetBranch = Readonly<{
   targetFamily: PatternFamilyId;
   triggerPly: number;
@@ -113,13 +127,5 @@ export const generatePatternTargetSession = async (
   } catch (error) {
     return err({ code: "PROVIDER_UNAVAILABLE", path: "patternTargetBranching.target", message: error instanceof Error ? error.message : String(error) });
   }
-  const rankedTargets = [...targets].sort((first, second) => {
-    const firstTerminal = first.line?.status === "Terminal";
-    const secondTerminal = second.line?.status === "Terminal";
-    if (firstTerminal !== secondTerminal) return firstTerminal ? -1 : 1;
-    const firstPlies = first.line?.plies.length ?? Number.POSITIVE_INFINITY;
-    const secondPlies = second.line?.plies.length ?? Number.POSITIVE_INFINITY;
-    return firstPlies - secondPlies || first.targetFamily.localeCompare(second.targetFamily);
-  });
-  return ok(snapshot(discovery.value, rankedTargets));
+  return ok(snapshot(discovery.value, rankPatternTargets(targets, maxTargets)));
 };

@@ -6,6 +6,7 @@ import { makePlyIndex, makeRequestId, makeScenarioHorizon, type ScenarioHorizon 
 import type { MoveSource, ProviderIdentity } from "../../domain/provenance/provenance";
 import type { ScenarioLine, ScenarioLineStatus } from "../../domain/scenario-lines/scenario-line";
 import type { PatternTargetSession } from "../../application/use-cases/pattern-target-branching";
+import { rankPatternTargets } from "../../application/use-cases/pattern-target-branching";
 import { isPatternFamilyId, type PatternFamilyId } from "../../domain/patterns/pattern";
 import { domainError, type DomainError } from "../../domain/shared/errors";
 import { err, isErr, ok, type Result } from "../../domain/shared/result";
@@ -180,7 +181,7 @@ const makeRemoteSteeringSession = (chess: ChessRulesPort, start: PositionSnapsho
     }
     targets.push({ targetFamily: target.targetFamily, triggerPly: target.triggerPly, triggerAffinity: target.triggerAffinity, position: branchStart.value, prefixPlies: prefix.value, ...(line === undefined ? {} : { line }) });
   }
-  return ok({ discovery: discovery.value.line, targets });
+  return ok({ discovery: discovery.value.line, targets: rankPatternTargets(targets) });
 };
 
 const parseSseSnapshots = async (response: Response, onSnapshot?: (snapshot: unknown) => void): Promise<readonly unknown[]> => {

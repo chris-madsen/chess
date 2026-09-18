@@ -3,6 +3,7 @@ import { MATE_PATTERN_SOURCE_CATALOG } from "../application/experiments/mate-pat
 import { PATTERN_FAMILY_CATALOG } from "../domain/patterns/pattern";
 import type { PatternFamilyId } from "../domain/patterns/pattern";
 import type { PatternTargetSession } from "../application/use-cases/pattern-target-branching";
+import { rankPatternTargets } from "../application/use-cases/pattern-target-branching";
 import type { PositionSnapshot } from "../domain/chess/position";
 
 const wrapMovetext = (text: string, width = 72): string => {
@@ -146,7 +147,7 @@ export const renderPatternTargetSession = (caseId: string, session: PatternTarge
   output.push(`## ${caseId} Pattern discovery status ${session.discovery.status}`);
   output.push(formatSanMovetext(session.discovery).length === 0 ? "(calculating first move...)" : formatSanMovetext(session.discovery));
   output.push("");
-  for (const target of session.targets) {
+  for (const target of rankPatternTargets(session.targets)) {
     const line = target.line;
     if (line === undefined) {
       const prefixLine: ScenarioLine = { ...session.discovery, plies: target.prefixPlies, status: "Incomplete", targetFamily: target.targetFamily };
@@ -161,11 +162,12 @@ export const renderPatternTargetSession = (caseId: string, session: PatternTarge
 
 export const renderPatternTargetReferences = (caseId: string, session: PatternTargetSession): string => {
   const output = ["", "########", `Pattern references for ${caseId}`, ""];
-  if (session.targets.length === 0) {
+  const targets = rankPatternTargets(session.targets);
+  if (targets.length === 0) {
     output.push("No target reached 97%.", "");
     return `${output.join("\n")}########\n`;
   }
-  for (const target of session.targets) {
+  for (const target of targets) {
     output.push(`Target ${targetDisplayName(target.targetFamily)} (${target.targetFamily}), trigger affinity ${(target.triggerAffinity * 100).toFixed(1)}%`);
     if (target.line === undefined) {
       output.push("status: Incomplete", "reference unavailable because the target branch did not finish", "");
