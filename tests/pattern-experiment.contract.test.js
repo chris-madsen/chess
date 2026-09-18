@@ -56,6 +56,14 @@ test("canonical pattern state is invariant under file mirror", () => {
   expect(firstCanonical.pieces).toEqual(mirroredCanonical.pieces);
 });
 
+test("canonical pattern state is invariant under color swap with board rotation", () => {
+  const whiteAttacks = mustOk(chess.ingestPosition("7k/6R1/5N2/8/8/8/8/K7 w - - 0 1"));
+  const blackAttacks = mustOk(chess.ingestPosition("7k/8/8/8/8/2n5/1r6/K7 b - - 0 1"));
+  const firstCanonical = canonicalizePatternPosition(whiteAttacks, mustOk(chess.computeFacts(whiteAttacks)));
+  const secondCanonical = canonicalizePatternPosition(blackAttacks, mustOk(chess.computeFacts(blackAttacks)));
+  expect(firstCanonical.key).toBe(secondCanonical.key);
+});
+
 test("forced-mate verifier requires an independent proof for a terminal mate", async () => {
   const terminal = mustOk(chess.ingestPosition("7k/6Q1/6K1/8/8/8/8/8 b - - 0 1"));
   const provider = async request => ({

@@ -76,7 +76,7 @@ export const canonicalizePatternPosition = (
   const pieces = boardFromFen(String(position.fen));
   const targetKing = kingFor(pieces, attackingSide === "white" ? "black" : "white") ?? { piece: "k", file: 4, rank: 0 };
   const orientations = ([1, -1] as const).flatMap(fileSign => ([1, -1] as const).map(rankSign => encode(pieces, targetKing, attackingSide, fileSign, rankSign)));
-  const key = `attacker:${attackingSide === "white" ? "a" : "b"}|${[...orientations].sort()[0] ?? ""}`;
+  const key = `roles:attacker-defender|${[...orientations].sort()[0] ?? ""}`;
   const canonicalOrientation = [...orientations].sort()[0] ?? "";
   const canonicalPieces = canonicalOrientation.split(";").filter(Boolean).map(token => {
     const match = /^(a|d)([pnbrqk])([+-]?\d+),([+-]?\d+)$/u.exec(token);
