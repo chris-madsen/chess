@@ -85,7 +85,7 @@ The installer writes ignored local paths to `engines.local.json` as `cstalAbsurd
 
 ### Windows StylePath HTTP API
 
-The Windows CSTal runtime can also be exposed as a local HTTP/SSE job server for a Linux client on the same trusted network:
+The Windows CSTal runtime can also be exposed as a local HTTP/SSE job server for a Linux client on the same trusted network. `npm run style:server` starts it in the background, waits for `/health`, and returns the terminal prompt; server output is written to `.local/style-server.log`.
 
 ```bash
 set STYLE_SERVER_TOKEN=<secret>
@@ -94,6 +94,8 @@ set STYLE_SERVER_PORT=8787
 set STYLE_ALLOWED_COUNTRIES=EE
 npm run style:server
 ```
+
+On the Windows host, `STYLE_SERVER_TOKEN` may be omitted when `.local/style-server-token.txt` exists; the server reads that file automatically. An explicitly set environment variable takes precedence.
 
 When `STYLE_ALLOWED_COUNTRIES` is set, protected API endpoints require Cloudflare's `CF-IPCountry` header to match one of the comma-separated country codes. Use `EE` to allow Estonia only. `/health` remains unauthenticated for tunnel health checks.
 
