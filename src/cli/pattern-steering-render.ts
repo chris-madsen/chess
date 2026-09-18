@@ -1,6 +1,7 @@
 import type { ScenarioLine } from "../domain/scenario-lines/scenario-line";
 import { MATE_PATTERN_SOURCE_CATALOG } from "../application/experiments/mate-pattern-catalog";
 import { PATTERN_FAMILY_CATALOG } from "../domain/patterns/pattern";
+import type { PatternFamilyId } from "../domain/patterns/pattern";
 
 const wrapMovetext = (text: string, width = 72): string => {
   const words = text.split(/\s+/u).filter(Boolean);
@@ -63,18 +64,42 @@ export const renderPatternSteeringLine = (caseId: string, line: ScenarioLine): s
 };
 
 export const renderPatternReference = (line: ScenarioLine): string => {
-  const trace = line.decisionTraces?.at(-1);
-  const selected = trace?.candidates.find(candidate => candidate.uci === trace.selectedUci);
-  if (selected === undefined) return "";
-  const source = MATE_PATTERN_SOURCE_CATALOG.find(item => item.family === selected.targetFamily);
+  const maximumAffinityByFamily = new Map<PatternFamilyId, number>();
+  for (const trace of line.decisionTraces ?? []) {
+    const selected = trace.candidates.find(candidate => candidate.uci === trace.selectedUci);
+    if (selected === undefined) continue;
+    const previous = maximumAffinityByFamily.get(selected.targetFamily) ?? 0;
+    maximumAffinityByFamily.set(selected.targetFamily, Math.max(previous, selected.afterMaiaAffinity));
+  }
+  const patterns = [...maximumAffinityByFamily.entries()]
+    .map(([family, affinity]) => ({ family, affinity }))
+    .sort((first, second) => second.affinity - first.affinity || first.family.localeCompare(second.family));
+  const selectedPattern = patterns[0];
+  if (selectedPattern === undefined) return "";
+  const source = MATE_PATTERN_SOURCE_CATALOG.find(item => item.family === selectedPattern.family);
   const reference = source?.reference;
-  if (reference === undefined) return `Pattern reference unavailable for ${selected.targetFamily}\n\n`;
-  const displayName = PATTERN_FAMILY_CATALOG.find(item => item.id === selected.targetFamily)?.displayName ?? selected.targetFamily;
-  const affinity = `${(Math.max(0, Math.min(1, selected.afterMaiaAffinity)) * 100).toFixed(1)}%`;
+  const displayName = PATTERN_FAMILY_CATALOG.find(item => item.id === selectedPattern.family)?.displayName ?? selectedPattern.family;
+  const affinity = `${(Math.max(0, Math.min(1, selectedPattern.affinity)) * 100).toFixed(1)}%`;
+  const patternList = patterns.map((pattern, index) => {
+    const name = PATTERN_FAMILY_CATALOG.find(item => item.id === pattern.family)?.displayName ?? pattern.family;
+    const percent = `${(Math.max(0, Math.min(1, pattern.affinity)) * 100).toFixed(1)}%`;
+    return `${index + 1}. ${name} (${pattern.family}) ${percent}`;
+  });
+  if (reference === undefined) return [
+    "Pattern reference",
+    "Patterns observed:",
+    ...patternList,
+    "",
+    `Reference unavailable for ${selectedPattern.family}`,
+    "",
+  ].join("\n");
   const trainingUrl = source?.trainingUrl;
   return [
     "Pattern reference",
-    `${displayName} (${selected.targetFamily}), affinity ${affinity}`,
+    `${displayName} (${selectedPattern.family}), affinity ${affinity}`,
+    "",
+    "Patterns observed:",
+    ...patternList,
     "",
     "Reference PGN:",
     reference.pgn,

@@ -85,6 +85,41 @@ test("pattern reference renderer stays out of live frames and shows sources afte
   expect(reference).toContain("Dataset case: morphys-00y2j, rating 1572");
 });
 
+test("pattern reference renderer merges repeated families by maximum affinity", () => {
+  const position = chess.ingestPosition("4r3/1k6/pp3r2/1b2P2p/3R1p2/P1R2P2/1P4PP/6K1 w - - 0 35");
+  expect(position.tag).toBe("Ok");
+  const trace = (selectedUci, targetFamily, afterMaiaAffinity) => ({
+    positionHash: position.value.hash,
+    selectedUci,
+    candidates: [{
+      uci: selectedUci,
+      source: "LOCAL_STYLE_ENGINE",
+      talAccepted: true,
+      targetFamily,
+      beforeAffinity: 0.2,
+      afterCandidateAffinity: afterMaiaAffinity,
+      afterMaiaAffinity,
+      patternDelta: afterMaiaAffinity - 0.2
+    }]
+  });
+  const rendered = renderPatternReference({
+    tag: "ScenarioLine",
+    mode: "HumanPath",
+    label: "PatternSteeredTalPath",
+    start: position.value,
+    horizon: 6,
+    plies: [],
+    status: "Terminal",
+    decisionTraces: [
+      trace("d4d7", "MORPHYS", 0.4),
+      trace("d4d7", "EPAULETTE", 0.8),
+      trace("d4d7", "MORPHYS", 0.9)
+    ]
+  });
+  expect(rendered).toContain("Patterns observed:\n1. Morphy's Mate (MORPHYS) 90.0%\n2. Epaulette Mate (EPAULETTE) 80.0%");
+  expect(rendered.match(/MORPHYS/gu)).toHaveLength(2);
+});
+
 test("pattern steering renderer preserves a raw PGN prefix before continuation", () => {
   const position = chess.ingestRawGame("1. e4 e5 2. Nf3");
   expect(position.tag).toBe("Ok");
