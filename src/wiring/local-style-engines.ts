@@ -176,19 +176,34 @@ const maiaConfig = (
   }
 });
 
+export const stripMaiaLaunchRating = (args: readonly string[]): readonly string[] => {
+  const ratingFlags = new Set(["--elo", "--self-elo", "--oppo-elo", "--selfelo", "--oppoelo"]);
+  const result: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    if (argument === undefined) continue;
+    if (argument !== undefined && ratingFlags.has(argument)) {
+      index += 1;
+      continue;
+    }
+    result.push(argument);
+  }
+  return result;
+};
+
 const maia3Command = (paths: LocalEnginePaths): Readonly<{ command: string; args: readonly string[] }> => {
   if (paths.maia3Command !== undefined) {
-    return { command: paths.maia3Command, args: paths.maia3Args ?? [] };
+    return { command: paths.maia3Command, args: stripMaiaLaunchRating(paths.maia3Args ?? []) };
   }
   if (paths.maia3Path !== undefined) {
     return {
       command: paths.maia3Path,
-      args: paths.maia3Args ?? ["--model", "maia3-79m", "--device", "cpu", "--no-use-amp", "--elo", "1900", "--temperature", "1.0", "--top-p", "1.0", "--use-uci-history"]
+      args: stripMaiaLaunchRating(paths.maia3Args ?? ["--model", "maia3-79m", "--device", "cpu", "--no-use-amp", "--temperature", "1.0", "--top-p", "1.0", "--use-uci-history"])
     };
   }
   return {
     command: "python",
-    args: paths.maia3Args ?? ["-m", "maia3.uci", "--model", "maia3-79m", "--device", "cpu", "--no-use-amp", "--elo", "1900", "--temperature", "1.0", "--top-p", "1.0", "--use-uci-history"]
+    args: stripMaiaLaunchRating(paths.maia3Args ?? ["-m", "maia3.uci", "--model", "maia3-79m", "--device", "cpu", "--no-use-amp", "--temperature", "1.0", "--top-p", "1.0", "--use-uci-history"])
   };
 };
 
@@ -216,6 +231,7 @@ const maia3Config = (paths: LocalEnginePaths, elo = 1900): UciEngineConfig => {
       policy: policyName(maiaLimit),
       model: "maia3-79m",
       device: command.args.includes("cpu") ? "cpu" : "configured",
+      launchArgs: command.args,
       elo,
       selfElo: elo,
       opponentElo: elo,

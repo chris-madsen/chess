@@ -3,6 +3,7 @@ import {
   createWindowsCstalStylePathProviders,
   generateStylePaths
 } from "../src/wiring/index.ts";
+import { stripMaiaLaunchRating } from "../src/wiring/local-style-engines.ts";
 import {
   domainError,
   isErr,
@@ -124,6 +125,10 @@ test("Windows CSTal suite can select Maia 1900 instead of Maia3", () => {
     "CSTal EXTREME vs Maia 1900 StylePath"
   ]);
   expect(providers.styleEngines.every(engine => engine.configuration.styleDepth === 14)).toBe(true);
+});
+
+test("Maia launch args do not pin the requested Elo", () => {
+  expect(stripMaiaLaunchRating(["--model", "maia3-79m", "--elo", "1900", "--self-elo", "1900", "--use-uci-history"])).toEqual(["--model", "maia3-79m", "--use-uci-history"]);
 });
 
 test("CSTal StylePath provenance stays distinct from Maia3 provenance", async () => {
