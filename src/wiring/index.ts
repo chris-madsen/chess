@@ -7,5 +7,7 @@ export { generateStylePath, generateStylePaths } from "../application/use-cases/
 export { comparePatternTraces, evaluatePatternTrace, runPatternSelectionExperiment, selectPatternLine, tracePatternLine } from "../application/use-cases/pattern-experiment";
 export { parsePatternDataset, ingestPatternDatasetEntry } from "../application/experiments/pattern-dataset";
 export { pairedDifference95, summarizePatternExperiment } from "../application/experiments/pattern-report";
+export { PATTERN_FAMILY_CATALOG, PATTERN_FAMILY_IDS, isPatternFamilyId } from "../domain/patterns/pattern";
+export { LICHESS_MATE_PATTERN_CATALOG } from "../application/experiments/mate-pattern-catalog";
 export { createLocalStylePathProviders, createWindowsCstalStylePathProviders, loadLocalEnginePaths, type WindowsCstalOpponent, type WindowsCstalOptions } from "./local-style-engines";
 export { createUciMoveProvider } from "../adapters/uci/uci-engine-adapter";

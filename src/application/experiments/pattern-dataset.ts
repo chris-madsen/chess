@@ -1,6 +1,6 @@
 import type { ChessRulesPort } from "../ports/chess-rules";
 import type { PatternExperimentCase } from "../use-cases/pattern-experiment";
-import type { PatternFamilyId } from "../../domain/patterns/pattern";
+import { isPatternFamilyId, type PatternFamilyId } from "../../domain/patterns/pattern";
 import { makeScenarioHorizon } from "../../domain/chess/value-objects";
 import { domainError, type DomainError } from "../../domain/shared/errors";
 import { err, isErr, ok, type Result } from "../../domain/shared/result";
@@ -14,8 +14,6 @@ export type PatternDatasetEntry = Readonly<{
   expected?: Readonly<{ terminalMate?: boolean; mateLength?: number }>;
 }>;
 
-const families: readonly PatternFamilyId[] = ["ANASTASIA", "BODEN", "PILLSBURY", "ARABIAN", "SMOTHERED", "BACK_RANK"];
-
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 
 export const ingestPatternDatasetEntry = (raw: unknown, path = "dataset.entry"): Result<PatternDatasetEntry, DomainError> => {
@@ -25,7 +23,7 @@ export const ingestPatternDatasetEntry = (raw: unknown, path = "dataset.entry"):
   if (typeof raw.caseId !== "string" || raw.caseId.length === 0) return err(domainError("INVALID_RAW_GAME", `${path}.caseId`, "caseId is required"));
   if (raw.split !== "calibration" && raw.split !== "evaluation") return err(domainError("INVALID_RAW_GAME", `${path}.split`, "split must be calibration or evaluation"));
   if (typeof raw.fen !== "string" || raw.fen.length === 0) return err(domainError("INVALID_FEN", `${path}.fen`, "fen is required"));
-  if (typeof raw.family !== "string" || !families.includes(raw.family as PatternFamilyId)) return err(domainError("INVALID_RAW_GAME", `${path}.family`, "unsupported PatternFamily"));
+  if (typeof raw.family !== "string" || !isPatternFamilyId(raw.family)) return err(domainError("INVALID_RAW_GAME", `${path}.family`, "unsupported PatternFamily"));
   if (!isRecord(source) || typeof source.kind !== "string" || typeof source.reference !== "string") return err(domainError("INVALID_RAW_GAME", `${path}.source`, "source.kind and source.reference are required"));
   if (expected !== undefined && !isRecord(expected)) return err(domainError("INVALID_RAW_GAME", `${path}.expected`, "expected must be an object"));
   return ok({

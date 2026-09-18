@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-const cyrillicTranscriptPattern = new RegExp(`^docs${path.sep}(gemini-dialogue-cleaned|conversations${path.sep}chess[^${path.sep}]*|plans${path.sep}PLAN)\\.md$`);
+const cyrillicTranscriptPattern = new RegExp(`^docs${path.sep}(gemini-dialogue-cleaned|conversations${path.sep}chess[^${path.sep}]*|plans${path.sep}(PLAN|MVP_mating_pattern_catalog_plan))\\.md$`);
 
 const collect = dir => {
   const files = [];

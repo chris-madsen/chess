@@ -22,6 +22,25 @@ Pattern analysis SHALL represent a pattern family and structured evidence rather
 - THEN the evaluator may produce compatible evidence
 - AND it SHALL NOT require identical FEN strings
 
+## Requirement: Use the Lichess mate-theme core catalog
+
+The MVP catalog SHALL expose the 19 Lichess mate themes as independent `PatternFamily` values with a canonical key, display name, and aliases. Source keys and direct training URLs SHALL remain application-boundary metadata rather than domain dependencies. The catalog SHALL remain separate from tactical motifs and future extended named families.
+
+### Scenario: Assess a catalog family
+
+- GIVEN a legal position and any family from the Lichess mate-theme core catalog
+- WHEN Pattern Intelligence evaluates that family
+- THEN it returns a bounded `PatternAssessment` with that family ID and structured evidence
+- AND the scorer model version identifies the catalog-aware symbolic model
+- AND the assessment SHALL NOT be treated as `TerminalMate` or `ForcedMateVerification`
+
+### Scenario: Dataset family validation
+
+- GIVEN a JSONL dataset entry
+- WHEN its family is parsed
+- THEN the family is accepted only if it is present in the canonical catalog
+- AND the parser SHALL NOT maintain a second independent list of supported family IDs
+
 ## Requirement: Canonicalize reusable state
 
 The system SHALL identify reusable chess state using piece placement, side to move, castling rights, and en-passant state, while keeping rule and history context separate.

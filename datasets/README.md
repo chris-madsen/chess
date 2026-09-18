@@ -22,6 +22,8 @@ Each line has this shape:
 }
 ```
 
-Required families for the first benchmark are `ANASTASIA`, `BODEN`, `PILLSBURY`, `ARABIAN`, `SMOTHERED`, and `BACK_RANK`. The repository does not include copied `deadly` or puzzle data until its license and redistribution terms are verified.
+The MVP Lichess core catalog contains these 19 families: `ANASTASIA`, `ARABIAN`, `BACK_RANK`, `BALESTRA`, `BLIND_SWINE`, `BODEN`, `CORNER`, `DOUBLE_BISHOP`, `DOVETAIL`, `EPAULETTE`, `HOOK`, `KILL_BOX`, `PILLSBURY`, `MORPHYS`, `OPERA`, `SMOTHERED`, `SWALLOWTAIL`, `TRIANGLE`, and `VUKOVIC`. Their generic canonical definitions are owned by the domain catalog; source keys and direct training links are application-boundary metadata.
+
+The repository does not include copied `deadly` or puzzle data until its license and redistribution terms are verified. Catalog metadata is not evidence that a family has positive seeds or a completed benchmark corpus; those remain explicit dataset work.
 
 The acceptance benchmark requires at least 300 independent cases with separate `calibration` and `evaluation` splits. Do not treat the runner's result as a positive MVP finding while the report is `INCONCLUSIVE` or forced-mate verification is unavailable.

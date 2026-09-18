@@ -5,7 +5,7 @@ import type { StylePathProviders } from "../ports/providers";
 import { generateStylePaths, type StylePathLineResult } from "./style-path";
 import type { PositionSnapshot } from "../../domain/chess/position";
 import type { PatternAssessment, PatternFamilyId } from "../../domain/patterns/pattern";
-import { assessPattern, analysisCacheKey, isPatternAssessment, makeCacheEntry, makePatternModelVersion, PATTERN_MATCH_THRESHOLD } from "../../domain/index";
+import { assessPattern, analysisCacheKey, isPatternAssessment, makeCacheEntry, makePatternModelVersion, PATTERN_MATCH_THRESHOLD, PATTERN_MODEL_VERSION } from "../../domain/index";
 import { makePatternLineOutcome, type ForcedMateVerification, type PatternLineOutcome } from "../../domain/patterns/outcomes";
 import type { ScenarioLine } from "../../domain/scenario-lines/scenario-line";
 import type { ScenarioHorizon } from "../../domain/chess/value-objects";
@@ -116,7 +116,7 @@ export const tracePatternLineWithCache = async (
       namespace: "PATTERN_ASSESSMENT",
       position: current,
       configuration: { family },
-      modelVersion: makePatternModelVersion("symbolic-v1")
+      modelVersion: makePatternModelVersion(PATTERN_MODEL_VERSION)
     });
     const cached = await cache.get(key);
     if (isErr(cached)) return err(cached.error);

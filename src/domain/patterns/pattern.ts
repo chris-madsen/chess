@@ -4,11 +4,71 @@ import type { PositionFacts } from "../position-intelligence/facts";
 
 export type PatternFamilyId =
   | "ANASTASIA"
-  | "BODEN"
-  | "PILLSBURY"
   | "ARABIAN"
+  | "BACK_RANK"
+  | "BALESTRA"
+  | "BLIND_SWINE"
+  | "BODEN"
+  | "CORNER"
+  | "DOUBLE_BISHOP"
+  | "DOVETAIL"
+  | "EPAULETTE"
+  | "HOOK"
+  | "KILL_BOX"
+  | "MORPHYS"
+  | "OPERA"
+  | "PILLSBURY"
   | "SMOTHERED"
-  | "BACK_RANK";
+  | "SWALLOWTAIL"
+  | "TRIANGLE"
+  | "VUKOVIC";
+
+export type PatternFamilyDefinition = Readonly<{
+  id: PatternFamilyId;
+  canonicalKey: string;
+  displayName: string;
+  aliases: readonly string[];
+  tier: "MVP_NAMED_CORE";
+}>;
+
+/**
+ * The product taxonomy is deliberately separate from the scorer. Labels and
+ * links are stable catalog data; the symbolic scorer remains a conservative heuristic
+ * and does not imply that a high score is a verified mate.
+ */
+const patternFamilySeeds = [
+  ["ANASTASIA", "anastasia_mate", "Anastasia's Mate", "anastasiaMate"],
+  ["ARABIAN", "arabian_mate", "Arabian Mate", "arabianMate"],
+  ["BACK_RANK", "back_rank_mate", "Back Rank Mate", "backRankMate"],
+  ["BALESTRA", "balestra_mate", "Balestra Mate", "balestraMate"],
+  ["BLIND_SWINE", "blind_swine_mate", "Blind Swine Mate", "blindSwineMate"],
+  ["BODEN", "boden_mate", "Boden's Mate", "bodenMate"],
+  ["CORNER", "corner_mate", "Corner Mate", "cornerMate"],
+  ["DOUBLE_BISHOP", "double_bishop_mate", "Double Bishop Mate", "doubleBishopMate"],
+  ["DOVETAIL", "dovetail_mate", "Dovetail Mate", "dovetailMate"],
+  ["EPAULETTE", "epaulette_mate", "Epaulette Mate", "epauletteMate"],
+  ["HOOK", "hook_mate", "Hook Mate", "hookMate"],
+  ["KILL_BOX", "kill_box_mate", "Kill Box Mate", "killBoxMate"],
+  ["PILLSBURY", "pillsburys_mate", "Pillsbury's Mate", "pillsburysMate"],
+  ["MORPHYS", "morphys_mate", "Morphy's Mate", "morphysMate"],
+  ["OPERA", "opera_mate", "Opera Mate", "operaMate"],
+  ["SMOTHERED", "smothered_mate", "Smothered Mate", "smotheredMate"],
+  ["SWALLOWTAIL", "swallowstail_mate", "Swallow's Tail Mate", "swallowstailMate"],
+  ["TRIANGLE", "triangle_mate", "Triangle Mate", "triangleMate"],
+  ["VUKOVIC", "vukovic_mate", "Vukovic Mate", "vukovicMate"]
+] as const;
+
+export const PATTERN_FAMILY_CATALOG: readonly PatternFamilyDefinition[] = patternFamilySeeds.map(([id, canonicalKey, displayName, sourceKey]) => ({
+  id: id as PatternFamilyId,
+  canonicalKey,
+  displayName,
+  aliases: [sourceKey, canonicalKey, displayName],
+  tier: "MVP_NAMED_CORE" as const
+}));
+
+export const PATTERN_FAMILY_IDS: readonly PatternFamilyId[] = PATTERN_FAMILY_CATALOG.map(definition => definition.id);
+
+export const isPatternFamilyId = (value: string): value is PatternFamilyId => PATTERN_FAMILY_IDS.includes(value as PatternFamilyId);
 
 export type PatternState = "far" | "promising" | "forming" | "near" | "mate_basin";
 
@@ -45,7 +105,7 @@ export type PatternFeatures = Readonly<{
   isCheckmate: boolean;
 }>;
 
-export const PATTERN_MODEL_VERSION = "symbolic-v1";
+export const PATTERN_MODEL_VERSION = "symbolic-v2-named-core";
 export const PATTERN_MATCH_THRESHOLD = 0.65;
 
 const opposite = (side: Side): Side => side === "white" ? "black" : "white";
@@ -153,25 +213,77 @@ const scoreFamily = (family: PatternFamilyId, features: PatternFeatures): Readon
       score: 0.3 * edge + 0.3 * knights + 0.25 * rooks + 0.15 * blockers,
       evidence: [evidence("KING_CENTRIC", "edge king", edge), evidence("ATTACK_GEOMETRY", "nearby knight", knights), evidence("ATTACK_GEOMETRY", "nearby rook or queen", rooks)]
     },
+    ARABIAN: {
+      score: 0.35 * edge + 0.3 * corner + 0.2 * knights + 0.15 * rooks,
+      evidence: [evidence("KING_CENTRIC", "corner or edge king", Math.max(edge, corner)), evidence("ATTACK_GEOMETRY", "nearby knight", knights), evidence("ATTACK_GEOMETRY", "nearby rook or queen", rooks)]
+    },
+    BACK_RANK: {
+      score: 0.4 * edge + 0.35 * blockers + 0.2 * rooks + 0.05 * checks,
+      evidence: [evidence("KING_CENTRIC", "back-rank king", edge), evidence("KING_CENTRIC", "friendly blockers", blockers), evidence("ATTACK_GEOMETRY", "heavy-piece pressure", rooks)]
+    },
+    BALESTRA: {
+      score: 0.3 * edge + 0.3 * rooks + 0.25 * knights + 0.15 * checks,
+      evidence: [evidence("KING_CENTRIC", "edge king", edge), evidence("ATTACK_GEOMETRY", "heavy-piece line", rooks), evidence("ATTACK_GEOMETRY", "knight support", knights)]
+    },
+    BLIND_SWINE: {
+      score: 0.35 * edge + 0.3 * knights + 0.2 * rooks + 0.15 * checks,
+      evidence: [evidence("KING_CENTRIC", "restricted edge king", edge), evidence("ATTACK_GEOMETRY", "knight pressure", knights), evidence("TACTICAL_SIGNAL", "check pressure", checks)]
+    },
     BODEN: {
       score: 0.35 * bishops + 0.25 * checks + 0.2 * captures + 0.2 * (1 - edge),
       evidence: [evidence("ATTACK_GEOMETRY", "bishop pair potential", bishops), evidence("TACTICAL_SIGNAL", "check pressure", checks), evidence("TACTICAL_SIGNAL", "capture pressure", captures)]
+    },
+    CORNER: {
+      score: 0.45 * corner + 0.3 * blockers + 0.15 * checks + 0.1 * rooks,
+      evidence: [evidence("KING_CENTRIC", "corner king", corner), evidence("KING_CENTRIC", "friendly blockers", blockers), evidence("TACTICAL_SIGNAL", "check pressure", checks)]
+    },
+    DOUBLE_BISHOP: {
+      score: 0.5 * bishops + 0.25 * checks + 0.15 * corner + 0.1 * captures,
+      evidence: [evidence("ATTACK_GEOMETRY", "bishop pair potential", bishops), evidence("TACTICAL_SIGNAL", "check pressure", checks), evidence("KING_CENTRIC", "corner king", corner)]
+    },
+    DOVETAIL: {
+      score: 0.35 * blockers + 0.25 * corner + 0.2 * bishops + 0.2 * checks,
+      evidence: [evidence("KING_CENTRIC", "restricted king mobility", blockers), evidence("KING_CENTRIC", "corner geometry", corner), evidence("ATTACK_GEOMETRY", "bishop pressure", bishops)]
+    },
+    EPAULETTE: {
+      score: 0.45 * blockers + 0.25 * edge + 0.2 * rooks + 0.1 * checks,
+      evidence: [evidence("KING_CENTRIC", "blocked king exits", blockers), evidence("KING_CENTRIC", "edge king", edge), evidence("ATTACK_GEOMETRY", "heavy-piece pressure", rooks)]
+    },
+    HOOK: {
+      score: 0.3 * edge + 0.3 * knights + 0.25 * rooks + 0.15 * blockers,
+      evidence: [evidence("KING_CENTRIC", "edge king", edge), evidence("ATTACK_GEOMETRY", "knight and heavy-piece geometry", Math.max(knights, rooks)), evidence("KING_CENTRIC", "restricted king mobility", blockers)]
+    },
+    KILL_BOX: {
+      score: 0.35 * edge + 0.3 * blockers + 0.25 * rooks + 0.1 * checks,
+      evidence: [evidence("KING_CENTRIC", "edge confinement", edge), evidence("KING_CENTRIC", "restricted escape squares", blockers), evidence("ATTACK_GEOMETRY", "heavy-piece pressure", rooks)]
+    },
+    MORPHYS: {
+      score: 0.3 * edge + 0.3 * bishops + 0.25 * checks + 0.15 * captures,
+      evidence: [evidence("KING_CENTRIC", "edge king", edge), evidence("ATTACK_GEOMETRY", "bishop pressure", bishops), evidence("TACTICAL_SIGNAL", "check pressure", checks)]
+    },
+    OPERA: {
+      score: 0.3 * edge + 0.3 * rooks + 0.2 * bishops + 0.2 * checks,
+      evidence: [evidence("KING_CENTRIC", "edge king", edge), evidence("ATTACK_GEOMETRY", "heavy-piece pressure", rooks), evidence("ATTACK_GEOMETRY", "bishop support", bishops)]
     },
     PILLSBURY: {
       score: 0.3 * blockers + 0.3 * rooks + 0.25 * checks + 0.15 * knights,
       evidence: [evidence("KING_CENTRIC", "restricted king mobility", blockers), evidence("ATTACK_GEOMETRY", "heavy-piece pressure", rooks), evidence("TACTICAL_SIGNAL", "check pressure", checks)]
     },
-    ARABIAN: {
-      score: 0.35 * edge + 0.3 * corner + 0.2 * knights + 0.15 * rooks,
-      evidence: [evidence("KING_CENTRIC", "corner or edge king", Math.max(edge, corner)), evidence("ATTACK_GEOMETRY", "nearby knight", knights), evidence("ATTACK_GEOMETRY", "nearby rook or queen", rooks)]
-    },
     SMOTHERED: {
       score: 0.35 * corner + 0.35 * blockers + 0.2 * knights + 0.1 * checks,
       evidence: [evidence("KING_CENTRIC", "corner king", corner), evidence("KING_CENTRIC", "friendly blockers", blockers), evidence("ATTACK_GEOMETRY", "nearby knight", knights)]
     },
-    BACK_RANK: {
-      score: 0.4 * edge + 0.35 * blockers + 0.2 * rooks + 0.05 * checks,
-      evidence: [evidence("KING_CENTRIC", "back-rank king", edge), evidence("KING_CENTRIC", "friendly blockers", blockers), evidence("ATTACK_GEOMETRY", "heavy-piece pressure", rooks)]
+    SWALLOWTAIL: {
+      score: 0.35 * blockers + 0.25 * bishops + 0.2 * rooks + 0.2 * checks,
+      evidence: [evidence("KING_CENTRIC", "restricted king mobility", blockers), evidence("ATTACK_GEOMETRY", "bishop support", bishops), evidence("TACTICAL_SIGNAL", "check pressure", checks)]
+    },
+    TRIANGLE: {
+      score: 0.35 * corner + 0.3 * blockers + 0.2 * knights + 0.15 * checks,
+      evidence: [evidence("KING_CENTRIC", "corner geometry", corner), evidence("KING_CENTRIC", "friendly blockers", blockers), evidence("ATTACK_GEOMETRY", "knight support", knights)]
+    },
+    VUKOVIC: {
+      score: 0.3 * edge + 0.3 * rooks + 0.25 * knights + 0.15 * checks,
+      evidence: [evidence("KING_CENTRIC", "edge king", edge), evidence("ATTACK_GEOMETRY", "rook and knight geometry", Math.max(rooks, knights)), evidence("TACTICAL_SIGNAL", "check pressure", checks)]
     }
   };
   return scores[family];

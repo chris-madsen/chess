@@ -1,7 +1,7 @@
 import { runPatternSelectionExperiment, tracePatternLine, selectPatternLine } from "../src/wiring/index.ts";
 import { createChessJsRulesAdapter } from "../src/adapters/chessjs/chess-rules-adapter.ts";
 import { createInMemoryAnalysisCache } from "../src/adapters/cache/in-memory-analysis-cache.ts";
-import { assessPattern, makePatternLineOutcome, makePlyIndex, makeRequestId, makeScenarioHorizon, playerProvider, localStyleEngineProvider, isErr } from "../src/domain/index.ts";
+import { assessPattern, makePatternLineOutcome, makePlyIndex, makeRequestId, makeScenarioHorizon, playerProvider, localStyleEngineProvider, isErr, PATTERN_FAMILY_CATALOG } from "../src/domain/index.ts";
 
 const chess = createChessJsRulesAdapter();
 const startFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
@@ -22,8 +22,21 @@ test("symbolic PatternAssessment is deterministic and bounded", () => {
   expect(first).toEqual(second);
   expect(first.similarity).toBeGreaterThanOrEqual(0);
   expect(first.similarity).toBeLessThanOrEqual(1);
-  expect(first.modelVersion).toBe("symbolic-v1");
+  expect(first.modelVersion).toBe("symbolic-v2-named-core");
   expect(first.evidence.length).toBeGreaterThan(0);
+});
+
+test("Lichess mate catalog exposes and scores all 19 core families", () => {
+  expect(PATTERN_FAMILY_CATALOG).toHaveLength(19);
+  const position = mustOk(chess.ingestPosition(startFen));
+  const facts = mustOk(chess.computeFacts(position));
+  for (const definition of PATTERN_FAMILY_CATALOG) {
+    const assessment = assessPattern(position, facts, definition.id);
+    expect(assessment.family).toBe(definition.id);
+    expect(assessment.similarity).toBeGreaterThanOrEqual(0);
+    expect(assessment.similarity).toBeLessThanOrEqual(1);
+    expect(assessment.evidence.length).toBeGreaterThan(0);
+  }
 });
 
 test("background position identity does not require an exact historical FEN", () => {
@@ -45,7 +58,7 @@ test("selector uses prefix scores and has deterministic baseline tie-break", () 
     progress: similarity,
     state,
     evidence: [],
-    modelVersion: "symbolic-v1"
+    modelVersion: "symbolic-v2-named-core"
   });
   const baseline = { engineKey: "cstal-absurd", line: { start: position }, prefixAssessments: [assessment(0.4)], fullAssessments: [assessment(0.9)], terminalPosition: position };
   const alternative = { engineKey: "cstal-extreme", line: { start: position }, prefixAssessments: [assessment(0.7)], fullAssessments: [assessment(0.1)], terminalPosition: position };
@@ -73,7 +86,7 @@ test("beautiful forced combination requires all independent outcome parts", () =
     progress: 0.2,
     state: "mate_basin",
     evidence: [],
-    modelVersion: "symbolic-v1"
+    modelVersion: "symbolic-v2-named-core"
   };
   expect(makePatternLineOutcome({ assessments: [assessment], terminalMate: true, forcedMate: verified }).beautifulForcedCombination).toBe(true);
   expect(makePatternLineOutcome({ assessments: [assessment], terminalMate: true, forcedMate: { status: "UNAVAILABLE" } }).beautifulForcedCombination).toBe(false);
