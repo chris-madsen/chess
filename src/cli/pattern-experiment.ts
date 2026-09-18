@@ -23,6 +23,20 @@ const integerOption = (args: readonly string[], flag: string, fallback: number):
   return value;
 };
 
+const runRemoteCaseWithProgress = async <T>(caseId: string, run: () => Promise<T>): Promise<T> => {
+  const startedAt = Date.now();
+  process.stdout.write(`${caseId}: requesting Windows CSTal ABSURD/EXTREME + Maia lines...\n`);
+  const heartbeat = setInterval(() => {
+    const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
+    process.stdout.write(`${caseId}: waiting for remote SSE completion (${elapsedSeconds}s)...\n`);
+  }, 10_000);
+  try {
+    return await run();
+  } finally {
+    clearInterval(heartbeat);
+  }
+};
+
 const usage = `Usage:
   npm run pattern:experiment -- --dataset datasets/pattern-mvp.jsonl [options]
 
@@ -88,7 +102,7 @@ const main = async (): Promise<void> => {
       ? remoteConfig === undefined
         ? { tag: "Err" as const, error: domainError("PROVIDER_UNAVAILABLE", "remoteStyleApi", "Remote API configuration is unavailable") }
         : await (async () => {
-          const remoteLines = await fetchRemoteStylePaths(chess, experimentCase.position, experimentCase.horizon, remoteConfig.value);
+          const remoteLines = await runRemoteCaseWithProgress(experimentCase.caseId, () => fetchRemoteStylePaths(chess, experimentCase.position, experimentCase.horizon, remoteConfig.value));
           return isErr(remoteLines)
             ? remoteLines
             : await runPatternSelectionExperimentFromLines(chess, remoteLines.value, experimentCase, verifier, cache);
