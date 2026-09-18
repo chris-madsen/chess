@@ -1,5 +1,5 @@
 import { createChessJsRulesAdapter } from "../src/adapters/chessjs/chess-rules-adapter.ts";
-import { renderPatternReference, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "../src/cli/pattern-steering-render.ts";
+import { renderPatternDiscoveryStart, renderPatternReference, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "../src/cli/pattern-steering-render.ts";
 
 const chess = createChessJsRulesAdapter();
 
@@ -19,6 +19,12 @@ test("pattern steering renderer shows the live SAN line from the FEN start", () 
   });
   expect(rendered).toContain("## case-1 PatternSteeredTalPath status Complete");
   expect(rendered).toContain("35. Rd7+");
+});
+
+test("discovery start renderer immediately shows the raw PGN history", () => {
+  const position = chess.ingestRawGame("1. c4 Nf6 2. Nc3 g6 3. e4");
+  expect(position.tag).toBe("Ok");
+  expect(renderPatternDiscoveryStart("raw-game", position.value)).toContain("1. c4 Nf6 2. Nc3 g6 3. e4");
 });
 
 test("pattern steering renderer shows the selected mating pattern and affinity percentage", () => {

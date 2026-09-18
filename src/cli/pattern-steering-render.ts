@@ -3,6 +3,7 @@ import { MATE_PATTERN_SOURCE_CATALOG } from "../application/experiments/mate-pat
 import { PATTERN_FAMILY_CATALOG } from "../domain/patterns/pattern";
 import type { PatternFamilyId } from "../domain/patterns/pattern";
 import type { PatternTargetSession } from "../application/use-cases/pattern-target-branching";
+import type { PositionSnapshot } from "../domain/chess/position";
 
 const wrapMovetext = (text: string, width = 72): string => {
   const words = text.split(/\s+/u).filter(Boolean);
@@ -62,6 +63,20 @@ export const renderPatternSteeringLine = (caseId: string, line: ScenarioLine): s
   const header = `## ${caseId} PatternSteeredTalPath${pattern} status ${line.status}`;
   const movetext = formatSanMovetext(line);
   return `${header}\n${movetext.length === 0 ? "(no moves)" : movetext}\n\n`;
+};
+
+export const renderPatternDiscoveryStart = (caseId: string, position: PositionSnapshot): string => {
+  const preview: ScenarioLine = {
+    tag: "ScenarioLine",
+    mode: "HumanPath",
+    label: "PatternSteeredTalPath",
+    start: position,
+    horizon: 0 as ScenarioLine["horizon"],
+    plies: [],
+    status: "Incomplete"
+  };
+  const movetext = formatSanMovetext(preview);
+  return `## ${caseId} Pattern discovery status Running\n${movetext.length === 0 ? "(calculating first move...)" : movetext}\n\n`;
 };
 
 export const renderPatternReference = (line: ScenarioLine, minimumAffinityByFamily: ReadonlyMap<PatternFamilyId, number> = new Map()): string => {

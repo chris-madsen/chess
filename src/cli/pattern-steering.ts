@@ -8,7 +8,7 @@ import { isErr } from "../domain/shared/result";
 import { makeScenarioHorizon } from "../domain/chess/value-objects";
 import { createInMemoryAnalysisCache } from "../adapters/cache/in-memory-analysis-cache";
 import { createPatriciaCandidateGenerator, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, fetchRemotePatternSteeringBatch, generatePatternTargetSession, loadLocalEnginePaths, makeRemoteStylePathConfig } from "../wiring/index";
-import { renderPatternReference, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "./pattern-steering-render";
+import { renderPatternDiscoveryStart, renderPatternReference, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "./pattern-steering-render";
 import { defaultPatternHorizonMoves } from "./pattern-steering-options";
 
 const valueAfter = (args: readonly string[], flag: string): string | undefined => {
@@ -80,7 +80,7 @@ const main = async (): Promise<void> => {
       process.stdout.write(frame);
       renderedLineCount = text.replace(/\n$/u, "").split("\n").length;
     };
-    selected.forEach(item => process.stdout.write(`## ${item.caseId} Pattern discovery status Running\n(calculating first move...)\n\n`));
+    selected.forEach(item => process.stdout.write(renderPatternDiscoveryStart(item.caseId, item.position)));
     renderedLineCount = selected.length * 3;
     const remote = await fetchRemotePatternSteeringBatch(chess, selected.map(item => ({ caseId: item.caseId, position: item.position, ...("rawGame" in item && item.rawGame !== undefined ? { rawGame: item.rawGame } : {}) })), selected[0]?.horizon ?? cases!.value[0]!.horizon, config.value, concurrency, progress => {
       if (progress.caseId !== undefined && progress.line !== undefined) {
@@ -117,7 +117,7 @@ const main = async (): Promise<void> => {
         process.stdout.write(frame);
         renderedLineCount = text.replace(/\n$/u, "").split("\n").length;
       };
-      process.stdout.write(`## ${item.caseId} Pattern discovery status Running\n(calculating first move...)\n\n`);
+      process.stdout.write(renderPatternDiscoveryStart(item.caseId, item.position));
       renderedLineCount = 3;
       try {
         const session = await generatePatternTargetSession({
