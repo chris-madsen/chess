@@ -64,7 +64,7 @@ export const renderPatternSteeringLine = (caseId: string, line: ScenarioLine): s
   return `${header}\n${movetext.length === 0 ? "(no moves)" : movetext}\n\n`;
 };
 
-export const renderPatternReference = (line: ScenarioLine): string => {
+export const renderPatternReference = (line: ScenarioLine, minimumAffinityByFamily: ReadonlyMap<PatternFamilyId, number> = new Map()): string => {
   const maximumAffinityByFamily = new Map<PatternFamilyId, number>();
   for (const trace of line.decisionTraces ?? []) {
     const selected = trace.candidates.find(candidate => candidate.uci === trace.selectedUci);
@@ -72,6 +72,10 @@ export const renderPatternReference = (line: ScenarioLine): string => {
     const previous = maximumAffinityByFamily.get(selected.targetFamily) ?? 0;
     maximumAffinityByFamily.set(selected.targetFamily, Math.max(previous, selected.afterMaiaAffinity));
   }
+  minimumAffinityByFamily.forEach((affinity, family) => {
+    const previous = maximumAffinityByFamily.get(family) ?? 0;
+    maximumAffinityByFamily.set(family, Math.max(previous, affinity));
+  });
   const patterns = [...maximumAffinityByFamily.entries()]
     .map(([family, affinity]) => ({ family, affinity }))
     .sort((first, second) => second.affinity - first.affinity || first.family.localeCompare(second.family));
@@ -152,7 +156,7 @@ export const renderPatternTargetReferences = (caseId: string, session: PatternTa
       output.push("status: Incomplete", "reference unavailable because the target branch did not finish", "");
       continue;
     }
-    output.push(renderPatternReference(target.line));
+    output.push(renderPatternReference(target.line, new Map([[target.targetFamily, target.triggerAffinity]])));
   }
   output.push("########", "");
   return output.join("\n");

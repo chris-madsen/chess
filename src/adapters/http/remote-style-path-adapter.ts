@@ -163,7 +163,7 @@ const makeRemoteLine = (chess: ChessRulesPort, start: PositionSnapshot, horizon:
 };
 
 const makeRemoteSteeringSession = (chess: ChessRulesPort, start: PositionSnapshot, horizon: ScenarioHorizon, remote: RemoteSteeringSession, config: RemoteStylePathConfig): Result<Readonly<{ discovery: ScenarioLine; targets: readonly Readonly<{ targetFamily: PatternFamilyId; triggerPly: number; triggerAffinity: number; position: PositionSnapshot; prefixPlies: readonly import("../../domain/scenario-lines/scenario-line").ScenarioPly[]; line?: ScenarioLine }>[] }>, DomainError> => {
-  const discovery = makeRemoteLine(chess, start, horizon, { engineKey: "pattern-discovery", label: "PatternSteeredTalPath", status: remote.discovery.status, ...(remote.discovery.start === undefined ? {} : { start: remote.discovery.start }), plies: remote.discovery.plies, ...(remote.discovery.decisionTraces === undefined ? {} : { decisionTraces: remote.discovery.decisionTraces }), ...(remote.discovery.error === undefined ? {} : { error: remote.discovery.error }) }, config, "HumanPath");
+  const discovery = makeRemoteLine(chess, start, horizon, { engineKey: "pattern-discovery", label: "PatternSteeredTalPath", status: remote.discovery.status, plies: remote.discovery.plies, ...(remote.discovery.decisionTraces === undefined ? {} : { decisionTraces: remote.discovery.decisionTraces }), ...(remote.discovery.error === undefined ? {} : { error: remote.discovery.error }) }, config, "HumanPath");
   if (isErr(discovery)) return err(discovery.error);
   const targets = [];
   for (const [index, target] of remote.targets.entries()) {

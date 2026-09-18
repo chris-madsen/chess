@@ -123,16 +123,12 @@ const main = async (): Promise<void> => {
         const session = await generatePatternTargetSession({
           discovery: { chess, start: item.position, attackerSide: item.position.sideToMove, generator: discoveryProviders.generator, tacticalGate: discoveryProviders.tacticalGate, maia: discoveryProviders.providers.maia, lineId: `pattern-discovery-${item.caseId}`, horizon: item.horizon, cache: patternCache },
           runTarget: async ({ target, remainingHorizonPlies }, onProgress) => {
-            const branch = createSteering();
             try {
               const horizon = makeScenarioHorizon(remainingHorizonPlies);
               if (isErr(horizon)) return horizon;
-              return await generatePatternSteeredTalPath({ chess, start: target.position, attackerSide: target.position.sideToMove, generator: branch.generator, tacticalGate: branch.tacticalGate, maia: branch.providers.maia, lineId: `pattern-target-${item.caseId}-${target.targetFamily}`, horizon: horizon.value, cache: patternCache, targetFamily: target.targetFamily, onProgress });
-            } finally {
-              branch.generator.dispose?.();
-              branch.tacticalGate.dispose?.();
-              branch.providers.maia.dispose?.();
-              branch.providers.styleEngines.forEach(engine => engine.provideMove.dispose?.());
+              return await generatePatternSteeredTalPath({ chess, start: target.position, attackerSide: target.position.sideToMove, generator: discoveryProviders.generator, tacticalGate: discoveryProviders.tacticalGate, maia: discoveryProviders.providers.maia, lineId: `pattern-target-${item.caseId}-${target.targetFamily}`, horizon: horizon.value, cache: patternCache, targetFamily: target.targetFamily, onProgress });
+            } catch (error) {
+              return { tag: "Err" as const, error: { code: "PROVIDER_UNAVAILABLE" as const, path: `patternTarget.${item.caseId}.${target.targetFamily}`, message: error instanceof Error ? error.message : String(error) } };
             }
           },
           onProgress: current => renderLive(renderPatternTargetSession(item.caseId, current))

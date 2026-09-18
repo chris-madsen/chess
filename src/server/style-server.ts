@@ -829,8 +829,6 @@ export const createStyleLineJobServer = (
                   cache: patternCache
                 },
                 runTarget: async ({ target, remainingHorizonPlies }, onProgress) => {
-                  const branch = createSteering();
-                  if (branch === undefined) return { tag: "Err" as const, error: { code: "PROVIDER_UNAVAILABLE" as const, path: `patternBatch.${item.caseId}.target`, message: "Pattern target providers are not configured" } };
                   try {
                     const targetHorizon = makeScenarioHorizon(remainingHorizonPlies);
                     if (isErr(targetHorizon)) return targetHorizon;
@@ -838,17 +836,17 @@ export const createStyleLineJobServer = (
                       chess: queue.chess,
                       start: target.position,
                       attackerSide: target.position.sideToMove,
-                      generator: branch.generator,
-                      tacticalGate: branch.tacticalGate,
-                      maia: branch.maia,
+                      generator: steering.generator,
+                      tacticalGate: steering.tacticalGate,
+                      maia: steering.maia,
                       lineId: `pattern-target-${item.caseId}-${target.targetFamily}`,
                       horizon: targetHorizon.value,
                       cache: patternCache,
                       targetFamily: target.targetFamily,
                       onProgress
                     });
-                  } finally {
-                    branch.dispose?.();
+                  } catch (error) {
+                    return { tag: "Err" as const, error: { code: "PROVIDER_UNAVAILABLE" as const, path: `patternBatch.${item.caseId}.target`, message: error instanceof Error ? error.message : String(error) } };
                   }
                 },
                 onProgress: current => updateBatchSession(batch, item.caseId, current)
