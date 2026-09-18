@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import { randomUUID } from "node:crypto";
 import { createChessJsRulesAdapter } from "../adapters/chessjs/chess-rules-adapter";
@@ -1018,6 +1018,10 @@ export const startStyleServer = (configOverrides: Partial<ServerConfig> = {}): S
       if (listening) return;
       listening = true;
       process.stdout.write(`StylePath server listening on http://${config.host}:${config.port}\n`);
+      const readyFile = process.env.STYLE_SERVER_READY_FILE?.trim();
+      if (readyFile !== undefined && readyFile.length > 0) {
+        writeFileSync(readyFile, `${process.pid}\n`, "utf8");
+      }
     });
   };
   server.on("error", error => {
