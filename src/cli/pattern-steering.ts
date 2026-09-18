@@ -41,6 +41,22 @@ const selectSubset = <T extends { caseId: string }>(items: readonly T[], raw: st
   return [...items].sort((a, b) => a.caseId.localeCompare(b.caseId)).slice(0, limit);
 };
 
+const createLiveRenderer = (): { render: (text: string, final?: boolean) => void } => {
+  let rendered = false;
+  const tty = process.stdout.isTTY === true;
+  return {
+    render: (text, final = false) => {
+      if (!tty) {
+        if (!rendered || final) process.stdout.write(text);
+        rendered = true;
+        return;
+      }
+      process.stdout.write(rendered ? `\x1b[2J\x1b[H${text}` : text);
+      rendered = true;
+    }
+  };
+};
+
 const main = async (): Promise<void> => {
   const args = process.argv.slice(2);
   const datasetPath = valueAfter(args, "--dataset");
@@ -74,14 +90,10 @@ const main = async (): Promise<void> => {
     const config = makeRemoteStylePathConfig({ maia3Elo });
     if (isErr(config)) throw new Error(`${config.error.code}: ${config.error.message}`);
     const renderedLines = new Map<string, string>();
-    let renderedLineCount = 0;
-    const renderLive = (text: string): void => {
-      const frame = renderedLineCount === 0 ? text : `\x1b[${renderedLineCount}F\x1b[0J${text}`;
-      process.stdout.write(frame);
-      renderedLineCount = text.replace(/\n$/u, "").split("\n").length;
-    };
-    selected.forEach(item => process.stdout.write(renderPatternDiscoveryStart(item.caseId, item.position)));
-    renderedLineCount = selected.length * 3;
+    const liveRenderer = createLiveRenderer();
+    const renderLive = (text: string, final = false): void => liveRenderer.render(text, final);
+    selected.forEach(item => renderedLines.set(item.caseId, renderPatternDiscoveryStart(item.caseId, item.position)));
+    renderLive([...renderedLines.values()].join(""));
     const remote = await fetchRemotePatternSteeringBatch(chess, selected.map(item => ({ caseId: item.caseId, position: item.position, ...("rawGame" in item && item.rawGame !== undefined ? { rawGame: item.rawGame } : {}) })), selected[0]?.horizon ?? cases!.value[0]!.horizon, config.value, concurrency, progress => {
       if (progress.caseId !== undefined && progress.line !== undefined) {
         const rendered = progress.session === undefined
@@ -97,6 +109,10 @@ const main = async (): Promise<void> => {
     selected.forEach(item => {
       const line = remote.value[item.caseId];
       records.push({ type: "case", caseId: item.caseId, mode: "steering", line: line ?? null, ...(line?.targetSession === undefined ? {} : { targetSession: line.targetSession }) });
+    });
+    renderLive([...renderedLines.values()].join(""), true);
+    selected.forEach(item => {
+      const line = remote.value[item.caseId];
       if (line?.targetSession !== undefined) process.stdout.write(renderPatternTargetReferences(item.caseId, line.targetSession));
       else if (line !== undefined) process.stdout.write(renderPatternReference(line));
     });
@@ -111,14 +127,9 @@ const main = async (): Promise<void> => {
         return { providers, generator, tacticalGate };
       };
       const discoveryProviders = createSteering();
-      let renderedLineCount = 0;
-      const renderLive = (text: string): void => {
-        const frame = renderedLineCount === 0 ? text : `\x1b[${renderedLineCount}F\x1b[0J${text}`;
-        process.stdout.write(frame);
-        renderedLineCount = text.replace(/\n$/u, "").split("\n").length;
-      };
-      process.stdout.write(renderPatternDiscoveryStart(item.caseId, item.position));
-      renderedLineCount = 3;
+      const liveRenderer = createLiveRenderer();
+      const renderLive = (text: string, final = false): void => liveRenderer.render(text, final);
+      renderLive(renderPatternDiscoveryStart(item.caseId, item.position));
       try {
         const session = await generatePatternTargetSession({
           discovery: { chess, start: item.position, attackerSide: item.position.sideToMove, generator: discoveryProviders.generator, tacticalGate: discoveryProviders.tacticalGate, maia: discoveryProviders.providers.maia, lineId: `pattern-discovery-${item.caseId}`, horizon: item.horizon, cache: patternCache },
@@ -135,7 +146,7 @@ const main = async (): Promise<void> => {
         });
         if (isErr(session)) throw new Error(`${item.caseId}: ${session.error.code}: ${session.error.message}`);
         records.push({ type: "case", caseId: item.caseId, mode: "steering", discovery: session.value.discovery, targets: session.value.targets });
-        renderLive(renderPatternTargetSession(item.caseId, session.value));
+        renderLive(renderPatternTargetSession(item.caseId, session.value), true);
         process.stdout.write(renderPatternTargetReferences(item.caseId, session.value));
       } finally {
         discoveryProviders.generator.dispose?.();
