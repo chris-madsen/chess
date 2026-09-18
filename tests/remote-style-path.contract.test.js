@@ -124,6 +124,48 @@ test("remote Pattern steering adapter imports ScenarioPly provenance shape", asy
   }
 });
 
+test("remote Pattern steering preserves dynamic target sessions and branch prefixes", async () => {
+  const position = chess.ingestPosition(startFen);
+  expect(position.tag).toBe("Ok");
+  const horizon = makeScenarioHorizon(4);
+  expect(horizon.tag).toBe("Ok");
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async url => ({
+    ok: true,
+    status: 202,
+    json: async () => url.endsWith("/batches") ? { batchId: "batch-targets" } : undefined,
+    body: url.includes("/batches/batch-targets/events") ? new ReadableStream({
+      start(controller) {
+        const session = {
+          discovery: { status: "Complete", plies: [] },
+          targets: [{
+            targetFamily: "MORPHYS",
+            triggerPly: 1,
+            triggerAffinity: 0.97,
+            position: { fen: "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1" },
+            prefixPlies: [{ index: 1, move: { uci: "e2e4" }, provenance: { source: "LOCAL_STYLE_ENGINE", provider: { name: "cstal", displayName: "CSTal" }, requestId: "prefix-1", configuration: {} } }],
+            line: { status: "Terminal", targetFamily: "MORPHYS", plies: [{ index: 1, move: { uci: "e7e5" }, provenance: { source: "MAIA", provider: { name: "maia3", displayName: "Maia3" }, requestId: "target-1", configuration: {} } }] }
+          }]
+        };
+        controller.enqueue(new TextEncoder().encode(`event: complete\ndata: ${JSON.stringify({ batchId: "batch-targets", status: "complete", results: [{ caseId: "case-targets", status: "complete", steeringSession: session }] })}\n\n`));
+        controller.close();
+      }
+    }) : null
+  });
+  try {
+    const result = await fetchRemotePatternSteeringBatch(chess, [{ caseId: "case-targets", position: position.value }], horizon.value, {
+      baseUrl: "https://example.test", token: "test-token-1234567890", cstalOpponent: "maia3", maia3Elo: 1800, timeoutMs: 1000
+    }, 1);
+    expect(result.tag).toBe("Ok");
+    const session = result.value["case-targets"].targetSession;
+    expect(session?.targets[0]?.targetFamily).toBe("MORPHYS");
+    expect(session?.targets[0]?.prefixPlies[0]?.move.san).toBe("e4");
+    expect(session?.targets[0]?.line?.plies[0]?.move.san).toBe("e5");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("remote Pattern steering preserves the Windows provider error for a failed case", async () => {
   const position = chess.ingestPosition(startFen);
   expect(position.tag).toBe("Ok");

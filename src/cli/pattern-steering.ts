@@ -7,8 +7,8 @@ import { generatePatternSteeredTalPath } from "../application/use-cases/pattern-
 import { isErr } from "../domain/shared/result";
 import { makeScenarioHorizon } from "../domain/chess/value-objects";
 import { createInMemoryAnalysisCache } from "../adapters/cache/in-memory-analysis-cache";
-import { createPatriciaCandidateGenerator, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, fetchRemotePatternSteeringBatch, loadLocalEnginePaths, makeRemoteStylePathConfig } from "../wiring/index";
-import { renderPatternReference, renderPatternSteeringLine } from "./pattern-steering-render";
+import { createPatriciaCandidateGenerator, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, fetchRemotePatternSteeringBatch, generatePatternTargetSession, loadLocalEnginePaths, makeRemoteStylePathConfig } from "../wiring/index";
+import { renderPatternReference, renderPatternSteeringLine, renderPatternTargetSession } from "./pattern-steering-render";
 import { defaultPatternHorizonMoves } from "./pattern-steering-options";
 
 const valueAfter = (args: readonly string[], flag: string): string | undefined => {
@@ -86,7 +86,9 @@ const main = async (): Promise<void> => {
     };
     const remote = await fetchRemotePatternSteeringBatch(chess, selected.map(item => ({ caseId: item.caseId, position: item.position, ...("rawGame" in item && item.rawGame !== undefined ? { rawGame: item.rawGame } : {}) })), selected[0]?.horizon ?? cases!.value[0]!.horizon, config.value, concurrency, progress => {
       if (progress.caseId !== undefined && progress.line !== undefined) {
-        const rendered = renderPatternSteeringLine(progress.caseId, progress.line);
+        const rendered = progress.session === undefined
+          ? renderPatternSteeringLine(progress.caseId, progress.line)
+          : renderPatternTargetSession(progress.caseId, progress.session);
         if (renderedLines.get(progress.caseId) !== rendered) {
           renderedLines.set(progress.caseId, rendered);
           renderLive([...renderedLines.values()].join(""));
@@ -96,29 +98,48 @@ const main = async (): Promise<void> => {
     if (isErr(remote)) throw new Error(`${remote.error.code}: ${remote.error.message}`);
     selected.forEach(item => {
       const line = remote.value[item.caseId];
-      records.push({ type: "case", caseId: item.caseId, mode: "steering", line: line ?? null });
-      if (line !== undefined) process.stdout.write(renderPatternReference(line));
+      records.push({ type: "case", caseId: item.caseId, mode: "steering", line: line ?? null, ...(line?.targetSession === undefined ? {} : { targetSession: line.targetSession }) });
+      if (line?.targetSession !== undefined) process.stdout.write(renderPatternTargetSession(item.caseId, line.targetSession));
+      else if (line !== undefined) process.stdout.write(renderPatternReference(line));
     });
   } else {
     const paths = loadLocalEnginePaths();
     for (const item of selected) {
-      const providers = createWindowsCstalStylePathProviders(chess, paths, { opponent: "maia3", maia3Elo });
-      const patricia = paths.patriciaPath === undefined ? undefined : createPatriciaCandidateGenerator(chess, paths, 8);
-      const generator = createWindowsCstalPatternCandidateGenerator(chess, paths, { opponent: "maia3", maia3Elo }, 8, patricia);
-      const tacticalGate = createWindowsCstalTacticalGate(chess, paths, { opponent: "maia3", maia3Elo });
-      let line;
+      const createSteering = () => {
+        const providers = createWindowsCstalStylePathProviders(chess, paths, { opponent: "maia3", maia3Elo });
+        const patricia = paths.patriciaPath === undefined ? undefined : createPatriciaCandidateGenerator(chess, paths, 8);
+        const generator = createWindowsCstalPatternCandidateGenerator(chess, paths, { opponent: "maia3", maia3Elo }, 8, patricia);
+        const tacticalGate = createWindowsCstalTacticalGate(chess, paths, { opponent: "maia3", maia3Elo });
+        return { providers, generator, tacticalGate };
+      };
+      const discoveryProviders = createSteering();
       try {
-        line = await generatePatternSteeredTalPath({ chess, start: item.position, attackerSide: item.position.sideToMove, generator, tacticalGate, maia: providers.maia, lineId: `pattern-steering-${item.caseId}`, horizon: item.horizon, cache: patternCache });
+        const session = await generatePatternTargetSession({
+          discovery: { chess, start: item.position, attackerSide: item.position.sideToMove, generator: discoveryProviders.generator, tacticalGate: discoveryProviders.tacticalGate, maia: discoveryProviders.providers.maia, lineId: `pattern-discovery-${item.caseId}`, horizon: item.horizon, cache: patternCache },
+          runTarget: async ({ target, remainingHorizonPlies }, onProgress) => {
+            const branch = createSteering();
+            try {
+              const horizon = makeScenarioHorizon(remainingHorizonPlies);
+              if (isErr(horizon)) return horizon;
+              return await generatePatternSteeredTalPath({ chess, start: target.position, attackerSide: target.position.sideToMove, generator: branch.generator, tacticalGate: branch.tacticalGate, maia: branch.providers.maia, lineId: `pattern-target-${item.caseId}-${target.targetFamily}`, horizon: horizon.value, cache: patternCache, targetFamily: target.targetFamily, onProgress });
+            } finally {
+              branch.generator.dispose?.();
+              branch.tacticalGate.dispose?.();
+              branch.providers.maia.dispose?.();
+              branch.providers.styleEngines.forEach(engine => engine.provideMove.dispose?.());
+            }
+          },
+          onProgress: current => process.stdout.write(renderPatternTargetSession(item.caseId, current))
+        });
+        if (isErr(session)) throw new Error(`${item.caseId}: ${session.error.code}: ${session.error.message}`);
+        records.push({ type: "case", caseId: item.caseId, mode: "steering", discovery: session.value.discovery, targets: session.value.targets });
+        process.stdout.write(renderPatternTargetSession(item.caseId, session.value));
       } finally {
-        generator.dispose?.();
-        tacticalGate.dispose?.();
-        providers.maia.dispose?.();
-        providers.styleEngines.forEach(engine => engine.provideMove.dispose?.());
+        discoveryProviders.generator.dispose?.();
+        discoveryProviders.tacticalGate.dispose?.();
+        discoveryProviders.providers.maia.dispose?.();
+        discoveryProviders.providers.styleEngines.forEach(engine => engine.provideMove.dispose?.());
       }
-      if (isErr(line)) throw new Error(`${item.caseId}: ${line.error.code}: ${line.error.message}`);
-      records.push({ type: "case", caseId: item.caseId, mode: "steering", line: line.value });
-      process.stdout.write(`${item.caseId}: ${line.value.status}, plies=${line.value.plies.length}\n`);
-      process.stdout.write(renderPatternReference(line.value));
     }
   }
   mkdirSync(dirname(output), { recursive: true });

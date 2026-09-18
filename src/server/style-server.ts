@@ -18,6 +18,7 @@ import type { DomainError } from "../domain/shared/errors";
 import { isErr, type Result } from "../domain/shared/result";
 import { createPatriciaCandidateGenerator, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, loadLocalEnginePaths, type WindowsCstalOpponent } from "../wiring/local-style-engines";
 import { generatePatternSteeredTalPath } from "../application/use-cases/pattern-steered-tal-path";
+import { generatePatternTargetSession } from "../application/use-cases/pattern-target-branching";
 import { createInMemoryAnalysisCache } from "../adapters/cache/in-memory-analysis-cache";
 
 type JobStatus = "queued" | "running" | "complete" | "error" | "cancelled";
@@ -136,7 +137,7 @@ type PatternBatch = {
   createdAt: string;
   total: number;
   completed: number;
-  results: Array<Readonly<{ caseId: string; status: JobStatus; snapshot?: JobSnapshot; steeringLine?: unknown; error?: DomainError }>>;
+  results: Array<Readonly<{ caseId: string; status: JobStatus; snapshot?: JobSnapshot; steeringLine?: unknown; steeringSession?: unknown; error?: DomainError }>>;
   subscribers: Set<ServerResponse>;
   events: Array<Readonly<{ type: "started" | "progress" | "complete"; data: unknown }>>;
   finalEmitted: boolean;
@@ -773,8 +774,8 @@ export const createStyleLineJobServer = (
     if (index < 0) batch.results.push(result);
     else batch.results[index] = result;
   };
-  const updateBatchLine = (batch: PatternBatch, caseId: string, steeringLine: unknown): void => {
-    setBatchResult(batch, caseId, { caseId, status: "running", steeringLine });
+  const updateBatchSession = (batch: PatternBatch, caseId: string, steeringSession: unknown): void => {
+    setBatchResult(batch, caseId, { caseId, status: "running", steeringSession });
     emitBatch(batch, "progress");
   };
   const runBatch = async (batch: PatternBatch, request: Readonly<{ cases: readonly PatternBatchCase[]; concurrency: number; common: Omit<PatternBatchRequest, "cases" | "datasetVersion" | "concurrency"> }>): Promise<void> => {
@@ -793,10 +794,11 @@ export const createStyleLineJobServer = (
             emitBatch(batch, "progress");
             continue;
           }
-          const steering = resolvedPorts.createPatternSteering?.(queue.chess, {
+          const createSteering = (): PatternSteeringProviders | undefined => resolvedPorts.createPatternSteering?.(queue.chess, {
             opponent: request.common.cstalOpponent ?? "maia3",
             maia3Elo: request.common.maia3Elo ?? 1800
           });
+          const steering = createSteering();
           if (steering === undefined) {
             batch.results.push({ caseId: item.caseId, status: "error", error: { code: "PROVIDER_UNAVAILABLE", path: "patternBatch.steering", message: "Pattern steering providers are not configured" } });
             batch.completed += 1;
@@ -811,30 +813,55 @@ export const createStyleLineJobServer = (
             emitBatch(batch, "progress");
             continue;
           }
-          let line;
+          let session;
           try {
-            line = await Promise.race([
-              generatePatternSteeredTalPath({
-                chess: queue.chess,
-                start: start.value,
-                attackerSide: start.value.sideToMove,
-                generator: steering.generator,
-                tacticalGate: steering.tacticalGate,
-                maia: steering.maia,
-                lineId: `pattern-steering-${item.caseId}`,
-                horizon: horizon.value,
-                cache: patternCache,
-                onProgress: steeringLine => updateBatchLine(batch, item.caseId, steeringLine)
+            session = await Promise.race([
+              generatePatternTargetSession({
+                discovery: {
+                  chess: queue.chess,
+                  start: start.value,
+                  attackerSide: start.value.sideToMove,
+                  generator: steering.generator,
+                  tacticalGate: steering.tacticalGate,
+                  maia: steering.maia,
+                  lineId: `pattern-discovery-${item.caseId}`,
+                  horizon: horizon.value,
+                  cache: patternCache
+                },
+                runTarget: async ({ target, remainingHorizonPlies }, onProgress) => {
+                  const branch = createSteering();
+                  if (branch === undefined) return { tag: "Err" as const, error: { code: "PROVIDER_UNAVAILABLE" as const, path: `patternBatch.${item.caseId}.target`, message: "Pattern target providers are not configured" } };
+                  try {
+                    const targetHorizon = makeScenarioHorizon(remainingHorizonPlies);
+                    if (isErr(targetHorizon)) return targetHorizon;
+                    return await generatePatternSteeredTalPath({
+                      chess: queue.chess,
+                      start: target.position,
+                      attackerSide: target.position.sideToMove,
+                      generator: branch.generator,
+                      tacticalGate: branch.tacticalGate,
+                      maia: branch.maia,
+                      lineId: `pattern-target-${item.caseId}-${target.targetFamily}`,
+                      horizon: targetHorizon.value,
+                      cache: patternCache,
+                      targetFamily: target.targetFamily,
+                      onProgress
+                    });
+                  } finally {
+                    branch.dispose?.();
+                  }
+                },
+                onProgress: current => updateBatchSession(batch, item.caseId, current)
               }),
               sleep(request.common.timeoutMs ?? 300_000).then(() => ({ tag: "Err" as const, error: { code: "PROVIDER_TIMEOUT" as const, path: `patternBatch.${item.caseId}`, message: "Pattern steering case timed out" } }))
             ]);
           } finally {
             steering.dispose?.();
           }
-          if (line.tag === "Err") {
-            setBatchResult(batch, item.caseId, { caseId: item.caseId, status: "error", error: line.error });
+          if (session.tag === "Err") {
+            setBatchResult(batch, item.caseId, { caseId: item.caseId, status: "error", error: session.error });
           } else {
-            setBatchResult(batch, item.caseId, { caseId: item.caseId, status: line.value.status === "Incomplete" ? "error" : "complete", steeringLine: line.value, ...(line.value.error === undefined ? {} : { error: line.value.error }) });
+            setBatchResult(batch, item.caseId, { caseId: item.caseId, status: session.value.targets.some(target => target.line?.status === "Incomplete") ? "error" : "complete", steeringSession: session.value, steeringLine: session.value.discovery });
           }
           batch.completed += 1;
           emitBatch(batch, "progress");

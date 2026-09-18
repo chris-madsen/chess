@@ -1,0 +1,5 @@
+- [x] Add fixed target family to iterative steering and line metadata.
+- [x] Add bounded target selection and CLI rendering for multiple live lines.
+- [x] Carry the target through the remote batch request and Windows worker.
+- [x] Add contract tests for fixed target selection, line isolation, and threshold rendering.
+- [x] Run lint, typecheck, and contract tests.

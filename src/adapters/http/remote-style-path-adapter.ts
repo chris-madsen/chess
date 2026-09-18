@@ -5,6 +5,8 @@ import type { PositionSnapshot } from "../../domain/chess/position";
 import { makePlyIndex, makeRequestId, makeScenarioHorizon, type ScenarioHorizon } from "../../domain/chess/value-objects";
 import type { MoveSource, ProviderIdentity } from "../../domain/provenance/provenance";
 import type { ScenarioLine, ScenarioLineStatus } from "../../domain/scenario-lines/scenario-line";
+import type { PatternTargetSession } from "../../application/use-cases/pattern-target-branching";
+import { isPatternFamilyId, type PatternFamilyId } from "../../domain/patterns/pattern";
 import { domainError, type DomainError } from "../../domain/shared/errors";
 import { err, isErr, ok, type Result } from "../../domain/shared/result";
 
@@ -30,11 +32,14 @@ type RemotePly = Readonly<{
   inputPositionHash?: string;
   configuration?: Readonly<Record<string, unknown>>;
 }>;
-type RemoteLine = Readonly<{ engineKey: string; label: string; status: string; styleDepth?: number; plies: readonly RemotePly[]; decisionTraces?: NonNullable<ScenarioLine["decisionTraces"]>; error?: DomainError }>;
+type RemoteLine = Readonly<{ engineKey: string; label: string; status: string; start?: unknown; targetFamily?: unknown; styleDepth?: number; plies: readonly RemotePly[]; decisionTraces?: NonNullable<ScenarioLine["decisionTraces"]>; error?: DomainError }>;
 type RemoteJobSnapshot = Readonly<{ jobId: string; status: string; lines: readonly RemoteLine[] }>;
-type RemoteSteeringLine = Readonly<{ status: string; start?: unknown; horizon?: unknown; plies: readonly RemotePly[]; decisionTraces?: NonNullable<ScenarioLine["decisionTraces"]>; error?: DomainError }>;
-type RemoteBatchResult = Readonly<{ caseId: string; status: string; snapshot?: RemoteJobSnapshot; steeringLine?: RemoteSteeringLine; error?: DomainError }>;
+type RemoteSteeringLine = Readonly<{ status: string; start?: unknown; horizon?: unknown; targetFamily?: unknown; plies: readonly RemotePly[]; decisionTraces?: NonNullable<ScenarioLine["decisionTraces"]>; error?: DomainError }>;
+type RemoteSteeringTarget = Readonly<{ targetFamily: string; triggerPly: number; triggerAffinity: number; position?: unknown; prefixPlies: readonly RemotePly[]; line?: RemoteSteeringLine }>;
+type RemoteSteeringSession = Readonly<{ discovery: RemoteSteeringLine; targets: readonly RemoteSteeringTarget[] }>;
+type RemoteBatchResult = Readonly<{ caseId: string; status: string; snapshot?: RemoteJobSnapshot; steeringLine?: RemoteSteeringLine; steeringSession?: RemoteSteeringSession; error?: DomainError }>;
 type RemoteBatchSnapshot = Readonly<{ batchId: string; status: string; completed?: number; results: readonly RemoteBatchResult[] }>;
+export type RemotePatternSteeringLine = ScenarioLine & Readonly<{ targetSession?: PatternTargetSession }>;
 
 const base64Utf8 = (value: string): string => Buffer.from(value, "utf8").toString("base64");
 
@@ -99,18 +104,24 @@ const remoteConfiguration = (ply: RemotePly): Readonly<Record<string, unknown>> 
     : {};
 };
 
-const makeRemoteLine = (chess: ChessRulesPort, start: PositionSnapshot, horizon: ScenarioHorizon, remote: RemoteLine, config: RemoteStylePathConfig): Result<StylePathLineResult, DomainError> => {
+const positionFromRemote = (chess: ChessRulesPort, fallback: PositionSnapshot, value: unknown, path: string): Result<PositionSnapshot, DomainError> => {
+  if (value === undefined || value === null || typeof value !== "object" || typeof (value as { fen?: unknown }).fen !== "string") return ok(fallback);
+  const parsed = chess.ingestPosition((value as { fen: string }).fen);
+  return isErr(parsed) ? err(domainError("INVALID_FEN", path, "Remote API returned an invalid branch start position", { cause: parsed.error })) : parsed;
+};
+
+const makeRemotePlies = (chess: ChessRulesPort, start: PositionSnapshot, remotePlies: readonly RemotePly[], config: RemoteStylePathConfig, pathPrefix: string): Result<readonly import("../../domain/scenario-lines/scenario-line").ScenarioPly[], DomainError> => {
   let current = start;
   const plies = [];
-  for (const [offset, remotePly] of remote.plies.entries()) {
+  for (const [offset, remotePly] of remotePlies.entries()) {
     const source = sourceFor(remoteSource(remotePly) ?? "");
-    if (source === undefined) return responseError(`remoteStyleApi.${remote.engineKey}.plies.${offset}.source`, "Remote API returned an unsupported provenance source", { source: remoteSource(remotePly) });
+    if (source === undefined) return responseError(`${pathPrefix}.plies.${offset}.source`, "Remote API returned an unsupported provenance source", { source: remoteSource(remotePly) });
     const uci = remoteUci(remotePly);
-    if (uci === undefined) return responseError(`remoteStyleApi.${remote.engineKey}.plies.${offset}.move`, "Remote API returned a ply without a UCI move");
+    if (uci === undefined) return responseError(`${pathPrefix}.plies.${offset}.move`, "Remote API returned a ply without a UCI move");
     const provider = remoteProvider(remotePly);
-    if (provider === undefined) return responseError(`remoteStyleApi.${remote.engineKey}.plies.${offset}.provider`, "Remote API returned a ply without provider provenance");
+    if (provider === undefined) return responseError(`${pathPrefix}.plies.${offset}.provider`, "Remote API returned a ply without provider provenance");
     const move = chess.parseLegalMove(current, uci);
-    if (isErr(move)) return err(domainError("PROVIDER_ILLEGAL_MOVE", `remoteStyleApi.${remote.engineKey}.plies.${offset}.move`, "Remote API returned an illegal move", { uci, cause: move.error }));
+    if (isErr(move)) return err(domainError("PROVIDER_ILLEGAL_MOVE", `${pathPrefix}.plies.${offset}.move`, "Remote API returned an illegal move", { uci, cause: move.error }));
     plies.push({
       tag: "ScenarioPly" as const,
       index: makePlyIndex(remotePly.index > 0 ? remotePly.index : offset + 1),
@@ -119,7 +130,7 @@ const makeRemoteLine = (chess: ChessRulesPort, start: PositionSnapshot, horizon:
         source,
         provider: providerIdentity(provider),
         status: "IMPORTED" as const,
-        requestId: makeRequestId(remoteRequestId(remotePly) ?? `remote-${remote.engineKey}-${offset + 1}`),
+        requestId: makeRequestId(remoteRequestId(remotePly) ?? `remote-${pathPrefix}-${offset + 1}`),
         inputPositionHash: current.hash,
         configuration: { remoteApiBaseUrl: config.baseUrl, ...remoteConfiguration(remotePly) }
       }
@@ -128,18 +139,48 @@ const makeRemoteLine = (chess: ChessRulesPort, start: PositionSnapshot, horizon:
     if (isErr(next)) return err(next.error);
     current = next.value;
   }
+  return ok(plies);
+};
+
+const makeRemoteLine = (chess: ChessRulesPort, start: PositionSnapshot, horizon: ScenarioHorizon, remote: RemoteLine, config: RemoteStylePathConfig, mode: ScenarioLine["mode"] = "StylePath"): Result<StylePathLineResult, DomainError> => {
+  const resolvedStart = positionFromRemote(chess, start, remote.start, `remoteStyleApi.${remote.engineKey}.start`);
+  if (isErr(resolvedStart)) return err(resolvedStart.error);
+  const parsedPlies = makeRemotePlies(chess, resolvedStart.value, remote.plies, config, `remoteStyleApi.${remote.engineKey}`);
+  if (isErr(parsedPlies)) return err(parsedPlies.error);
   const line: ScenarioLine = {
     tag: "ScenarioLine",
-    mode: "StylePath",
+    mode,
     label: remote.label,
-    start,
+    start: resolvedStart.value,
     horizon,
-    plies,
+    plies: parsedPlies.value,
     status: statusFor(remote.status),
+    ...(isPatternFamilyId(String(remote.targetFamily ?? "")) ? { targetFamily: String(remote.targetFamily) as PatternFamilyId } : {}),
     ...(remote.decisionTraces === undefined ? {} : { decisionTraces: remote.decisionTraces }),
     ...(remote.error === undefined ? {} : { error: remote.error })
   };
   return ok({ engineKey: remote.engineKey, line, ...(remote.styleDepth === undefined ? {} : { styleDepth: remote.styleDepth }) });
+};
+
+const makeRemoteSteeringSession = (chess: ChessRulesPort, start: PositionSnapshot, horizon: ScenarioHorizon, remote: RemoteSteeringSession, config: RemoteStylePathConfig): Result<Readonly<{ discovery: ScenarioLine; targets: readonly Readonly<{ targetFamily: PatternFamilyId; triggerPly: number; triggerAffinity: number; position: PositionSnapshot; prefixPlies: readonly import("../../domain/scenario-lines/scenario-line").ScenarioPly[]; line?: ScenarioLine }>[] }>, DomainError> => {
+  const discovery = makeRemoteLine(chess, start, horizon, { engineKey: "pattern-discovery", label: "PatternSteeredTalPath", status: remote.discovery.status, ...(remote.discovery.start === undefined ? {} : { start: remote.discovery.start }), plies: remote.discovery.plies, ...(remote.discovery.decisionTraces === undefined ? {} : { decisionTraces: remote.discovery.decisionTraces }), ...(remote.discovery.error === undefined ? {} : { error: remote.discovery.error }) }, config, "HumanPath");
+  if (isErr(discovery)) return err(discovery.error);
+  const targets = [];
+  for (const [index, target] of remote.targets.entries()) {
+    if (!isPatternFamilyId(target.targetFamily)) return responseError(`remotePatternSteering.targets.${index}.targetFamily`, "Remote API returned an unsupported target family");
+    const branchStart = positionFromRemote(chess, start, target.position, `remotePatternSteering.targets.${index}.position`);
+    if (isErr(branchStart)) return err(branchStart.error);
+    const prefix = makeRemotePlies(chess, start, target.prefixPlies, config, `remotePatternSteering.targets.${index}.prefix`);
+    if (isErr(prefix)) return err(prefix.error);
+    let line: ScenarioLine | undefined;
+    if (target.line !== undefined) {
+      const parsed = makeRemoteLine(chess, branchStart.value, horizon, { engineKey: `pattern-target-${target.targetFamily}`, label: `Target ${target.targetFamily}`, status: target.line.status, ...(target.line.start === undefined ? {} : { start: target.line.start }), targetFamily: target.targetFamily, plies: target.line.plies, ...(target.line.decisionTraces === undefined ? {} : { decisionTraces: target.line.decisionTraces }), ...(target.line.error === undefined ? {} : { error: target.line.error }) }, config, "HumanPath");
+      if (isErr(parsed)) return err(parsed.error);
+      line = parsed.value.line;
+    }
+    targets.push({ targetFamily: target.targetFamily, triggerPly: target.triggerPly, triggerAffinity: target.triggerAffinity, position: branchStart.value, prefixPlies: prefix.value, ...(line === undefined ? {} : { line }) });
+  }
+  return ok({ discovery: discovery.value.line, targets });
 };
 
 const parseSseSnapshots = async (response: Response, onSnapshot?: (snapshot: unknown) => void): Promise<readonly unknown[]> => {
@@ -272,8 +313,8 @@ export const fetchRemotePatternSteeringBatch = async (
   horizon: ScenarioHorizon,
   config: RemoteStylePathConfig,
   concurrency = 2,
-  onProgress?: (progress: Readonly<{ status: string; completed: number; total: number; caseId?: string; line?: ScenarioLine }>) => void
-): Promise<Result<Readonly<Record<string, ScenarioLine>>, DomainError>> => {
+  onProgress?: (progress: Readonly<{ status: string; completed: number; total: number; caseId?: string; line?: RemotePatternSteeringLine; session?: PatternTargetSession }>) => void
+): Promise<Result<Readonly<Record<string, RemotePatternSteeringLine>>, DomainError>> => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.timeoutMs * Math.max(1, cases.length));
   try {
@@ -292,16 +333,23 @@ export const fetchRemotePatternSteeringBatch = async (
       onProgress?.({ status: snapshot.status, completed, total: cases.length });
       for (const item of snapshot.results) {
         const source = cases.find(candidate => candidate.caseId === item.caseId);
-        if (source === undefined || item.steeringLine === undefined) continue;
+        if (source === undefined || (item.steeringLine === undefined && item.steeringSession === undefined)) continue;
         const normalized = makeScenarioHorizon(Number(horizon));
         if (isErr(normalized)) continue;
-        const remoteLine: RemoteLine = { engineKey: "pattern-steered-tal", label: "PatternSteeredTalPath", status: item.steeringLine.status, plies: item.steeringLine.plies, ...(item.steeringLine.decisionTraces === undefined ? {} : { decisionTraces: item.steeringLine.decisionTraces }), ...(item.steeringLine.error === undefined ? {} : { error: item.steeringLine.error }) };
+        if (item.steeringSession !== undefined) {
+          const session = makeRemoteSteeringSession(chess, source.position, normalized.value, item.steeringSession, config);
+          if (!isErr(session)) onProgress?.({ status: snapshot.status, completed, total: cases.length, caseId: item.caseId, line: { ...session.value.discovery, targetSession: session.value }, session: session.value });
+          continue;
+        }
+        const steeringLine = item.steeringLine;
+        if (steeringLine === undefined) continue;
+        const remoteLine: RemoteLine = { engineKey: "pattern-steered-tal", label: "PatternSteeredTalPath", status: steeringLine.status, ...(steeringLine.start === undefined ? {} : { start: steeringLine.start }), plies: steeringLine.plies, ...(steeringLine.decisionTraces === undefined ? {} : { decisionTraces: steeringLine.decisionTraces }), ...(steeringLine.error === undefined ? {} : { error: steeringLine.error }) };
         const lineResult = makeRemoteLine(chess, source.position, normalized.value, remoteLine, config);
         if (!isErr(lineResult)) onProgress?.({ status: snapshot.status, completed, total: cases.length, caseId: item.caseId, line: lineResult.value.line });
       }
     })).filter(isRemoteBatchSnapshot).at(-1);
     if (final === undefined) return responseError("remotePatternSteering.events", "Remote Pattern steering batch returned no final snapshot");
-    const result: Record<string, ScenarioLine> = {};
+    const result: Record<string, RemotePatternSteeringLine> = {};
     for (const item of final.results) {
       const source = cases.find(candidate => candidate.caseId === item.caseId);
       if (source === undefined) return responseError(`remotePatternSteering.batch.${item.caseId}`, "Remote steering returned an unknown case", { caseId: item.caseId });
@@ -311,10 +359,16 @@ export const fetchRemotePatternSteeringBatch = async (
           ...(item.error.details ?? {})
         }));
       }
-      if (item.steeringLine === undefined) return responseError(`remotePatternSteering.batch.${item.caseId}`, "Remote steering result is incomplete", { caseId: item.caseId, status: item.status });
+      if (item.steeringLine === undefined && item.steeringSession === undefined) return responseError(`remotePatternSteering.batch.${item.caseId}`, "Remote steering result is incomplete", { caseId: item.caseId, status: item.status });
       const normalized = makeScenarioHorizon(Number(horizon));
       if (isErr(normalized)) return err(normalized.error);
-      const remoteLine: RemoteLine = { engineKey: "pattern-steered-tal", label: "PatternSteeredTalPath", status: item.steeringLine.status, plies: item.steeringLine.plies, ...(item.steeringLine.decisionTraces === undefined ? {} : { decisionTraces: item.steeringLine.decisionTraces }), ...(item.steeringLine.error === undefined ? {} : { error: item.steeringLine.error }) };
+      if (item.steeringSession !== undefined) {
+        const session = makeRemoteSteeringSession(chess, source.position, normalized.value, item.steeringSession, config);
+        if (isErr(session)) return err(session.error);
+        result[item.caseId] = { ...session.value.discovery, targetSession: session.value };
+        continue;
+      }
+      const remoteLine: RemoteLine = { engineKey: "pattern-steered-tal", label: "PatternSteeredTalPath", status: item.steeringLine!.status, plies: item.steeringLine!.plies, ...(item.steeringLine!.decisionTraces === undefined ? {} : { decisionTraces: item.steeringLine!.decisionTraces }), ...(item.steeringLine!.error === undefined ? {} : { error: item.steeringLine!.error }) };
       const lineResult = makeRemoteLine(chess, source.position, normalized.value, remoteLine, config);
       if (isErr(lineResult)) return err(lineResult.error);
       result[item.caseId] = lineResult.value.line;

@@ -43,7 +43,13 @@ export type PatternSteeringDecision = Readonly<{
 
 const topScore = (assessments: readonly PatternAssessment[]): number => assessments[0]?.similarity ?? 0;
 const scoreFor = (assessments: readonly PatternAssessment[], family: PatternFamilyId): number => assessments.find(assessment => assessment.family === family)?.similarity ?? 0;
-const familyProgress = (before: readonly PatternAssessment[], after: readonly PatternAssessment[], postResponse: readonly PatternAssessment[]): Readonly<{ targetFamily: PatternFamilyId; beforeScore: number; afterCandidateScore: number; afterResponseScore: number; delta: number }> => {
+const familyProgress = (before: readonly PatternAssessment[], after: readonly PatternAssessment[], postResponse: readonly PatternAssessment[], requestedFamily?: PatternFamilyId): Readonly<{ targetFamily: PatternFamilyId; beforeScore: number; afterCandidateScore: number; afterResponseScore: number; delta: number }> => {
+  if (requestedFamily !== undefined) {
+    const beforeScore = scoreFor(before, requestedFamily);
+    const afterCandidateScore = scoreFor(after, requestedFamily);
+    const afterResponseScore = scoreFor(postResponse, requestedFamily);
+    return { targetFamily: requestedFamily, beforeScore, afterCandidateScore, afterResponseScore, delta: afterResponseScore - beforeScore };
+  }
   const families = [...new Set([...before, ...after, ...postResponse].map(assessment => assessment.family))];
   const best = families.map(family => ({ family, beforeScore: scoreFor(before, family), afterCandidateScore: scoreFor(after, family), afterResponseScore: scoreFor(postResponse, family) }))
     .map(candidate => ({ targetFamily: candidate.family, beforeScore: candidate.beforeScore, afterCandidateScore: candidate.afterCandidateScore, afterResponseScore: candidate.afterResponseScore, delta: candidate.afterResponseScore - candidate.beforeScore }))
@@ -84,7 +90,8 @@ export const evaluatePatternSteeringCandidates = async (
   lineId: string,
   limit = 8,
   includeMaiaResponse = true,
-  cache?: AnalysisCachePort
+  cache?: AnalysisCachePort,
+  targetFamily?: PatternFamilyId
 ): Promise<Result<PatternSteeringDecision, DomainError>> => {
   const facts = chess.computeFacts(position);
   if (isErr(facts)) return err(facts.error);
@@ -115,12 +122,12 @@ export const evaluatePatternSteeringCandidates = async (
     const afterContext = extractPatternPositionContext(after.value, afterFacts.value, analysis);
     const afterFamilies = await familiesFor(after.value, afterContext, cache);
     if (afterFacts.value.isTerminal) {
-      const progress = familyProgress(beforeFamilies, afterFamilies, afterFamilies);
+      const progress = familyProgress(beforeFamilies, afterFamilies, afterFamilies, targetFamily);
       evaluated.push({ seed, tactical: tacticalAssessment, afterPosition: after.value, beforeFamilies, afterFamilies, postResponseFamilies: afterFamilies, targetFamily: progress.targetFamily, beforeScore: progress.beforeScore, afterCandidateScore: progress.afterCandidateScore, afterResponseScore: progress.afterResponseScore, patternDelta: progress.delta, progress: progress.delta, terminalAfterCandidate: true });
       continue;
     }
     if (!includeMaiaResponse) {
-      const progress = familyProgress(beforeFamilies, afterFamilies, afterFamilies);
+      const progress = familyProgress(beforeFamilies, afterFamilies, afterFamilies, targetFamily);
       evaluated.push({ seed, tactical: tacticalAssessment, afterPosition: after.value, beforeFamilies, afterFamilies, postResponseFamilies: afterFamilies, targetFamily: progress.targetFamily, beforeScore: progress.beforeScore, afterCandidateScore: progress.afterCandidateScore, afterResponseScore: progress.afterResponseScore, patternDelta: progress.delta, progress: progress.delta });
       continue;
     }
@@ -135,7 +142,7 @@ export const evaluatePatternSteeringCandidates = async (
     if (isErr(responseFacts)) return err(responseFacts.error);
     const postResponseContext = extractPatternPositionContext(postResponse.value, responseFacts.value, analysis);
     const postResponseFamilies = await familiesFor(postResponse.value, postResponseContext, cache);
-    const progress = familyProgress(beforeFamilies, afterFamilies, postResponseFamilies);
+    const progress = familyProgress(beforeFamilies, afterFamilies, postResponseFamilies, targetFamily);
     evaluated.push({ seed, tactical: tacticalAssessment, afterPosition: after.value, responseMove: responseMove.value, responseProvenance: response.value.provenance, postResponsePosition: postResponse.value, beforeFamilies, afterFamilies, postResponseFamilies, targetFamily: progress.targetFamily, beforeScore: progress.beforeScore, afterCandidateScore: progress.afterCandidateScore, afterResponseScore: progress.afterResponseScore, patternDelta: progress.delta, progress: progress.delta });
   }
   const selected = selectPatternSteeringCandidate(evaluated);

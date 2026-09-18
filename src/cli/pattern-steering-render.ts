@@ -2,6 +2,7 @@ import type { ScenarioLine } from "../domain/scenario-lines/scenario-line";
 import { MATE_PATTERN_SOURCE_CATALOG } from "../application/experiments/mate-pattern-catalog";
 import { PATTERN_FAMILY_CATALOG } from "../domain/patterns/pattern";
 import type { PatternFamilyId } from "../domain/patterns/pattern";
+import type { PatternTargetSession } from "../application/use-cases/pattern-target-branching";
 
 const wrapMovetext = (text: string, width = 72): string => {
   const words = text.split(/\s+/u).filter(Boolean);
@@ -110,4 +111,31 @@ export const renderPatternReference = (line: ScenarioLine): string => {
     `Dataset case: ${reference.caseId}, rating ${reference.rating}`,
     "",
   ].join("\n");
+};
+
+const targetDisplayName = (family: PatternFamilyId): string => PATTERN_FAMILY_CATALOG.find(item => item.id === family)?.displayName ?? family;
+
+const combinedTargetLine = (session: PatternTargetSession, target: NonNullable<PatternTargetSession["targets"][number]>, line: ScenarioLine): ScenarioLine => ({
+  ...line,
+  start: session.discovery.start,
+  horizon: session.discovery.horizon,
+  plies: [...target.prefixPlies, ...line.plies]
+});
+
+export const renderPatternTargetSession = (caseId: string, session: PatternTargetSession): string => {
+  const output: string[] = [];
+  if (session.targets.length === 0) {
+    output.push("## Pattern discovery status", session.discovery.status, formatSanMovetext(session.discovery), "", "no target reached 97%", "\n");
+    return output.join("\n");
+  }
+  for (const target of session.targets) {
+    const line = target.line;
+    if (line === undefined) {
+      output.push(`## ${caseId} Target ${targetDisplayName(target.targetFamily)} (${target.targetFamily}) ${Math.round(target.triggerAffinity * 1000) / 10}% status Running`, "(branch starting)", "");
+      continue;
+    }
+    const combined = combinedTargetLine(session, target, line);
+    output.push(`## ${caseId} Target ${targetDisplayName(target.targetFamily)} (${target.targetFamily}) status ${line.status}`, formatSanMovetext(combined), "", renderPatternReference(line));
+  }
+  return `${output.join("\n")}\n`;
 };

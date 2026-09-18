@@ -9,6 +9,7 @@ import { err, isErr, ok, type Result } from "../../domain/shared/result";
 import { evaluatePatternSteeringCandidates } from "./pattern-steering";
 import type { PatternSteeringDecisionTrace } from "./pattern-steering";
 import type { AnalysisCachePort } from "../ports/analysis-cache";
+import type { PatternFamilyId } from "../../domain/patterns/pattern";
 
 export type PatternSteeredTalPathRequest = Readonly<{
   chess: ChessRulesPort;
@@ -22,6 +23,13 @@ export type PatternSteeredTalPathRequest = Readonly<{
   candidateLimit?: number;
   cache?: AnalysisCachePort;
   onProgress?: (line: ScenarioLine) => void;
+  targetFamily?: PatternFamilyId;
+  onTargetAffinity?: (event: Readonly<{
+    targetFamily: PatternFamilyId;
+    affinity: number;
+    position: import("../../domain/chess/position").PositionSnapshot;
+    prefixPlies: readonly ScenarioPly[];
+  }>) => void;
 }>;
 
 const terminalLine = (request: PatternSteeredTalPathRequest, plies: readonly ScenarioPly[], status: ScenarioLine["status"], error?: DomainError): ScenarioLine => ({
@@ -32,7 +40,8 @@ const terminalLine = (request: PatternSteeredTalPathRequest, plies: readonly Sce
   horizon: request.horizon,
   plies,
   status,
-  ...(error === undefined ? {} : { error })
+  ...(error === undefined ? {} : { error }),
+  ...(request.targetFamily === undefined ? {} : { targetFamily: request.targetFamily })
 });
 
 const progressLine = (request: PatternSteeredTalPathRequest, plies: readonly ScenarioPly[], decisionTraces: readonly PatternSteeringDecisionTrace[], status: ScenarioLine["status"] = "Incomplete"): ScenarioLine => ({
@@ -47,6 +56,12 @@ export const generatePatternSteeredTalPath = async (
   let current = request.start;
   const plies: ScenarioPly[] = [];
   const decisionTraces: PatternSteeringDecisionTrace[] = [];
+  const emitTargetAffinities = (selected: import("./pattern-steering").PatternSteeringCandidate, position: import("../../domain/chess/position").PositionSnapshot, prefixPlies: readonly ScenarioPly[]): void => {
+    if (request.targetFamily !== undefined) return;
+    selected.postResponseFamilies
+      .filter(assessment => assessment.similarity >= 0.97)
+      .forEach(assessment => request.onTargetAffinity?.({ targetFamily: assessment.family, affinity: assessment.similarity, position, prefixPlies }));
+  };
   let plyNumber = 1;
   while (plyNumber <= maxPlies) {
     const facts = request.chess.computeFacts(current);
@@ -54,7 +69,7 @@ export const generatePatternSteeredTalPath = async (
     if (facts.value.isTerminal) return ok(terminalLine(request, plies, "Terminal"));
     if (current.sideToMove === request.attackerSide) {
       const hasResponsePly = plyNumber + 1 <= maxPlies;
-      const decision = await evaluatePatternSteeringCandidates(request.chess, current, request.generator, request.tacticalGate, request.maia, request.lineId, request.candidateLimit ?? 8, hasResponsePly, request.cache);
+      const decision = await evaluatePatternSteeringCandidates(request.chess, current, request.generator, request.tacticalGate, request.maia, request.lineId, request.candidateLimit ?? 8, hasResponsePly, request.cache, request.targetFamily);
       if (isErr(decision)) return ok(terminalLine(request, plies, "Incomplete", decision.error));
       decisionTraces.push(decision.value.trace);
       const selected = decision.value.selected;
@@ -63,7 +78,10 @@ export const generatePatternSteeredTalPath = async (
       plyNumber += 1;
       const committedFacts = request.chess.computeFacts(selected.afterPosition);
       if (isErr(committedFacts)) return err(committedFacts.error);
-      if (committedFacts.value.isTerminal || selected.terminalAfterCandidate === true) return ok({ ...terminalLine(request, plies, "Terminal"), decisionTraces });
+      if (committedFacts.value.isTerminal || selected.terminalAfterCandidate === true) {
+        emitTargetAffinities(selected, selected.afterPosition, [...plies]);
+        return ok({ ...terminalLine(request, plies, "Terminal"), decisionTraces });
+      }
       if (plyNumber > maxPlies) break;
       if (selected.responseMove === undefined || selected.responseProvenance === undefined || selected.postResponsePosition === undefined) break;
       const responseFacts = request.chess.computeFacts(selected.afterPosition);
@@ -72,6 +90,7 @@ export const generatePatternSteeredTalPath = async (
       plies.push({ tag: "ScenarioPly", index: makePlyIndex(plyNumber), move: selected.responseMove, provenance: selected.responseProvenance });
       request.onProgress?.(progressLine(request, plies, decisionTraces));
       current = selected.postResponsePosition;
+      emitTargetAffinities(selected, current, [...plies]);
       plyNumber += 1;
       continue;
     }

@@ -17,6 +17,9 @@ export { assessPatternContext, patternMatcherFor, retrievePatternFamilies, retri
 export { recognizePatternCase, summarizePatternRecognition } from "../application/experiments/pattern-recognizer";
 export { evaluatePatternSteeringCandidates, selectPatternSteeringCandidate } from "../application/use-cases/pattern-steering";
 export { generatePatternSteeredTalPath } from "../application/use-cases/pattern-steered-tal-path";
+export { generatePatternTargetSession } from "../application/use-cases/pattern-target-branching";
+export { registerPatternTarget } from "../application/use-cases/pattern-target-branching";
+export type { PatternTargetBranch, PatternTargetSession, PatternTargetSessionRequest, PatternTargetBranchRequest, PatternTargetAffinityEvent } from "../application/use-cases/pattern-target-branching";
 export type { CandidateGenerator, CandidateGeneratorRequest } from "../application/ports/pattern-steering";
 export type { CandidateTacticalGate, EngineScore, TacticalCandidateAssessment } from "../application/ports/pattern-steering";
 export type { SteeredRollout } from "../application/ports/pattern-steering";

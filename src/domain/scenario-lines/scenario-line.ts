@@ -46,6 +46,7 @@ export type ScenarioLine = Readonly<{
   horizon: ScenarioHorizon;
   plies: readonly ScenarioPly[];
   status: ScenarioLineStatus;
+  targetFamily?: PatternFamilyId;
   decisionTraces?: readonly ScenarioDecisionTrace[];
   error?: DomainError;
 }>;
