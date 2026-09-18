@@ -41,12 +41,24 @@ const selectSubset = <T extends { caseId: string }>(items: readonly T[], raw: st
   return [...items].sort((a, b) => a.caseId.localeCompare(b.caseId)).slice(0, limit);
 };
 
+const ansiLiveOutputSupported = (): boolean => {
+  if (process.env.STYLE_PATTERN_ANSI === "1") return true;
+  if (process.env.STYLE_PATTERN_ANSI === "0" || process.env.NO_COLOR !== undefined) return false;
+  if (process.stdout.isTTY !== true) return false;
+  if (process.platform !== "win32") return true;
+  return process.env.WT_SESSION !== undefined
+    || process.env.ConEmuANSI === "ON"
+    || process.env.ANSICON !== undefined
+    || process.env.TERM_PROGRAM === "vscode"
+    || process.env.TERM_PROGRAM === "Windows_Terminal";
+};
+
 const createLiveRenderer = (): { render: (text: string, final?: boolean) => void } => {
   let rendered = false;
-  const tty = process.stdout.isTTY === true;
+  const ansi = ansiLiveOutputSupported();
   return {
     render: (text, final = false) => {
-      if (!tty) {
+      if (!ansi) {
         if (!rendered || final) process.stdout.write(text);
         rendered = true;
         return;
