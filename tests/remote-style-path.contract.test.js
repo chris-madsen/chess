@@ -1,5 +1,5 @@
 import { createChessJsRulesAdapter } from "../src/adapters/chessjs/chess-rules-adapter.ts";
-import { fetchRemoteStylePathBatch, fetchRemoteStylePaths } from "../src/wiring/index.ts";
+import { fetchRemotePatternSteeringBatch, fetchRemoteStylePathBatch, fetchRemoteStylePaths } from "../src/wiring/index.ts";
 import { makeScenarioHorizon } from "../src/domain/index.ts";
 
 const chess = createChessJsRulesAdapter();
@@ -77,6 +77,53 @@ test("remote Pattern batch adapter preserves case IDs and both lines", async () 
     expect(Object.keys(result.value)).toEqual(["case-a", "case-b"]);
     expect(result.value["case-a"]).toHaveLength(2);
     expect(result.value["case-a"][0].line.plies[0].provenance.status).toBe("IMPORTED");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("remote Pattern steering preserves the Windows provider error for a failed case", async () => {
+  const position = chess.ingestPosition(startFen);
+  expect(position.tag).toBe("Ok");
+  const horizon = makeScenarioHorizon(2);
+  expect(horizon.tag).toBe("Ok");
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async url => ({
+    ok: true,
+    status: 202,
+    json: async () => url.endsWith("/batches") ? { batchId: "batch-error" } : undefined,
+    body: url.includes("/batches/batch-error/events") ? new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(`event: complete\ndata: ${JSON.stringify({
+          batchId: "batch-error",
+          status: "incomplete",
+          results: [{
+            caseId: "case-error",
+            status: "error",
+            error: {
+              code: "PROVIDER_MALFORMED_OUTPUT",
+              path: "providers.cstal-absurd.searchmoves",
+              message: "UCI engine did not honor the requested searchmove",
+              details: { requested: "d2d4", returned: "e2e4" }
+            }
+          }]
+        })}\n\n`));
+        controller.close();
+      }
+    }) : null
+  });
+  try {
+    const result = await fetchRemotePatternSteeringBatch(chess, [{ caseId: "case-error", position: position.value }], horizon.value, {
+      baseUrl: "https://example.test",
+      token: "test-token-1234567890",
+      cstalOpponent: "maia3",
+      maia3Elo: 1800,
+      timeoutMs: 1000
+    });
+    expect(result.tag).toBe("Err");
+    expect(result.error.code).toBe("PROVIDER_MALFORMED_OUTPUT");
+    expect(result.error.path).toContain("case-error.providers.cstal-absurd.searchmoves");
+    expect(result.error.details).toMatchObject({ requested: "d2d4", returned: "e2e4" });
   } finally {
     globalThis.fetch = originalFetch;
   }

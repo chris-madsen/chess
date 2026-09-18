@@ -246,7 +246,14 @@ export const fetchRemotePatternSteeringBatch = async (
     const result: Record<string, ScenarioLine> = {};
     for (const item of final.results) {
       const source = cases.find(candidate => candidate.caseId === item.caseId);
-      if (source === undefined || item.steeringLine === undefined) return responseError(`remotePatternSteering.batch.${item.caseId}`, "Remote steering result is incomplete");
+      if (source === undefined) return responseError(`remotePatternSteering.batch.${item.caseId}`, "Remote steering returned an unknown case", { caseId: item.caseId });
+      if (item.error !== undefined) {
+        return err(domainError(item.error.code, `remotePatternSteering.batch.${item.caseId}.${item.error.path}`, item.error.message, {
+          caseId: item.caseId,
+          ...(item.error.details ?? {})
+        }));
+      }
+      if (item.steeringLine === undefined) return responseError(`remotePatternSteering.batch.${item.caseId}`, "Remote steering result is incomplete", { caseId: item.caseId, status: item.status });
       const normalized = makeScenarioHorizon(Number(horizon));
       if (isErr(normalized)) return err(normalized.error);
       const remoteLine: RemoteLine = { engineKey: "pattern-steered-tal", label: "PatternSteeredTalPath", status: item.steeringLine.status, plies: item.steeringLine.plies, ...(item.steeringLine.decisionTraces === undefined ? {} : { decisionTraces: item.steeringLine.decisionTraces }), ...(item.steeringLine.error === undefined ? {} : { error: item.steeringLine.error }) };
