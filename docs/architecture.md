@@ -63,6 +63,7 @@ src/
   domain/
     chess/                  # PositionSnapshot, LegalMove, notation parsing contracts
     analysis/               # AnalysisSession, CandidateSeed, ScenarioLine
+    cache/                   # Zobrist state identity and cache ADTs
     provenance/             # MoveProvenance, source types, completeness policy
     policy/                 # HumanPath sequencing, stop rules, safety policies
     result.ts               # Result and DomainError ADTs
@@ -78,6 +79,14 @@ src/
     llm/                    # CoachAssessment rendering adapter
   cli-or-ui/
 ```
+
+## Pattern Layer and state cache
+
+Pattern Intelligence is a separate bounded context above Scenario Analysis. It consumes legal, provenance-bearing StylePath lines and computes family-level similarity, PatternProgress, HumanReachability, and separately verified ForcedMate status. It does not import engines, HTTP, filesystem, or model-runtime types.
+
+The external cache uses a deterministic `ZobristPositionKey` for piece placement, side to move, castling rights, and en-passant state. Halfmove and history-sensitive information are carried in a separate `RuleContext`; they are not folded away by a board-only key. Cache namespaces distinguish position evaluation, Maia response, Pattern assessment, and rollout suffix values.
+
+Cache access is an application port. The first adapter is bounded in-memory storage; durable local and shared storage must remain replaceable adapters. Cache misses and cache failures never invent moves or provenance and may only trigger explicit recomputation/degraded output.
 
 ## Primary data flow
 

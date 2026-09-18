@@ -65,3 +65,19 @@ Aggregate: `ProviderRun`. Read model: provenance summaries.
 | `StartPuzzleAttempt`, `SubmitPuzzleMove`, `ClassifyPuzzleAttempt` | `PuzzleAttemptStarted`, `PuzzleMoveSubmitted`, `PuzzleAttemptClassified` | Checks/captures/threats before strategy prose | Puzzle goals differ from HumanPath coaching |
 
 Aggregate: `PuzzleAttempt`. Future context; no implementation in this increment.
+
+## Pattern Intelligence
+
+| Commands | Events | Policies | Hotspots |
+|---|---|---|---|
+| `AnalyzePatternLine`, `ScorePatternProgress`, `RerankCandidatePool`, `VerifyForcedMate` | `PatternAnalysisStarted`, `PatternAssessmentProduced`, `PatternProgressObserved`, `HumanReachabilityEstimated`, `ForcedMateVerified`, `PatternSteeringDisabled` | Pattern facts never replace legality/provenance; forced mate has precedence | Family definitions may overfit exact positions; verifier and scorer must stay separate |
+
+Aggregate: `PatternAssessment`. Value objects: `PatternFamily`, `PatternProgress`, `HumanReachability`, `MateVerification`.
+
+## Analysis Cache
+
+| Commands | Events | Policies | Hotspots |
+|---|---|---|---|
+| `LookupAnalysisState`, `StoreAnalysisState`, `ReuseRolloutSuffix` | `AnalysisCacheHit`, `AnalysisCacheMiss`, `PartialCacheReuse`, `RolloutSuffixReused`, `CacheEntryRejected` | Configuration fingerprints and rule/history context are mandatory; cache failure falls back to explicit recomputation | Stale provider settings, concurrent writers, and history-aware Maia semantics |
+
+Aggregate: `CacheEntry`. Value objects: `ZobristPositionKey`, `RuleContext`, `HistorySignature`, `AnalysisCacheKey`.

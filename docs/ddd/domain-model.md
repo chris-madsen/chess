@@ -15,6 +15,8 @@ This document defines the first anemic DDD model for Chess Trainer. Records carr
 | External Idea Probe | Observed first-move seeds from public bots | ExternalProbe |
 | Run Registry | Reproducibility and provenance metadata | ProviderRun |
 | Puzzle Training | Future tactics mode with forcing-move discipline | PuzzleAttempt |
+| Pattern Intelligence | Pattern families, progress, reachability, and mate precedence | PatternAssessment |
+| Analysis Cache | Reusable provider/pattern state and rollout suffixes | CacheEntry |
 
 ## Entities and aggregates
 
@@ -42,12 +44,23 @@ One bounded automated Lichess API game lifecycle to observe an external bot move
 
 Future aggregate for puzzle mode. It owns puzzle position, candidate answer sequence, tactical facts, and result classification.
 
+### PatternAssessment
+
+An immutable analysis result for one `PositionSnapshot` and `PatternFamily`. It owns similarity, progress, evidence, reachability context, model version, and the separate forced-mate status.
+
+### CacheEntry
+
+A versioned reusable value keyed by canonical position state, namespace, provider/model configuration, and policy version. It is not authoritative chess truth until its stored moves and provenance pass the same validation gates as fresh provider output.
+
 ## Value objects
 
 - `Fen`, `Pgn`, `SanMove`, `UciMove`.
 - `PositionHash`, `RunId`, `RequestId`.
 - `ProviderIdentity`, `ScenarioHorizon`, `PlyIndex`.
 - `MoveProvenance`, `LegalMove`, `PositionFacts`.
+- `ZobristPositionKey`, `RuleContext`, `HistorySignature`.
+- `PatternFamily`, `PatternProgress`, `HumanReachability`.
+- `AnalysisCacheKey`, `CacheEntry`.
 
 ## Domain services
 
@@ -57,6 +70,8 @@ Future aggregate for puzzle mode. It owns puzzle position, candidate answer sequ
 - `HumanPathPolicy`: computes expected source sequence.
 - `ScenarioLineService`: appends validated plies and stops on terminal/error states.
 - `ContractPolicy`: checks preconditions, postconditions, and invariants.
+- `PatternProgressPolicy`: scores structured progress without making legality decisions.
+- `CacheReusePolicy`: accepts only compatible exact or partial cache entries.
 
 ## Invariants
 
@@ -66,3 +81,5 @@ Future aggregate for puzzle mode. It owns puzzle position, candidate answer sequ
 - Maia and Stockfish sources are not interchangeable in HumanPath.
 - A Decision is not a PlatformCommand.
 - Provider failures produce explicit incomplete states, never invented moves.
+- Zobrist identity never replaces rule/history context.
+- Forced mate is separate from Pattern similarity and disables further beauty steering.

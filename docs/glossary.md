@@ -177,3 +177,27 @@ A mixed-source ScenarioLine mode for local engine-seeded analysis. From the fina
 ## RAW SAN game notation
 
 Plain game text containing SAN moves and move numbers, read from a text file and replayed from the initial chess position to obtain the final `PositionSnapshot` for analysis.
+
+## PatternFamily
+
+A family of geometrically and tactically related combinations or mating structures. It is not a single historical FEN and may tolerate irrelevant background differences.
+
+## PatternProgress
+
+The change in compatibility with a selected `PatternFamily` after a legal move or line segment. It is evidence for steering, not proof of a forced result.
+
+## HumanReachability
+
+An Elo-conditioned estimate that a Maia-modeled trajectory will enter or continue a PatternFamily corridor. It must remain distinct from objective best defense and forced mate.
+
+## ZobristPositionKey
+
+A deterministic transposition identity covering piece placement, side to move, castling rights, and en-passant state. It excludes halfmove and repetition history, which are carried separately as `RuleContext`.
+
+## Analysis Cache
+
+A versioned, configuration-aware store for reusable position evaluations, Maia responses, pattern assessments, or complete rollout suffixes. Cache data is never a source of invented moves and must retain enough metadata to validate reuse.
+
+## Forced Mate
+
+An objectively verified mating result. It has precedence over pattern similarity when deciding whether Pattern steering may continue.

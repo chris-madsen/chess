@@ -13,7 +13,10 @@ flowchart LR
   Scenario --> Registry[Run Registry Context]
   Engine --> Registry
   Probe --> Registry
-  Scenario --> Coaching
+Scenario --> Coaching
+Scenario --> Pattern[Pattern Intelligence]
+Pattern --> Cache[Analysis Cache]
+Pattern --> Engine
 ```
 
 ## Player Coaching Context
@@ -205,3 +208,45 @@ The shared kernel is intentionally small:
 - provenance requirements.
 
 Anything tied to a specific provider belongs outside the shared kernel.
+
+## Pattern Intelligence Context
+
+### Purpose
+
+Analyze StylePath trajectories as family-level combinations and mating structures without replacing the legal, provenance-bearing scenario line.
+
+### Owns
+
+- `PatternFamily` and structured pattern evidence;
+- `PatternProgress` and `HumanReachability`;
+- forced-mate precedence and mate-basin state;
+- candidate-pool ranking policy.
+
+### Invariants
+
+- Pattern facts never create or validate a move by themselves.
+- HumanReachability is not objective best defense.
+- A verified ForcedMate is stored separately and disables further beauty steering.
+- Pattern failures preserve the original StylePath line.
+
+## Analysis Cache Context
+
+### Purpose
+
+Reuse compatible engine, Maia, pattern, and rollout state across candidate histories and jobs.
+
+### Owns
+
+- `ZobristPositionKey` and `RuleContext` composition;
+- namespace/configuration/model-version cache keys;
+- exact and partial reuse policy;
+- cache hit/miss/rejection events.
+
+### Invariants
+
+- Piece placement, side to move, castling rights, and en-passant state form the Zobrist identity.
+- Halfmove and history context are retained separately.
+- Provider/model/policy configuration is part of cache compatibility.
+- Cache data never invents moves or provenance.
+
+The initial implementation uses a bounded in-memory adapter behind an application port. Durable local and shared storage remain replaceable adapters and must not leak into the domain.
