@@ -36,6 +36,8 @@ type RemoteSteeringLine = Readonly<{ status: string; start?: unknown; horizon?: 
 type RemoteBatchResult = Readonly<{ caseId: string; status: string; snapshot?: RemoteJobSnapshot; steeringLine?: RemoteSteeringLine; error?: DomainError }>;
 type RemoteBatchSnapshot = Readonly<{ batchId: string; status: string; results: readonly RemoteBatchResult[] }>;
 
+const base64Utf8 = (value: string): string => Buffer.from(value, "utf8").toString("base64");
+
 const tokenFromEnvironment = (): string | undefined => {
   const direct = process.env.CHESS_STYLE_API_TOKEN ?? process.env.CHESS_TRAINER_API_TOKEN;
   if (direct?.trim()) return direct.trim();
@@ -266,7 +268,7 @@ export const fetchRemoteStylePathBatch = async (
 
 export const fetchRemotePatternSteeringBatch = async (
   chess: ChessRulesPort,
-  cases: readonly Readonly<{ caseId: string; position: PositionSnapshot }>[],
+  cases: readonly Readonly<{ caseId: string; position: PositionSnapshot; rawGame?: string }>[],
   horizon: ScenarioHorizon,
   config: RemoteStylePathConfig,
   concurrency = 2,
@@ -278,7 +280,7 @@ export const fetchRemotePatternSteeringBatch = async (
     const response = await fetch(`${config.baseUrl}/v1/pattern-experiments/batches`, {
       method: "POST", signal: controller.signal,
       headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
-      body: JSON.stringify({ datasetVersion: "pattern-steering-runtime", mode: "steering", concurrency, cstalOpponent: config.cstalOpponent, maia3Elo: config.maia3Elo, maxFullMoves: Math.max(1, Math.floor(Number(horizon) / 2)), timeoutMs: config.timeoutMs, cases: cases.map(item => ({ caseId: item.caseId, fen: String(item.position.fen) })) })
+      body: JSON.stringify({ datasetVersion: "pattern-steering-runtime", mode: "steering", concurrency, cstalOpponent: config.cstalOpponent, maia3Elo: config.maia3Elo, maxFullMoves: Math.max(1, Math.floor(Number(horizon) / 2)), timeoutMs: config.timeoutMs, cases: cases.map(item => ({ caseId: item.caseId, fen: String(item.position.fen), ...(item.rawGame === undefined ? {} : { rawGameBase64: base64Utf8(item.rawGame) }) })) })
     });
     const created = await response.json().catch(() => undefined) as { batchId?: unknown } | undefined;
     if (!response.ok || typeof created?.batchId !== "string") return responseError("remotePatternSteering.createBatch", "Remote Pattern steering batch creation failed", { status: response.status });

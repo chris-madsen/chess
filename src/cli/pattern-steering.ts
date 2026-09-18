@@ -5,6 +5,7 @@ import { createChessJsRulesAdapter } from "../adapters/chessjs/chess-rules-adapt
 import { parsePatternDataset } from "../application/experiments/pattern-dataset";
 import { generatePatternSteeredTalPath } from "../application/use-cases/pattern-steered-tal-path";
 import { isErr } from "../domain/shared/result";
+import { makeScenarioHorizon } from "../domain/chess/value-objects";
 import { createInMemoryAnalysisCache } from "../adapters/cache/in-memory-analysis-cache";
 import { createPatriciaCandidateGenerator, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, fetchRemotePatternSteeringBatch, loadLocalEnginePaths, makeRemoteStylePathConfig } from "../wiring/index";
 import { renderPatternSteeringLine } from "./pattern-steering-render";
@@ -26,6 +27,7 @@ const usage = `Usage:
 Options:
   --provider <remote|local>    Windows batch API (default remote) or local Windows engines.
   --subset <n|all>             Number of deterministic cases, default 100.
+  --raw-file <path>             Analyze one PGN/raw SAN game and preserve its history.
   --maia3-elo <rating>         Maia3 Elo, default 1800.
   --concurrency <n>            Remote bounded workers, default 2.
   --out <path>                 JSONL artifact path.
@@ -41,13 +43,24 @@ const selectSubset = <T extends { caseId: string }>(items: readonly T[], raw: st
 const main = async (): Promise<void> => {
   const args = process.argv.slice(2);
   const datasetPath = valueAfter(args, "--dataset");
-  if (datasetPath === undefined || !existsSync(datasetPath)) throw new Error(`${usage}\nDataset file is required and must exist.`);
+  const rawFile = valueAfter(args, "--raw-file");
+  if (datasetPath === undefined && rawFile === undefined) throw new Error(`${usage}\nProvide --dataset or --raw-file.`);
+  if (datasetPath !== undefined && !existsSync(datasetPath)) throw new Error(`${usage}\nDataset file must exist.`);
+  if (rawFile !== undefined && !existsSync(rawFile)) throw new Error(`${usage}\nRaw file must exist.`);
   const provider = valueAfter(args, "--provider") ?? "remote";
   if (provider !== "remote" && provider !== "local") throw new Error("--provider must be remote or local");
   const horizonMoves = positive(args, "--horizon-full-moves", 8);
-  const cases = parsePatternDataset(createChessJsRulesAdapter(), readFileSync(datasetPath, "utf8"), horizonMoves, 8);
-  if (isErr(cases)) throw new Error(`${cases.error.code}: ${cases.error.message}`);
-  const selected = selectSubset(cases.value, valueAfter(args, "--subset") ?? "100");
+  const inputChess = createChessJsRulesAdapter();
+  const cases = datasetPath === undefined ? undefined : parsePatternDataset(inputChess, readFileSync(datasetPath, "utf8"), horizonMoves, 8);
+  if (cases !== undefined && isErr(cases)) throw new Error(`${cases.error.code}: ${cases.error.message}`);
+  const rawCase = rawFile === undefined ? undefined : (() => {
+    const position = inputChess.ingestRawGame(readFileSync(rawFile, "utf8"));
+    if (isErr(position)) throw new Error(`${position.error.code}: ${position.error.message}`);
+    const horizon = makeScenarioHorizon(horizonMoves * 2);
+    if (isErr(horizon)) throw new Error(`${horizon.error.code}: ${horizon.error.message}`);
+    return { caseId: "raw-game", position: position.value, horizon: horizon.value, rawGame: readFileSync(rawFile, "utf8") };
+  })();
+  const selected = rawCase === undefined ? selectSubset(cases!.value, valueAfter(args, "--subset") ?? "100") : [rawCase];
   if (selected.length === 0) throw new Error("Dataset contains no cases");
   const chess = createChessJsRulesAdapter();
   const maia3Elo = positive(args, "--maia3-elo", 1800);
@@ -61,7 +74,7 @@ const main = async (): Promise<void> => {
     if (isErr(config)) throw new Error(`${config.error.code}: ${config.error.message}`);
     process.stdout.write(`remote steering: submitted ${selected.length} cases, concurrency=${concurrency}; waiting for Windows Tal+Maia workers...\n`);
     const renderedLines = new Map<string, string>();
-    const remote = await fetchRemotePatternSteeringBatch(chess, selected.map(item => ({ caseId: item.caseId, position: item.position })), selected[0]?.horizon ?? cases.value[0]!.horizon, config.value, concurrency, progress => {
+    const remote = await fetchRemotePatternSteeringBatch(chess, selected.map(item => ({ caseId: item.caseId, position: item.position, ...("rawGame" in item && item.rawGame !== undefined ? { rawGame: item.rawGame } : {}) })), selected[0]?.horizon ?? cases!.value[0]!.horizon, config.value, concurrency, progress => {
       if (progress.caseId === undefined) {
         process.stdout.write(`remote steering: ${progress.completed}/${progress.total} completed, status=${progress.status}\n`);
       } else if (progress.line !== undefined) {
@@ -96,7 +109,7 @@ const main = async (): Promise<void> => {
     }
   }
   mkdirSync(dirname(output), { recursive: true });
-  writeFileSync(output, `${JSON.stringify({ type: "run", mode: "steering", provider, dataset: datasetPath, selectedCases: selected.length, concurrency })}\n${records.map(record => JSON.stringify(record)).join("\n")}\n`, "utf8");
+  writeFileSync(output, `${JSON.stringify({ type: "run", mode: "steering", provider, ...(datasetPath === undefined ? { rawFile } : { dataset: datasetPath }), selectedCases: selected.length, concurrency })}\n${records.map(record => JSON.stringify(record)).join("\n")}\n`, "utf8");
   process.stdout.write(`steering artifact=${output}\n`);
 };
 

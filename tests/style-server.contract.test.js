@@ -312,6 +312,41 @@ test("Pattern batch steering mode runs iterative Tal gate and Maia path", async 
   }
 });
 
+test("Pattern batch steering accepts raw PGN and preserves Maia history", async () => {
+  const { server, port } = await listen(createStyleLineJobServer({ token }, {
+    chess,
+    createPatternSteering: () => {
+      const providers = providersFor(() => "e2e4", () => "e7e5");
+      const engine = providers.styleEngines[0];
+      return {
+        generator: async request => {
+          const provided = await engine.provideMove(request);
+          if (provided.tag === "Err") return provided;
+          return { tag: "Ok", value: [{ tag: "CandidateSeed", move: provided.value.move, provenance: provided.value.provenance }] };
+        },
+        tacticalGate: async request => ({ tag: "Ok", value: request.candidates.map(seed => ({ seed, accepted: true, talScore: { kind: "centipawns", value: 100 } })) }),
+        maia: providers.maia,
+        dispose: () => undefined
+      };
+    }
+  }));
+  try {
+    const created = await requestJson(port, "POST", "/v1/pattern-experiments/batches", {
+      mode: "steering", concurrency: 1, maxFullMoves: 1,
+      cases: [{ caseId: "raw-steering", rawGameBase64: Buffer.from("1. d4 d5", "utf8").toString("base64") }]
+    });
+    expect(created.status).toBe(202);
+    const events = await collectBatchSse(port, created.body.batchId);
+    const complete = events.at(-1);
+    const line = complete.data.results[0].steeringLine;
+    expect(line.start.pgn).toBe("1. d4 d5");
+    expect(line.start.uciPosition.base).toBe("startpos");
+    expect(line.plies).toHaveLength(2);
+  } finally {
+    await close(server);
+  }
+});
+
 test("Style server cancels an unfinished job when a new job is posted", async () => {
   const never = new Promise(() => undefined);
   let providerBuilds = 0;

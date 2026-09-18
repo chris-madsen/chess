@@ -45,6 +45,13 @@ FEN-based benchmark positions, so their output starts at the case position. A
 raw PGN input keeps its full SAN prefix in `PositionSnapshot` and appends the
 generated continuation; the Maia UCI history remains in the position command.
 
+To steer the current game from a raw PGN/SAN file, use:
+
+```bash
+npm run pattern:experiment -- \
+  --raw-file game.txt --provider remote --maia3-elo 1800
+```
+
 The old line-selection benchmark is explicit:
 
 ```bash

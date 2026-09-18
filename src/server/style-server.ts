@@ -111,7 +111,7 @@ type JobEvent = Readonly<{
   data: JobSnapshot;
 }>;
 
-type PatternBatchCase = Readonly<{ caseId: string; fen: string }>;
+type PatternBatchCase = Readonly<{ caseId: string; fen?: string; rawGame?: string }>;
 type PatternBatchRequest = Readonly<{
   datasetVersion?: string;
   cases: readonly PatternBatchCase[];
@@ -777,7 +777,7 @@ export const createStyleLineJobServer = (
         const item = request.cases[index];
         if (item === undefined) return;
         if (request.common.mode === "steering") {
-          const start = queue.chess.ingestPosition(item.fen);
+          const start = item.rawGame === undefined ? queue.chess.ingestPosition(item.fen ?? "") : queue.chess.ingestRawGame(item.rawGame);
           if (isErr(start)) {
             batch.results.push({ caseId: item.caseId, status: "error", error: start.error });
             batch.completed += 1;
@@ -986,8 +986,14 @@ const normalizePatternBatchRequest = (body: unknown): Result<Readonly<{
   for (const [index, value] of data.cases.entries()) {
     if (value === null || typeof value !== "object" || Array.isArray(value)) return { tag: "Err", error: { code: "INVALID_MOVE_NOTATION", path: `body.cases.${index}`, message: "case must be an object" } };
     const item = value as Record<string, unknown>;
-    if (typeof item.caseId !== "string" || item.caseId.length === 0 || typeof item.fen !== "string" || item.fen.trim().length === 0) return { tag: "Err", error: { code: "INVALID_MOVE_NOTATION", path: `body.cases.${index}`, message: "caseId and fen are required" } };
-    cases.push({ caseId: item.caseId, fen: item.fen.trim() });
+    if (typeof item.caseId !== "string" || item.caseId.length === 0) return { tag: "Err", error: { code: "INVALID_MOVE_NOTATION", path: `body.cases.${index}.caseId`, message: "caseId is required" } };
+    const rawGame = typeof item.rawGameBase64 === "string" && item.rawGameBase64.length > 0
+      ? Buffer.from(item.rawGameBase64, "base64").toString("utf8")
+      : undefined;
+    const fen = typeof item.fen === "string" ? item.fen.trim() : undefined;
+    if (rawGame !== undefined && rawGame.trim().length === 0) return { tag: "Err", error: { code: "INVALID_RAW_GAME", path: `body.cases.${index}.rawGameBase64`, message: "decoded raw game is empty" } };
+    if (rawGame === undefined && (fen === undefined || fen.length === 0)) return { tag: "Err", error: { code: "INVALID_MOVE_NOTATION", path: `body.cases.${index}`, message: "caseId and either fen or rawGameBase64 are required" } };
+    cases.push({ caseId: item.caseId, ...(fen === undefined ? {} : { fen }), ...(rawGame === undefined ? {} : { rawGame }) });
   }
   const concurrency = integerInRange(data.concurrency, 2, 1, 4);
   if (concurrency === undefined) return { tag: "Err", error: { code: "INVALID_MOVE_NOTATION", path: "body.concurrency", message: "concurrency must be an integer between 1 and 4" } };
