@@ -45,7 +45,7 @@ const ansiLiveOutputSupported = (): boolean => {
   if (process.env.STYLE_PATTERN_ANSI === "1") return true;
   if (process.env.STYLE_PATTERN_ANSI === "0" || process.env.NO_COLOR !== undefined) return false;
   if (process.stdout.isTTY !== true) return false;
-  if (process.platform !== "win32") return process.env.TERM !== undefined && process.env.TERM !== "dumb";
+  if (process.platform !== "win32") return false;
   return process.env.WT_SESSION !== undefined
     || process.env.ConEmuANSI === "ON"
     || process.env.ANSICON !== undefined
