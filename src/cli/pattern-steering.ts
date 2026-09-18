@@ -8,7 +8,7 @@ import { isErr } from "../domain/shared/result";
 import { makeScenarioHorizon } from "../domain/chess/value-objects";
 import { createInMemoryAnalysisCache } from "../adapters/cache/in-memory-analysis-cache";
 import { createPatriciaCandidateGenerator, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, fetchRemotePatternSteeringBatch, generatePatternTargetSession, loadLocalEnginePaths, makeRemoteStylePathConfig } from "../wiring/index";
-import { renderPatternReference, renderPatternSteeringLine, renderPatternTargetSession } from "./pattern-steering-render";
+import { renderPatternReference, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "./pattern-steering-render";
 import { defaultPatternHorizonMoves } from "./pattern-steering-options";
 
 const valueAfter = (args: readonly string[], flag: string): string | undefined => {
@@ -76,14 +76,12 @@ const main = async (): Promise<void> => {
     const renderedLines = new Map<string, string>();
     let renderedLineCount = 0;
     const renderLive = (text: string): void => {
-      if (!process.stdout.isTTY) {
-        process.stdout.write(text);
-        return;
-      }
       const frame = renderedLineCount === 0 ? text : `\x1b[${renderedLineCount}F\x1b[0J${text}`;
       process.stdout.write(frame);
       renderedLineCount = text.replace(/\n$/u, "").split("\n").length;
     };
+    selected.forEach(item => process.stdout.write(`## ${item.caseId} Pattern discovery status Running\n(calculating first move...)\n\n`));
+    renderedLineCount = selected.length * 3;
     const remote = await fetchRemotePatternSteeringBatch(chess, selected.map(item => ({ caseId: item.caseId, position: item.position, ...("rawGame" in item && item.rawGame !== undefined ? { rawGame: item.rawGame } : {}) })), selected[0]?.horizon ?? cases!.value[0]!.horizon, config.value, concurrency, progress => {
       if (progress.caseId !== undefined && progress.line !== undefined) {
         const rendered = progress.session === undefined
@@ -99,7 +97,7 @@ const main = async (): Promise<void> => {
     selected.forEach(item => {
       const line = remote.value[item.caseId];
       records.push({ type: "case", caseId: item.caseId, mode: "steering", line: line ?? null, ...(line?.targetSession === undefined ? {} : { targetSession: line.targetSession }) });
-      if (line?.targetSession !== undefined) process.stdout.write(renderPatternTargetSession(item.caseId, line.targetSession));
+      if (line?.targetSession !== undefined) process.stdout.write(renderPatternTargetReferences(item.caseId, line.targetSession));
       else if (line !== undefined) process.stdout.write(renderPatternReference(line));
     });
   } else {
@@ -113,6 +111,14 @@ const main = async (): Promise<void> => {
         return { providers, generator, tacticalGate };
       };
       const discoveryProviders = createSteering();
+      let renderedLineCount = 0;
+      const renderLive = (text: string): void => {
+        const frame = renderedLineCount === 0 ? text : `\x1b[${renderedLineCount}F\x1b[0J${text}`;
+        process.stdout.write(frame);
+        renderedLineCount = text.replace(/\n$/u, "").split("\n").length;
+      };
+      process.stdout.write(`## ${item.caseId} Pattern discovery status Running\n(calculating first move...)\n\n`);
+      renderedLineCount = 3;
       try {
         const session = await generatePatternTargetSession({
           discovery: { chess, start: item.position, attackerSide: item.position.sideToMove, generator: discoveryProviders.generator, tacticalGate: discoveryProviders.tacticalGate, maia: discoveryProviders.providers.maia, lineId: `pattern-discovery-${item.caseId}`, horizon: item.horizon, cache: patternCache },
@@ -129,11 +135,12 @@ const main = async (): Promise<void> => {
               branch.providers.styleEngines.forEach(engine => engine.provideMove.dispose?.());
             }
           },
-          onProgress: current => process.stdout.write(renderPatternTargetSession(item.caseId, current))
+          onProgress: current => renderLive(renderPatternTargetSession(item.caseId, current))
         });
         if (isErr(session)) throw new Error(`${item.caseId}: ${session.error.code}: ${session.error.message}`);
         records.push({ type: "case", caseId: item.caseId, mode: "steering", discovery: session.value.discovery, targets: session.value.targets });
-        process.stdout.write(renderPatternTargetSession(item.caseId, session.value));
+        renderLive(renderPatternTargetSession(item.caseId, session.value));
+        process.stdout.write(renderPatternTargetReferences(item.caseId, session.value));
       } finally {
         discoveryProviders.generator.dispose?.();
         discoveryProviders.tacticalGate.dispose?.();

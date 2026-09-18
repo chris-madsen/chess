@@ -124,18 +124,36 @@ const combinedTargetLine = (session: PatternTargetSession, target: NonNullable<P
 
 export const renderPatternTargetSession = (caseId: string, session: PatternTargetSession): string => {
   const output: string[] = [];
-  if (session.targets.length === 0) {
-    output.push("## Pattern discovery status", session.discovery.status, formatSanMovetext(session.discovery), "", "no target reached 97%", "\n");
-    return output.join("\n");
-  }
+  output.push(`## ${caseId} Pattern discovery status ${session.discovery.status}`);
+  output.push(formatSanMovetext(session.discovery).length === 0 ? "(calculating first move...)" : formatSanMovetext(session.discovery));
+  output.push("");
   for (const target of session.targets) {
     const line = target.line;
     if (line === undefined) {
-      output.push(`## ${caseId} Target ${targetDisplayName(target.targetFamily)} (${target.targetFamily}) ${Math.round(target.triggerAffinity * 1000) / 10}% status Running`, "(branch starting)", "");
+      const prefixLine: ScenarioLine = { ...session.discovery, plies: target.prefixPlies, status: "Incomplete", targetFamily: target.targetFamily };
+      output.push(`## ${caseId} Target ${targetDisplayName(target.targetFamily)} (${target.targetFamily}) ${Math.round(target.triggerAffinity * 1000) / 10}% status Running`, formatSanMovetext(prefixLine), "");
       continue;
     }
     const combined = combinedTargetLine(session, target, line);
-    output.push(`## ${caseId} Target ${targetDisplayName(target.targetFamily)} (${target.targetFamily}) status ${line.status}`, formatSanMovetext(combined), "", renderPatternReference(line));
+    output.push(`## ${caseId} Target ${targetDisplayName(target.targetFamily)} (${target.targetFamily}) status ${line.status}`, formatSanMovetext(combined), "");
   }
   return `${output.join("\n")}\n`;
+};
+
+export const renderPatternTargetReferences = (caseId: string, session: PatternTargetSession): string => {
+  const output = ["", "########", `Pattern references for ${caseId}`, ""];
+  if (session.targets.length === 0) {
+    output.push("No target reached 97%.", "");
+    return `${output.join("\n")}########\n`;
+  }
+  for (const target of session.targets) {
+    output.push(`Target ${targetDisplayName(target.targetFamily)} (${target.targetFamily}), trigger affinity ${(target.triggerAffinity * 100).toFixed(1)}%`);
+    if (target.line === undefined) {
+      output.push("status: Incomplete", "reference unavailable because the target branch did not finish", "");
+      continue;
+    }
+    output.push(renderPatternReference(target.line));
+  }
+  output.push("########", "");
+  return output.join("\n");
 };

@@ -1,5 +1,5 @@
 import { createChessJsRulesAdapter } from "../src/adapters/chessjs/chess-rules-adapter.ts";
-import { renderPatternReference, renderPatternSteeringLine } from "../src/cli/pattern-steering-render.ts";
+import { renderPatternReference, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "../src/cli/pattern-steering-render.ts";
 
 const chess = createChessJsRulesAdapter();
 
@@ -118,6 +118,22 @@ test("pattern reference renderer merges repeated families by maximum affinity", 
   });
   expect(rendered).toContain("Patterns observed:\n1. Morphy's Mate (MORPHYS) 90.0%\n2. Epaulette Mate (EPAULETTE) 80.0%");
   expect(rendered.match(/MORPHYS/gu)).toHaveLength(2);
+});
+
+test("target session live renderer stays compact and defers references to final output", () => {
+  const position = chess.ingestPosition("4r3/1k6/pp3r2/1b2P2p/3R1p2/P1R2P2/1P4PP/6K1 w - - 0 35");
+  expect(position.tag).toBe("Ok");
+  const session = {
+    discovery: { tag: "ScenarioLine", mode: "HumanPath", label: "PatternSteeredTalPath", start: position.value, horizon: 2, plies: [], status: "Incomplete" },
+    targets: [{ targetFamily: "MORPHYS", triggerPly: 0, triggerAffinity: 0.97, position: position.value, prefixPlies: [] }]
+  };
+  const live = renderPatternTargetSession("case-live", session);
+  expect(live).toContain("Pattern discovery status Incomplete");
+  expect(live).toContain("Target Morphy's Mate (MORPHYS) 97% status Running");
+  expect(live).not.toContain("Reference PGN:");
+  const final = renderPatternTargetReferences("case-live", session);
+  expect(final).toContain("########");
+  expect(final).toContain("reference unavailable because the target branch did not finish");
 });
 
 test("pattern steering renderer preserves a raw PGN prefix before continuation", () => {
