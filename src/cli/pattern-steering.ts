@@ -9,6 +9,7 @@ import { makeScenarioHorizon } from "../domain/chess/value-objects";
 import { createInMemoryAnalysisCache } from "../adapters/cache/in-memory-analysis-cache";
 import { createPatriciaCandidateGenerator, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, fetchRemotePatternSteeringBatch, loadLocalEnginePaths, makeRemoteStylePathConfig } from "../wiring/index";
 import { renderPatternReference, renderPatternSteeringLine } from "./pattern-steering-render";
+import { defaultPatternHorizonMoves } from "./pattern-steering-options";
 
 const valueAfter = (args: readonly string[], flag: string): string | undefined => {
   const index = args.indexOf(flag);
@@ -27,7 +28,7 @@ const usage = `Usage:
 Options:
   --provider <remote|local>    Windows batch API (default remote) or local Windows engines.
   --subset <n|all>             Number of deterministic cases, default 100.
-  --raw-file <path>             Analyze one PGN/raw SAN game and preserve its history.
+  --raw-file <path>             Analyze one PGN/raw SAN game and preserve its history (default horizon: 80 full moves).
   --maia3-elo <rating>         Maia3 Elo, default 1800.
   --concurrency <n>            Remote bounded workers, default 2.
   --out <path>                 JSONL artifact path.
@@ -49,7 +50,7 @@ const main = async (): Promise<void> => {
   if (rawFile !== undefined && !existsSync(rawFile)) throw new Error(`${usage}\nRaw file must exist.`);
   const provider = valueAfter(args, "--provider") ?? "remote";
   if (provider !== "remote" && provider !== "local") throw new Error("--provider must be remote or local");
-  const horizonMoves = positive(args, "--horizon-full-moves", 8);
+  const horizonMoves = positive(args, "--horizon-full-moves", defaultPatternHorizonMoves(rawFile));
   const inputChess = createChessJsRulesAdapter();
   const cases = datasetPath === undefined ? undefined : parsePatternDataset(inputChess, readFileSync(datasetPath, "utf8"), horizonMoves, 8);
   if (cases !== undefined && isErr(cases)) throw new Error(`${cases.error.code}: ${cases.error.message}`);

@@ -52,6 +52,11 @@ npm run pattern:experiment -- \
   --raw-file game.txt --provider remote --maia3-elo 1800
 ```
 
+Raw-game steering defaults to an 80-full-move continuation so that a line can
+reach mate instead of stopping at the short dataset horizon. Use
+`--horizon-full-moves` to set a smaller or larger bounded guard explicitly.
+Dataset benchmark cases retain the default 8-full-move horizon.
+
 The old line-selection benchmark is explicit:
 
 ```bash
