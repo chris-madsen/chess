@@ -43,6 +43,22 @@ test("composed candidate pool takes Patricia-style roots before style-engine roo
   expect(result[0].provenance.provider.name).toBe("patricia-multipv");
 });
 
+test("mandatory CSTal candidates are reserved against Patricia starvation", async () => {
+  const make = (uci, name) => async request => {
+    const move = chess.parseLegalMove(request.position, uci);
+    return move.tag === "Err" ? move : { tag: "Ok", value: [{ tag: "CandidateSeed", move: move.value, provenance: {
+      source: "LOCAL_STYLE_ENGINE", provider: { name, displayName: name }, status: "ENGINE_GENERATED",
+      requestId: makeRequestId(`${name}-${request.lineId}`), inputPositionHash: request.position.hash, configuration: {}
+    } }] };
+  };
+  const result = mustOk(await composeCandidateGenerators(chess, [
+    { generator: make("e2e4", "patricia"), budget: 2 },
+    { generator: make("c2c4", "cstal-absurd"), budget: 1, mandatory: true },
+    { generator: make("d2d4", "cstal-extreme"), budget: 1, mandatory: true }
+  ])({ position: start, lineId: "mandatory", limit: 3 }));
+  expect(result.map(candidate => String(candidate.move.uci))).toEqual(["c2c4", "d2d4", "e2e4"]);
+});
+
 test("steered rollout delegates subsequent plies to HumanPath after selection", async () => {
   const maia = provider("e7e5", "MAIA", maiaProvider("test"));
   const stockfish = provider("g1f3", "STOCKFISH", stockfishProvider("test"));
@@ -108,4 +124,28 @@ test("PatternSteeredTalPath repeats Tal-gated attacker plies around Maia plies",
   expect(line.plies.map(ply => ply.provenance.source)).toEqual(["LOCAL_STYLE_ENGINE", "MAIA", "LOCAL_STYLE_ENGINE", "MAIA", "LOCAL_STYLE_ENGINE"]);
   expect(gateCalls).toBe(3);
   expect(maiaCalls).toBe(2);
+});
+
+test("checkmating candidate is terminal and never calls Maia", async () => {
+  const mateStart = mustOk(chess.ingestPosition("7k/5Q2/6K1/8/8/8/8/8 w - - 0 1"));
+  const line = mustOk(await generatePatternSteeredTalPath({
+    chess,
+    start: mateStart,
+    attackerSide: "white",
+    generator: async request => {
+      const move = chess.parseLegalMove(request.position, "f7e8");
+      if (move.tag === "Err") return move;
+      return { tag: "Ok", value: [{ tag: "CandidateSeed", move: move.value, provenance: {
+        source: "LOCAL_STYLE_ENGINE", provider: { name: "cstal-test", displayName: "CSTal test" }, status: "ENGINE_GENERATED",
+        requestId: makeRequestId("mate-candidate"), inputPositionHash: request.position.hash, configuration: {}
+      } }] };
+    },
+    tacticalGate: async request => ({ tag: "Ok", value: request.candidates.map(seed => ({ seed, accepted: true, talScore: { kind: "mate", value: 1, bound: "exact" } })) }),
+    maia: async () => ({ tag: "Err", error: { code: "PROVIDER_MALFORMED_OUTPUT", path: "test.maia", message: "Maia must not be called after mate" } }),
+    lineId: "mate-terminal",
+    horizon: 2
+  }));
+  expect(line.status).toBe("Terminal");
+  expect(line.plies).toHaveLength(1);
+  expect(line.plies[0].move.san).toBe("Qe8#");
 });

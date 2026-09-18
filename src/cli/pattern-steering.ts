@@ -5,6 +5,7 @@ import { createChessJsRulesAdapter } from "../adapters/chessjs/chess-rules-adapt
 import { parsePatternDataset } from "../application/experiments/pattern-dataset";
 import { generatePatternSteeredTalPath } from "../application/use-cases/pattern-steered-tal-path";
 import { isErr } from "../domain/shared/result";
+import { createInMemoryAnalysisCache } from "../adapters/cache/in-memory-analysis-cache";
 import { createPatriciaCandidateGenerator, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, fetchRemotePatternSteeringBatch, loadLocalEnginePaths, makeRemoteStylePathConfig } from "../wiring/index";
 
 const valueAfter = (args: readonly string[], flag: string): string | undefined => {
@@ -52,6 +53,7 @@ const main = async (): Promise<void> => {
   const concurrency = positive(args, "--concurrency", 2);
   const output = valueAfter(args, "--out") ?? `.local/pattern-steering-${Date.now()}.jsonl`;
   const records: unknown[] = [];
+  const patternCache = createInMemoryAnalysisCache();
 
   if (provider === "remote") {
     const config = makeRemoteStylePathConfig({ maia3Elo });
@@ -67,18 +69,17 @@ const main = async (): Promise<void> => {
     for (const item of selected) {
       const providers = createWindowsCstalStylePathProviders(chess, paths, { opponent: "maia3", maia3Elo });
       const patricia = paths.patriciaPath === undefined ? undefined : createPatriciaCandidateGenerator(chess, paths, 8);
-      const line = await generatePatternSteeredTalPath({
-        chess,
-        start: item.position,
-        attackerSide: item.position.sideToMove,
-        generator: createWindowsCstalPatternCandidateGenerator(chess, paths, { opponent: "maia3", maia3Elo }, 8, patricia),
-        tacticalGate: createWindowsCstalTacticalGate(chess, paths, { opponent: "maia3", maia3Elo }),
-        maia: providers.maia,
-        lineId: `pattern-steering-${item.caseId}`,
-        horizon: item.horizon
-      });
-      providers.maia.dispose?.();
-      providers.styleEngines.forEach(engine => engine.provideMove.dispose?.());
+      const generator = createWindowsCstalPatternCandidateGenerator(chess, paths, { opponent: "maia3", maia3Elo }, 8, patricia);
+      const tacticalGate = createWindowsCstalTacticalGate(chess, paths, { opponent: "maia3", maia3Elo });
+      let line;
+      try {
+        line = await generatePatternSteeredTalPath({ chess, start: item.position, attackerSide: item.position.sideToMove, generator, tacticalGate, maia: providers.maia, lineId: `pattern-steering-${item.caseId}`, horizon: item.horizon, cache: patternCache });
+      } finally {
+        generator.dispose?.();
+        tacticalGate.dispose?.();
+        providers.maia.dispose?.();
+        providers.styleEngines.forEach(engine => engine.provideMove.dispose?.());
+      }
       if (isErr(line)) throw new Error(`${item.caseId}: ${line.error.code}: ${line.error.message}`);
       records.push({ type: "case", caseId: item.caseId, mode: "steering", line: line.value });
       process.stdout.write(`${item.caseId}: ${line.value.status}, plies=${line.value.plies.length}\n`);

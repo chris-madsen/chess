@@ -1,5 +1,5 @@
 import { createChessJsRulesAdapter } from "../src/adapters/chessjs/chess-rules-adapter.ts";
-import { evaluatePatternSteeringCandidates } from "../src/wiring/index.ts";
+import { evaluatePatternSteeringCandidates, selectPatternSteeringCandidate } from "../src/wiring/index.ts";
 import { makeCandidateSeed } from "../src/domain/scenario-lines/candidate-seed.ts";
 import { makeRequestId, maiaProvider, playerProvider } from "../src/domain/index.ts";
 
@@ -91,4 +91,44 @@ test("Tal tactical veto removes a candidate before Pattern ranking", async () =>
   ));
   expect(result.candidates.map(candidate => String(candidate.seed.move.uci))).toEqual(["d2d4"]);
   expect(result.selected.tactical.accepted).toBe(true);
+});
+
+const steeringCandidate = (uci, afterResponseScore, patternDelta) => ({
+  seed: seedFor(uci, uci.length),
+  tactical: { seed: seedFor(uci, uci.length), accepted: true },
+  afterPosition: start,
+  beforeFamilies: [],
+  afterFamilies: [],
+  postResponseFamilies: [],
+  targetFamily: "ANASTASIA",
+  beforeScore: afterResponseScore - patternDelta,
+  afterCandidateScore: afterResponseScore,
+  afterResponseScore,
+  patternDelta,
+  progress: patternDelta
+});
+
+test("steering selects low-affinity attractor progress instead of requiring a display threshold", () => {
+  const selected = mustOk(selectPatternSteeringCandidate([
+    steeringCandidate("e2e4", 0.19, 0.11),
+    steeringCandidate("d2d4", 0.11, 0.03)
+  ]));
+  expect(selected.seed.move.uci).toBe("e2e4");
+  expect(selected.afterResponseScore).toBeLessThan(0.25);
+});
+
+test("steering primary policy prefers final affinity over raw delta", () => {
+  const selected = mustOk(selectPatternSteeringCandidate([
+    steeringCandidate("e2e4", 0.80, 0.10),
+    steeringCandidate("d2d4", 0.25, 0.20)
+  ]));
+  expect(selected.seed.move.uci).toBe("e2e4");
+});
+
+test("all negative attractor deltas still return the best Tal-safe candidate", () => {
+  const selected = mustOk(selectPatternSteeringCandidate([
+    steeringCandidate("e2e4", 0.18, -0.04),
+    steeringCandidate("d2d4", 0.16, -0.08)
+  ]));
+  expect(selected.seed.move.uci).toBe("e2e4");
 });

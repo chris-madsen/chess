@@ -3,6 +3,7 @@ import type { PositionSnapshot } from "../chess/position";
 import type { PlyIndex, ScenarioHorizon } from "../chess/value-objects";
 import type { MoveProvenance, MoveSource } from "../provenance/provenance";
 import type { DomainError } from "../shared/errors";
+import type { PatternFamilyId } from "../patterns/pattern";
 
 export type ScenarioMode = "HumanPath" | "RefutationPath" | "StylePath" | "PuzzleMode";
 export type ScenarioLineStatus = "Complete" | "Incomplete" | "Terminal" | "Failed";
@@ -20,6 +21,23 @@ export type ScenarioPly = Readonly<{
   provenance: MoveProvenance;
 }>;
 
+export type ScenarioDecisionTrace = Readonly<{
+  positionHash: string;
+  candidates: readonly Readonly<{
+    uci: string;
+    source: string;
+    talAccepted: boolean;
+    talScore?: Readonly<{ kind: "centipawns" | "mate"; value: number; bound?: "exact" | "lower" | "upper" }>;
+    targetFamily: PatternFamilyId;
+    beforeAffinity: number;
+    afterCandidateAffinity: number;
+    afterMaiaAffinity: number;
+    patternDelta: number;
+  }>[];
+  selectedUci: string;
+  maiaReply?: string;
+}>;
+
 export type ScenarioLine = Readonly<{
   tag: "ScenarioLine";
   mode: ScenarioMode;
@@ -28,6 +46,7 @@ export type ScenarioLine = Readonly<{
   horizon: ScenarioHorizon;
   plies: readonly ScenarioPly[];
   status: ScenarioLineStatus;
+  decisionTraces?: readonly ScenarioDecisionTrace[];
   error?: DomainError;
 }>;
 

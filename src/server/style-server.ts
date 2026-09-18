@@ -18,6 +18,7 @@ import type { DomainError } from "../domain/shared/errors";
 import { isErr, type Result } from "../domain/shared/result";
 import { createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, loadLocalEnginePaths, type WindowsCstalOpponent } from "../wiring/local-style-engines";
 import { generatePatternSteeredTalPath } from "../application/use-cases/pattern-steered-tal-path";
+import { createInMemoryAnalysisCache } from "../adapters/cache/in-memory-analysis-cache";
 
 type JobStatus = "queued" | "running" | "complete" | "error" | "cancelled";
 type JobEventType = "queued" | "started" | "progress" | "complete" | "error" | "cancelled";
@@ -721,16 +722,21 @@ export const createStyleLineJobServer = (
 ): Server => {
   const config = { ...defaultConfig(), ...configOverrides };
   const queue = new StyleJobQueue(config, ports);
+  const patternCache = createInMemoryAnalysisCache();
   const resolvedPorts: StyleServerPorts = {
     ...ports,
     createPatternSteering: ports.createPatternSteering ?? ((chess, options) => {
       const paths = loadLocalEnginePaths();
       const providers = createWindowsCstalStylePathProviders(chess, paths, options);
+      const generator = createWindowsCstalPatternCandidateGenerator(chess, paths, options, 8);
+      const tacticalGate = createWindowsCstalTacticalGate(chess, paths, options);
       return {
-        generator: createWindowsCstalPatternCandidateGenerator(chess, paths, options, 8),
-        tacticalGate: createWindowsCstalTacticalGate(chess, paths, options),
+        generator,
+        tacticalGate,
         maia: providers.maia,
         dispose: () => {
+          generator.dispose?.();
+          tacticalGate.dispose?.();
           providers.styleEngines.forEach(engine => engine.provideMove.dispose?.());
           providers.maia.dispose?.();
         }
@@ -795,18 +801,26 @@ export const createStyleLineJobServer = (
             emitBatch(batch, "progress");
             continue;
           }
-          const line = await generatePatternSteeredTalPath({
-            chess: queue.chess,
-            start: start.value,
-            attackerSide: start.value.sideToMove,
-            generator: steering.generator,
-            tacticalGate: steering.tacticalGate,
-            maia: steering.maia,
-            lineId: `pattern-steering-${item.caseId}`,
-            horizon: horizon.value
-          });
-          steering.dispose?.();
-          if (isErr(line)) {
+          let line;
+          try {
+            line = await Promise.race([
+              generatePatternSteeredTalPath({
+                chess: queue.chess,
+                start: start.value,
+                attackerSide: start.value.sideToMove,
+                generator: steering.generator,
+                tacticalGate: steering.tacticalGate,
+                maia: steering.maia,
+                lineId: `pattern-steering-${item.caseId}`,
+                horizon: horizon.value,
+                cache: patternCache
+              }),
+              sleep(request.common.timeoutMs ?? 300_000).then(() => ({ tag: "Err" as const, error: { code: "PROVIDER_TIMEOUT" as const, path: `patternBatch.${item.caseId}`, message: "Pattern steering case timed out" } }))
+            ]);
+          } finally {
+            steering.dispose?.();
+          }
+          if (line.tag === "Err") {
             batch.results.push({ caseId: item.caseId, status: "error", error: line.error });
           } else {
             batch.results.push({ caseId: item.caseId, status: line.value.status === "Incomplete" ? "error" : "complete", steeringLine: line.value, ...(line.value.error === undefined ? {} : { error: line.value.error }) });

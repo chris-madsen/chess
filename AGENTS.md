@@ -30,6 +30,8 @@ Before planning or editing code, read in order:
 - Pattern steering SHALL NOT override a CSTal/Tal tactical veto. Pattern similarity is an attractor signal only after a candidate passes the Tal tactical gate.
 - The production PatternSteeredTalPath repeats the attacker-side loop `CandidatePool -> TalGate -> PatternProgress -> commit`, with Maia responses on defender plies; Stockfish is not a substitute for Tal in this path.
 - The legacy post-hoc PatternSelectionExperiment and legacy `assessPattern` scorer are benchmark-only and SHALL NOT be used as the production runtime steering path.
+- The current MVP tactical policy is explicit: CSTal ABSURD is the unified safety judge for ABSURD, EXTREME, and exploration candidates; changing this requires a new policy/configuration version.
+- Pattern taxonomy distinguishes steerable active families from catalog-only families; catalog-only labels must not silently enter production attractor selection.
 
 ## Architecture rules
 

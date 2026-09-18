@@ -17,9 +17,9 @@ export type RemoteStylePathConfig = Readonly<{
 }>;
 
 type RemotePly = Readonly<{ index: number; uci: string; san: string; source: string; provider: string; requestId?: string; inputPositionHash?: string; configuration?: Readonly<Record<string, unknown>> }>;
-type RemoteLine = Readonly<{ engineKey: string; label: string; status: string; styleDepth?: number; plies: readonly RemotePly[]; error?: DomainError }>;
+type RemoteLine = Readonly<{ engineKey: string; label: string; status: string; styleDepth?: number; plies: readonly RemotePly[]; decisionTraces?: NonNullable<ScenarioLine["decisionTraces"]>; error?: DomainError }>;
 type RemoteJobSnapshot = Readonly<{ jobId: string; status: string; lines: readonly RemoteLine[] }>;
-type RemoteSteeringLine = Readonly<{ status: string; start?: unknown; horizon?: unknown; plies: readonly RemotePly[]; error?: DomainError }>;
+type RemoteSteeringLine = Readonly<{ status: string; start?: unknown; horizon?: unknown; plies: readonly RemotePly[]; decisionTraces?: NonNullable<ScenarioLine["decisionTraces"]>; error?: DomainError }>;
 type RemoteBatchResult = Readonly<{ caseId: string; status: string; snapshot?: RemoteJobSnapshot; steeringLine?: RemoteSteeringLine; error?: DomainError }>;
 type RemoteBatchSnapshot = Readonly<{ batchId: string; status: string; results: readonly RemoteBatchResult[] }>;
 
@@ -88,6 +88,7 @@ const makeRemoteLine = (chess: ChessRulesPort, start: PositionSnapshot, horizon:
     horizon,
     plies,
     status: statusFor(remote.status),
+    ...(remote.decisionTraces === undefined ? {} : { decisionTraces: remote.decisionTraces }),
     ...(remote.error === undefined ? {} : { error: remote.error })
   };
   return ok({ engineKey: remote.engineKey, line, ...(remote.styleDepth === undefined ? {} : { styleDepth: remote.styleDepth }) });
@@ -248,7 +249,7 @@ export const fetchRemotePatternSteeringBatch = async (
       if (source === undefined || item.steeringLine === undefined) return responseError(`remotePatternSteering.batch.${item.caseId}`, "Remote steering result is incomplete");
       const normalized = makeScenarioHorizon(Number(horizon));
       if (isErr(normalized)) return err(normalized.error);
-      const remoteLine: RemoteLine = { engineKey: "pattern-steered-tal", label: "PatternSteeredTalPath", status: item.steeringLine.status, plies: item.steeringLine.plies, ...(item.steeringLine.error === undefined ? {} : { error: item.steeringLine.error }) };
+      const remoteLine: RemoteLine = { engineKey: "pattern-steered-tal", label: "PatternSteeredTalPath", status: item.steeringLine.status, plies: item.steeringLine.plies, ...(item.steeringLine.decisionTraces === undefined ? {} : { decisionTraces: item.steeringLine.decisionTraces }), ...(item.steeringLine.error === undefined ? {} : { error: item.steeringLine.error }) };
       const lineResult = makeRemoteLine(chess, source.position, normalized.value, remoteLine, config);
       if (isErr(lineResult)) return err(lineResult.error);
       result[item.caseId] = lineResult.value.line;

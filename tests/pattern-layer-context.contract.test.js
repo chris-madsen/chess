@@ -26,14 +26,14 @@ test("Pattern context keeps attacker side stable across alternating plies", () =
   }
 });
 
-test("BACK_RANK does not treat a generic edge king as a back-rank pattern", () => {
+test("BACK_RANK keeps soft affinity for a generic edge king without declaring a match", () => {
   const position = mustOk(chess.ingestPosition("7k/6R1/5N2/8/8/8/8/K7 w - - 0 1"));
   const facts = mustOk(chess.computeFacts(position));
   const context = extractPatternPositionContext(position, facts, makePatternAnalysisContext("white"));
   const assessment = assessPatternContext(context, "BACK_RANK");
   expect(context.kingOnHomeRank).toBe(true);
-  expect(assessment.similarity).toBe(0);
-  expect(assessment.missingConditions).toContain("BACK_RANK structural prefilter is not satisfied");
+  expect(assessment.similarity).toBeGreaterThan(0);
+  expect(assessment.state).toBe("promising");
   expect(patternMatcherFor("BACK_RANK").family).toBe("BACK_RANK");
 });
 

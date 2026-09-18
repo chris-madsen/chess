@@ -7,6 +7,8 @@ import type { ScenarioLine, ScenarioPly } from "../../domain/scenario-lines/scen
 import { domainError, type DomainError } from "../../domain/shared/errors";
 import { err, isErr, ok, type Result } from "../../domain/shared/result";
 import { evaluatePatternSteeringCandidates } from "./pattern-steering";
+import type { PatternSteeringDecisionTrace } from "./pattern-steering";
+import type { AnalysisCachePort } from "../ports/analysis-cache";
 
 export type PatternSteeredTalPathRequest = Readonly<{
   chess: ChessRulesPort;
@@ -18,6 +20,7 @@ export type PatternSteeredTalPathRequest = Readonly<{
   lineId: string;
   horizon: ScenarioHorizon;
   candidateLimit?: number;
+  cache?: AnalysisCachePort;
 }>;
 
 const terminalLine = (request: PatternSteeredTalPathRequest, plies: readonly ScenarioPly[], status: ScenarioLine["status"], error?: DomainError): ScenarioLine => ({
@@ -37,6 +40,7 @@ export const generatePatternSteeredTalPath = async (
   const maxPlies = Number(request.horizon);
   let current = request.start;
   const plies: ScenarioPly[] = [];
+  const decisionTraces: PatternSteeringDecisionTrace[] = [];
   let plyNumber = 1;
   while (plyNumber <= maxPlies) {
     const facts = request.chess.computeFacts(current);
@@ -44,16 +48,20 @@ export const generatePatternSteeredTalPath = async (
     if (facts.value.isTerminal) return ok(terminalLine(request, plies, "Terminal"));
     if (current.sideToMove === request.attackerSide) {
       const hasResponsePly = plyNumber + 1 <= maxPlies;
-      const decision = await evaluatePatternSteeringCandidates(request.chess, current, request.generator, request.tacticalGate, request.maia, request.lineId, request.candidateLimit ?? 8, hasResponsePly);
+      const decision = await evaluatePatternSteeringCandidates(request.chess, current, request.generator, request.tacticalGate, request.maia, request.lineId, request.candidateLimit ?? 8, hasResponsePly, request.cache);
       if (isErr(decision)) return ok(terminalLine(request, plies, "Incomplete", decision.error));
+      decisionTraces.push(decision.value.trace);
       const selected = decision.value.selected;
       plies.push({ tag: "ScenarioPly", index: makePlyIndex(plyNumber), move: selected.seed.move, provenance: selected.seed.provenance });
       plyNumber += 1;
+      const committedFacts = request.chess.computeFacts(selected.afterPosition);
+      if (isErr(committedFacts)) return err(committedFacts.error);
+      if (committedFacts.value.isTerminal || selected.terminalAfterCandidate === true) return ok({ ...terminalLine(request, plies, "Terminal"), decisionTraces });
       if (plyNumber > maxPlies) break;
       if (selected.responseMove === undefined || selected.responseProvenance === undefined || selected.postResponsePosition === undefined) break;
       const responseFacts = request.chess.computeFacts(selected.afterPosition);
       if (isErr(responseFacts)) return err(responseFacts.error);
-      if (responseFacts.value.isTerminal) return ok(terminalLine(request, plies, "Terminal"));
+      if (responseFacts.value.isTerminal) return ok({ ...terminalLine(request, plies, "Terminal"), decisionTraces });
       plies.push({ tag: "ScenarioPly", index: makePlyIndex(plyNumber), move: selected.responseMove, provenance: selected.responseProvenance });
       current = selected.postResponsePosition;
       plyNumber += 1;
@@ -70,5 +78,5 @@ export const generatePatternSteeredTalPath = async (
     current = next.value;
     plyNumber += 1;
   }
-  return ok(terminalLine(request, plies, "Complete"));
+  return ok({ ...terminalLine(request, plies, "Complete"), ...(decisionTraces.length === 0 ? {} : { decisionTraces }) });
 };

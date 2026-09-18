@@ -1,12 +1,14 @@
-import type { CandidateGenerator } from "../ports/pattern-steering";
+import type { CandidateGenerator, CandidateGeneratorRequest } from "../ports/pattern-steering";
 import type { MoveProvider } from "../ports/providers";
 import type { ChessRulesPort } from "../ports/chess-rules";
 import { domainError } from "../../domain/shared/errors";
 import { err, isErr, ok } from "../../domain/shared/result";
+import type { CandidateSeed } from "../../domain/scenario-lines/scenario-line";
 
 export type CandidateGeneratorSource = Readonly<{
   generator: CandidateGenerator;
   budget: number;
+  mandatory?: boolean;
 }>;
 
 /**
@@ -16,12 +18,12 @@ export type CandidateGeneratorSource = Readonly<{
 export const candidateGeneratorFromProviders = (
   chess: ChessRulesPort,
   providers: readonly MoveProvider[]
-): CandidateGenerator => async request => {
+): CandidateGenerator => async (request: CandidateGeneratorRequest) => {
   if (request.limit < 1) {
     return err(domainError("INVALID_HORIZON", "patternSteering.limit", "Candidate limit must be positive"));
   }
   const seen = new Set<string>();
-  const candidates = [];
+  const candidates: CandidateSeed[] = [];
   for (const provider of providers.slice(0, request.limit)) {
     const provided = await provider({ position: request.position, lineId: request.lineId, ply: 1 });
     if (isErr(provided)) return err(provided.error);
@@ -39,28 +41,32 @@ export const candidateGeneratorFromProviders = (
 export const composeCandidateGenerators = (
   chess: ChessRulesPort,
   sources: readonly (CandidateGenerator | CandidateGeneratorSource)[]
-): CandidateGenerator => async request => {
-  const seen = new Set<string>();
-  const candidates = [];
-  const defaultBudget = Math.max(1, Math.ceil(request.limit / Math.max(1, sources.length)));
-  for (const source of sources) {
-    const generator = typeof source === "function" ? source : source.generator;
-    const budget = typeof source === "function" ? defaultBudget : Math.max(1, Math.floor(source.budget));
-    const result = await generator({ ...request, limit: budget });
-    if (isErr(result)) return err(result.error);
-    for (const candidate of result.value) {
-      const legal = chess.parseLegalMove(request.position, candidate.move.uci);
-      if (isErr(legal)) return err(domainError("PROVIDER_ILLEGAL_MOVE", "patternSteering.composedPool", "Composed generator returned an illegal move", { uci: candidate.move.uci, cause: legal.error }));
-      const uci = String(legal.value.uci);
-      if (seen.has(uci)) continue;
-      seen.add(uci);
-      candidates.push({ tag: "CandidateSeed" as const, move: legal.value, provenance: candidate.provenance });
+): CandidateGenerator => {
+  const composed = async (request: CandidateGeneratorRequest) => {
+    const seen = new Set<string>();
+    const mandatoryCandidates: CandidateSeed[] = [];
+    const explorationCandidates: CandidateSeed[] = [];
+    const defaultBudget = Math.max(1, Math.ceil(request.limit / Math.max(1, sources.length)));
+    for (const source of sources) {
+      const generator = typeof source === "function" ? source : source.generator;
+      const budget = typeof source === "function" ? defaultBudget : Math.max(1, Math.floor(source.budget));
+      const result = await generator({ ...request, limit: budget });
+      if (isErr(result)) return err(result.error);
+      for (const candidate of result.value) {
+        const legal = chess.parseLegalMove(request.position, candidate.move.uci);
+        if (isErr(legal)) return err(domainError("PROVIDER_ILLEGAL_MOVE", "patternSteering.composedPool", "Composed generator returned an illegal move", { uci: candidate.move.uci, cause: legal.error }));
+        const uci = String(legal.value.uci);
+        if (seen.has(uci)) continue;
+        seen.add(uci);
+        (typeof source === "function" || source.mandatory !== true ? explorationCandidates : mandatoryCandidates).push({ tag: "CandidateSeed" as const, move: legal.value, provenance: candidate.provenance });
+      }
     }
-  }
-  return ok(candidates.slice(0, request.limit));
+    return ok([...mandatoryCandidates, ...explorationCandidates].slice(0, request.limit));
+  };
+  return Object.assign(composed, { dispose: () => sources.forEach(source => (typeof source === "function" ? source.dispose?.() : source.generator.dispose?.())) });
 };
 
-export const candidateGeneratorFromMoveProvider = (provider: MoveProvider): CandidateGenerator => async request => {
+export const candidateGeneratorFromMoveProvider = (provider: MoveProvider): CandidateGenerator => Object.assign(async (request: CandidateGeneratorRequest) => {
   const result = await provider({ position: request.position, lineId: request.lineId, ply: 1 });
   return isErr(result) ? err(result.error) : ok([{ tag: "CandidateSeed" as const, move: result.value.move, provenance: result.value.provenance }]);
-};
+}, { dispose: () => provider.dispose?.() });

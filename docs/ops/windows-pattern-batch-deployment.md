@@ -11,7 +11,11 @@ git status --short
 git fetch origin
 git merge --ff-only origin/master
 npm install
+npm run verify:cstal-windows
 ```
+
+The verifier includes a real `go ... searchmoves e2e4` probe for both CSTal
+profiles and fails closed if either binary returns another root move.
 
 If the checkout is not clean, save local work first (`git stash push -u -m pattern-batch-update`) or use a separate deployment checkout. Never commit tokens, `engines.local.json`, or `style-server-token.txt`.
 

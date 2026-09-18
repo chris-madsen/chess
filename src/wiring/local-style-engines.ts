@@ -295,9 +295,9 @@ export const createWindowsCstalPatternCandidateGenerator = (
   patricia?: CandidateGenerator
 ): CandidateGenerator => {
   const providers = createWindowsCstalStylePathProviders(chess, paths, options);
-  const styleSources: readonly CandidateGeneratorSource[] = providers.styleEngines.map(engine => ({ generator: candidateGeneratorFromMoveProvider(engine.provideMove), budget: 1 }));
+  const styleSources: readonly CandidateGeneratorSource[] = providers.styleEngines.map(engine => ({ generator: candidateGeneratorFromMoveProvider(engine.provideMove), budget: 1, mandatory: true }));
   return composeCandidateGenerators(chess, [
-    ...(patricia === undefined ? [] : [{ generator: patricia, budget: candidateLimit }]),
+    ...(patricia === undefined ? [] : [{ generator: patricia, budget: Math.max(1, candidateLimit - styleSources.length) }]),
     ...styleSources
   ]);
 };
@@ -306,12 +306,12 @@ export const createWindowsCstalTacticalGate = (
   chess: ChessRulesPort,
   paths = loadLocalEnginePaths(),
   options: WindowsCstalOptions = {},
-  policy: UciTacticalGatePolicy = { minCentipawns: -150 }
+  policy: UciTacticalGatePolicy = { minCentipawns: -150, allowedLossCentipawns: 100, preserveMateClass: true }
 ) => {
   const config = styleConfig("cstal-absurd", "CSTal ABSURD tactical gate", requirePath(paths, "cstalAbsurdPath"), "2.07-cst-absurd", cstalStyleDepth, styleEngineTimeoutMs, cstalThreads);
   return createUciTacticalGate(chess, {
     ...config,
-    configuration: { ...config.configuration, role: "tactical-gate", opponent: options.opponent ?? "maia3", maia3Elo: options.maia3Elo ?? 1900 }
+    configuration: { ...config.configuration, role: "tactical-gate", tacticalGatePolicy: "ABSURD_UNIFIED_SAFETY_JUDGE", opponent: options.opponent ?? "maia3", maia3Elo: options.maia3Elo ?? 1900 }
   }, policy);
 };
 

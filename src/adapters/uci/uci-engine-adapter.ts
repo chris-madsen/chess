@@ -213,7 +213,8 @@ const firstPvMove = (line: string): string | undefined => {
 export const parseUciScore = (line: string): EngineScore | undefined => {
   const match = /(?:^|\s)score\s+(cp|mate)\s+(-?\d+)/.exec(line.trim());
   if (match === null || match[1] === undefined || match[2] === undefined) return undefined;
-  return { kind: match[1] === "cp" ? "centipawns" : "mate", value: Number(match[2]) };
+  const bound = /\s(lowerbound|upperbound)(?:\s|$)/u.exec(line.trim())?.[1];
+  return { kind: match[1] === "cp" ? "centipawns" : "mate", value: Number(match[2]), bound: bound === "lowerbound" ? "lower" : bound === "upperbound" ? "upper" : "exact" };
 };
 
 const pvMoves = (line: string): readonly string[] => {
@@ -422,7 +423,9 @@ export const createUciCandidateGenerator = (
 };
 
 export type UciTacticalGatePolicy = Readonly<{
-  minCentipawns: number;
+  minCentipawns?: number;
+  allowedLossCentipawns: number;
+  preserveMateClass?: boolean;
   searchLimit?: ProviderSearchLimit;
 }>;
 
@@ -433,7 +436,7 @@ export type UciTacticalGatePolicy = Readonly<{
 export const createUciTacticalGate = (
   chess: ChessRulesPort,
   config: UciEngineConfig,
-  policy: UciTacticalGatePolicy = { minCentipawns: -150 }
+  policy: UciTacticalGatePolicy = { minCentipawns: -150, allowedLossCentipawns: 100, preserveMateClass: true }
 ): CandidateTacticalGate => {
   let sessionPromise: Promise<UciSession> | null = null;
   let queue: Promise<Result<readonly import("../../application/ports/pattern-steering").TacticalCandidateAssessment[], DomainError>> = Promise.resolve(ok([]));
@@ -456,17 +459,28 @@ export const createUciTacticalGate = (
         await session.waitFor(line => line.trim() === "readyok", timeoutMs);
         session.send(positionCommand(request.position));
         session.send(goSearchMovesCommand(policy.searchLimit ?? config.limit, String(seed.move.uci)));
-        await session.waitFor(line => line.startsWith("bestmove "), timeoutMs, line => {
+        const bestMoveLine = await session.waitFor(line => line.startsWith("bestmove "), timeoutMs, line => {
           const nextScore = parseUciScore(line);
           if (nextScore !== undefined) score = nextScore;
           const nextPv = pvMoves(line);
           if (nextPv.length > 0) pv = nextPv;
         });
+        const bestMove = extractBestMove(bestMoveLine, config);
+        if (isErr(bestMove) || bestMove.value !== String(seed.move.uci)) {
+          return err(domainError("PROVIDER_MALFORMED_OUTPUT", `providers.${config.key}.searchmoves`, "UCI engine did not honor the requested searchmove", { requested: String(seed.move.uci), returned: isErr(bestMove) ? undefined : bestMove.value }));
+        }
+        if (pv.length > 0 && pv[0] !== String(seed.move.uci)) {
+          return err(domainError("PROVIDER_MALFORMED_OUTPUT", `providers.${config.key}.searchmoves.pv`, "UCI PV root does not match requested searchmove", { requested: String(seed.move.uci), returned: pv[0] }));
+        }
         if (score === undefined) {
           results.push({ seed, accepted: false, reason: "TAL_SCORE_UNAVAILABLE" });
           continue;
         }
-        const accepted = score.kind === "mate" ? score.value > 0 : score.value >= policy.minCentipawns;
+        if (score.bound !== "exact") {
+          results.push({ seed, accepted: false, talScore: score, reason: "TAL_SCORE_BOUND_UNSAFE" });
+          continue;
+        }
+        const accepted = score.kind === "mate" ? score.value > 0 : score.value >= (policy.minCentipawns ?? Number.NEGATIVE_INFINITY);
         const legalPv: import("../../domain/chess/moves").LegalMove[] = [];
         let current = request.position;
         for (const rawMove of pv) {
@@ -479,7 +493,27 @@ export const createUciTacticalGate = (
         }
         results.push({ seed, accepted, talScore: score, ...(score.kind === "mate" ? { talMate: score.value } : {}), ...(legalPv.length === 0 ? {} : { talPv: legalPv }), ...(accepted ? {} : { reason: "TAL_TACTICAL_VETO" }) });
       }
-      return ok(results);
+      const scored = results.filter(result => result.talScore?.bound === "exact");
+      const best = scored.reduce<EngineScore | undefined>((current, result) => {
+        const scoreValue = result.talScore;
+        if (scoreValue === undefined) return current;
+        if (current === undefined) return scoreValue;
+        if (scoreValue.kind === "mate" && current.kind !== "mate") return scoreValue;
+        if (scoreValue.kind === current.kind && scoreValue.value > current.value) return scoreValue;
+        return current;
+      }, undefined);
+      const relative = results.map(result => {
+        const scoreValue = result.talScore;
+        if (scoreValue === undefined || best === undefined) return result;
+        const mateClassOk = policy.preserveMateClass !== false && best.kind === "mate" ? scoreValue.kind === "mate" && scoreValue.value > 0 : true;
+        const lossOk = best.kind === "centipawns" && scoreValue.kind === "centipawns" ? best.value - scoreValue.value <= policy.allowedLossCentipawns : true;
+        return { ...result, accepted: result.accepted && mateClassOk && lossOk, ...(result.accepted && (!mateClassOk || !lossOk) ? { reason: "TAL_RELATIVE_SAFETY_VETO" } : {}) };
+      });
+      if (relative.length > 0 && !relative.some(result => result.accepted)) {
+        const fallback = [...relative].sort((first, second) => (second.talScore?.value ?? Number.NEGATIVE_INFINITY) - (first.talScore?.value ?? Number.NEGATIVE_INFINITY))[0];
+        if (fallback !== undefined) return ok(relative.map(result => result.seed.move.uci === fallback.seed.move.uci ? { ...result, accepted: true, reason: "TAL_BEST_CANDIDATE_FALLBACK" } : result));
+      }
+      return ok(relative);
     } catch (error) {
       const failedSession = sessionPromise;
       sessionPromise = null;

@@ -74,6 +74,34 @@ Production steering SHALL repeat candidate generation, Tal gating, and Pattern f
 
 The post-hoc PatternSelectionExperiment and legacy scorer SHALL remain explicitly labelled legacy benchmark operations. The production steering CLI SHALL invoke iterative PatternSteeredTalPath and SHALL NOT rank completed StylePath lines after the fact.
 
+## Requirement: Continuous attractor semantics
+
+Production steering SHALL use soft `PatternAffinity` for steerable families. A
+matcher prefilter MAY reduce retrieval cost but SHALL NOT semantically replace
+the affinity with zero. Display states such as `far` and `near` SHALL remain
+descriptive labels, not control-flow gates.
+
+### Scenario: Low-affinity steering
+
+- GIVEN all Tal-safe candidates have affinity below the display threshold
+- WHEN steering ranks candidates
+- THEN it still returns the candidate with the strongest post-Maia affinity
+- AND it does not report pattern-not-found/provider failure
+
+## Requirement: Tal safety and lifecycle
+
+The tactical gate SHALL verify that UCI `bestmove` and PV root match the
+requested `searchmoves` candidate, compare candidates against the best Tal
+score using an explicit allowed-loss policy, and preserve at least the best
+Tal candidate. Candidate generators, tactical gates, and Maia providers SHALL
+be disposed in a `finally` boundary for every local or remote case.
+
+### Scenario: Terminal candidate
+
+- WHEN a selected attacker candidate produces checkmate or stalemate
+- THEN Maia SHALL NOT be called on the terminal position
+- AND the resulting ScenarioLine status SHALL be `Terminal`.
+
 ## Requirement: Opt-in remote steering mode
 
 The pattern batch API SHALL accept `mode: "steering"` as an explicit opt-in. Omitted mode and `mode: "posthoc"` SHALL preserve the existing ABSURD/EXTREME batch contract.

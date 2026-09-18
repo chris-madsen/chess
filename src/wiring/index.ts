@@ -11,9 +11,9 @@ export { comparePatternTraces, evaluatePatternTrace, runPatternSelectionExperime
 export { fetchRemoteStylePaths, fetchRemoteStylePathBatch, fetchRemotePatternSteeringBatch, makeRemoteStylePathConfig, type RemoteStylePathConfig } from "../adapters/http/remote-style-path-adapter";
 export { parsePatternDataset, ingestPatternDatasetEntry } from "../application/experiments/pattern-dataset";
 export { pairedDifference95, summarizePatternExperiment } from "../application/experiments/pattern-report";
-export { PATTERN_FAMILY_CATALOG, PATTERN_FAMILY_IDS, isPatternFamilyId } from "../domain/patterns/pattern";
+export { PATTERN_FAMILY_CATALOG, PATTERN_FAMILY_IDS, STEERABLE_PATTERN_FAMILY_IDS, CATALOG_ONLY_PATTERN_FAMILY_IDS, isPatternFamilyId } from "../domain/patterns/pattern";
 export { makePatternAnalysisContext, extractPatternPositionContext } from "../domain/patterns/context";
-export { assessPatternContext, patternMatcherFor, retrievePatternFamilies } from "../domain/patterns/matchers";
+export { assessPatternContext, patternMatcherFor, retrievePatternFamilies, retrieveSteerablePatternFamilies } from "../domain/patterns/matchers";
 export { recognizePatternCase, summarizePatternRecognition } from "../application/experiments/pattern-recognizer";
 export { evaluatePatternSteeringCandidates, selectPatternSteeringCandidate } from "../application/use-cases/pattern-steering";
 export { generatePatternSteeredTalPath } from "../application/use-cases/pattern-steered-tal-path";

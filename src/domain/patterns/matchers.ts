@@ -1,5 +1,5 @@
 import type { PatternFamilyId, PatternAssessment, PatternEvidence, PatternState } from "./pattern";
-import { PATTERN_FAMILY_IDS, PATTERN_MODEL_VERSION } from "./pattern";
+import { PATTERN_FAMILY_IDS, PATTERN_MODEL_VERSION, STEERABLE_PATTERN_FAMILY_IDS } from "./pattern";
 import { controlledEscapeCount, piecesOf, relationExists, type PatternPositionContext } from "./context";
 
 export type PatternMatcherResult = Readonly<{
@@ -22,22 +22,34 @@ const stateFor = (result: PatternMatcherResult): PatternState => result.similari
 const hasHeavyLine = (context: PatternPositionContext): boolean => relationExists(context, "ATTACKS", relation => relation.pieceType === "r" || relation.pieceType === "q");
 const hasKnightEscapeControl = (context: PatternPositionContext): boolean => relationExists(context, "CONTROLS_ESCAPE", relation => relation.pieceType === "n");
 const kingBlocked = (context: PatternPositionContext): number => context.escapeSquares.filter(escape => escape.occupiedBy === context.analysis.defenderSide || escape.controlledByAttacker).length;
-const score = (conditions: readonly boolean[], evidenceItems: readonly PatternEvidence[], missingConditions: readonly string[], contradictions: readonly string[] = []): PatternMatcherResult => ({
-  similarity: clamp(conditions.filter(Boolean).length / Math.max(1, conditions.length)),
+const score = (conditions: readonly (boolean | number)[], evidenceItems: readonly PatternEvidence[], missingConditions: readonly string[], contradictions: readonly string[] = []): PatternMatcherResult => ({
+  similarity: clamp(conditions.map(condition => typeof condition === "boolean" ? (condition ? 1 : 0) : clamp(condition)).reduce((sum, value) => sum + value, 0) / Math.max(1, conditions.length)),
   evidence: evidenceItems,
   missingConditions,
   contradictions
 });
+const distanceToEdge = (context: PatternPositionContext): number => Math.min(context.targetKing.file, 7 - context.targetKing.file, context.targetKing.rank, 7 - context.targetKing.rank);
+const edgeAffinity = (context: PatternPositionContext): number => clamp(1 - distanceToEdge(context) / 4);
+const cornerAffinity = (context: PatternPositionContext): number => clamp(1 - Math.min(
+  Math.abs(context.targetKing.file - 0) + Math.abs(context.targetKing.rank - 0),
+  Math.abs(context.targetKing.file - 0) + Math.abs(context.targetKing.rank - 7),
+  Math.abs(context.targetKing.file - 7) + Math.abs(context.targetKing.rank - 0),
+  Math.abs(context.targetKing.file - 7) + Math.abs(context.targetKing.rank - 7)
+) / 14);
+const homeRankAffinity = (context: PatternPositionContext): number => clamp(1 - Math.abs(context.targetKing.rank - (context.analysis.defenderSide === "white" ? 0 : 7)) / 7);
+const knightControlAffinity = (context: PatternPositionContext): number => clamp(context.escapeSquares.filter(escape => escape.controlledByAttacker && relationExists(context, "CONTROLS_ESCAPE", relation => relation.pieceType === "n" && relation.to.file === escape.square.file && relation.to.rank === escape.square.rank)).length / Math.max(1, context.escapeSquares.length));
+const heavyLineAffinity = (context: PatternPositionContext): number => clamp(context.relations.filter(relation => relation.kind === "ATTACKS" && (relation.pieceType === "r" || relation.pieceType === "q")).length / 2);
+const blockedEscapeAffinity = (context: PatternPositionContext): number => clamp(kingBlocked(context) / Math.max(1, context.escapeSquares.length));
 
 const firstWave: readonly PatternMatcher[] = [
   {
     family: "ANASTASIA",
     prefilter: context => context.kingOnEdge && piecesOf(context, context.analysis.attackerSide, "n").length > 0 && piecesOf(context, context.analysis.attackerSide, "r").length + piecesOf(context, context.analysis.attackerSide, "q").length > 0,
     score: context => score([
-      context.kingOnEdge,
-      hasKnightEscapeControl(context),
-      hasHeavyLine(context),
-      kingBlocked(context) >= 2
+      edgeAffinity(context),
+      knightControlAffinity(context),
+      heavyLineAffinity(context),
+      blockedEscapeAffinity(context)
     ], [
       evidence("defender king on edge", context.kingOnEdge ? 1 : 0),
       evidence("knight controls an escape square", hasKnightEscapeControl(context) ? 1 : 0),
@@ -54,10 +66,10 @@ const firstWave: readonly PatternMatcher[] = [
     family: "ARABIAN",
     prefilter: context => context.kingInCorner && piecesOf(context, context.analysis.attackerSide, "n").length > 0,
     score: context => score([
-      context.kingInCorner,
-      hasKnightEscapeControl(context),
-      hasHeavyLine(context),
-      kingBlocked(context) >= 2
+      cornerAffinity(context),
+      knightControlAffinity(context),
+      heavyLineAffinity(context),
+      blockedEscapeAffinity(context)
     ], [
       evidence("defender king in corner", context.kingInCorner ? 1 : 0),
       evidence("knight controls corner escape geometry", hasKnightEscapeControl(context) ? 1 : 0),
@@ -74,10 +86,10 @@ const firstWave: readonly PatternMatcher[] = [
     family: "BACK_RANK",
     prefilter: context => context.kingOnHomeRank && piecesOf(context, context.analysis.defenderSide, "p").length > 0,
     score: context => score([
-      context.kingOnHomeRank,
-      context.escapeSquares.filter(escape => escape.occupiedBy === context.analysis.defenderSide).length >= 2,
-      hasHeavyLine(context),
-      kingBlocked(context) >= 3
+      homeRankAffinity(context),
+      clamp(context.escapeSquares.filter(escape => escape.occupiedBy === context.analysis.defenderSide).length / 3),
+      heavyLineAffinity(context),
+      blockedEscapeAffinity(context)
     ], [
       evidence("defender king on home rank", context.kingOnHomeRank ? 1 : 0),
       evidence("own pieces block home-rank escapes", clamp(context.escapeSquares.filter(escape => escape.occupiedBy === context.analysis.defenderSide).length / 3)),
@@ -96,10 +108,10 @@ const firstWave: readonly PatternMatcher[] = [
       const bishops = piecesOf(context, context.analysis.attackerSide, "b");
       const crossing = bishops.length >= 2 && bishops.some(first => bishops.some(second => first.square.file !== second.square.file && first.square.rank !== second.square.rank));
       return score([
-        bishops.length >= 2,
-        crossing,
-        relationExists(context, "ATTACKS"),
-        kingBlocked(context) >= 2
+        clamp(bishops.length / 2),
+        crossing ? 1 : clamp(bishops.length / 3),
+        relationExists(context, "ATTACKS", relation => relation.pieceType === "b") ? 1 : 0,
+        blockedEscapeAffinity(context)
       ], [
         evidence("attacking bishop pair", bishops.length >= 2 ? 1 : 0),
         evidence("crossing diagonal geometry", crossing ? 1 : 0),
@@ -116,10 +128,10 @@ const firstWave: readonly PatternMatcher[] = [
     family: "SMOTHERED",
     prefilter: context => piecesOf(context, context.analysis.attackerSide, "n").length > 0,
     score: context => score([
-      hasKnightEscapeControl(context),
-      kingBlocked(context) >= 4,
-      context.kingInCorner || context.kingOnEdge,
-      piecesOf(context, context.analysis.defenderSide).filter(piece => piece.type !== "k").length >= 2
+      knightControlAffinity(context),
+      blockedEscapeAffinity(context),
+      Math.max(cornerAffinity(context), edgeAffinity(context)),
+      clamp(piecesOf(context, context.analysis.defenderSide).filter(piece => piece.type !== "k").length / 3)
     ], [
       evidence("attacking knight controls king zone", hasKnightEscapeControl(context) ? 1 : 0),
       evidence("king is smothered by unavailable escapes", clamp(kingBlocked(context) / 5)),
@@ -167,7 +179,9 @@ const coreMatcher = (family: PatternFamilyId, policy: CorePolicy): PatternMatche
   prefilter: policy.prefilter,
   score: context => {
     const conditions = policy.conditions(context);
-    const similarity = clamp(conditions.filter(Boolean).length / Math.max(1, conditions.length));
+    const booleanScore = conditions.filter(Boolean).length / Math.max(1, conditions.length);
+    const geometryScore = clamp((controlledEscapeCount(context) / Math.max(1, context.escapeSquares.length) + Math.max(edgeAffinity(context), cornerAffinity(context), homeRankAffinity(context))) / 2);
+    const similarity = clamp(booleanScore * 0.7 + geometryScore * 0.3);
     return {
       similarity,
       evidence: [evidence(policy.label, similarity), evidence("attacker controls target king zone", relationExists(context, "ATTACKS") ? 1 : 0), evidence("escape-square restriction", clamp(controlledEscapeCount(context) / 4))],
@@ -196,18 +210,12 @@ export const patternMatcherFor = (family: PatternFamilyId): PatternMatcher => ma
 
 export const assessPatternContext = (context: PatternPositionContext, family: PatternFamilyId, previousSimilarity = 0): PatternAssessment & Readonly<{ missingConditions: readonly string[]; contradictions: readonly string[] }> => {
   const matcher = patternMatcherFor(family);
-  const result = matcher.prefilter(context)
-    ? matcher.score(context)
-    : {
-      similarity: 0,
-      evidence: [evidence("family prefilter rejected position", 0)],
-      missingConditions: [`${family} structural prefilter is not satisfied`],
-      contradictions: []
-    };
+  const result = matcher.score(context);
   return {
     tag: "PatternAssessment",
     family,
     similarity: result.similarity,
+    affinity: result.similarity,
     progress: result.similarity - previousSimilarity,
     state: matcher.classifyState(result),
     evidence: result.evidence,
@@ -216,6 +224,12 @@ export const assessPatternContext = (context: PatternPositionContext, family: Pa
     modelVersion: `${PATTERN_MODEL_VERSION}-relational-v1`
   };
 };
+
+export const retrieveSteerablePatternFamilies = (context: PatternPositionContext, limit = 8): readonly PatternAssessment[] => PATTERN_FAMILY_IDS
+  .filter(family => STEERABLE_PATTERN_FAMILY_IDS.includes(family))
+  .map(family => assessPatternContext(context, family))
+  .sort((first, second) => second.similarity - first.similarity || first.family.localeCompare(second.family))
+  .slice(0, Math.max(1, limit));
 
 export const retrievePatternFamilies = (context: PatternPositionContext, limit = 8): readonly PatternAssessment[] => PATTERN_FAMILY_IDS
   .map(family => assessPatternContext(context, family))

@@ -41,8 +41,8 @@ const maia9Command = () => {
 };
 
 const engines = [
-  ["CSTal ABSURD", config.cstalAbsurdPath, [], [], "go depth 1"],
-  ["CSTal EXTREME", config.cstalExtremePath, [], [], "go depth 1"],
+  ["CSTal ABSURD", config.cstalAbsurdPath, [], [], "go depth 1", "e2e4"],
+  ["CSTal EXTREME", config.cstalExtremePath, [], [], "go depth 1", "e2e4"],
   ["Maia3 79M", maia3Command().command, maia3Command().args, [
     ["Elo", 1900],
     ["SelfElo", 1900],
@@ -61,7 +61,7 @@ const engines = [
   ], "go movetime 4000"]
 ];
 
-const verify = ([name, command, args, options, go]) => new Promise(resolve => {
+const verify = ([name, command, args, options, go, searchMove]) => new Promise(resolve => {
   if (typeof command !== "string" || (/[\\/]/.test(command) && !existsSync(command))) {
     resolve({ name, ok: false, reason: "missing command" });
     return;
@@ -113,12 +113,13 @@ const verify = ([name, command, args, options, go]) => new Promise(resolve => {
         stage = "bestmove";
         safeWrite("ucinewgame");
         safeWrite(`position fen ${fen}`);
-        safeWrite(go);
+        safeWrite(searchMove === undefined ? go : `${go} searchmoves ${searchMove}`);
         continue;
       }
       if (stage === "bestmove" && line.startsWith("bestmove ")) {
         const bestmove = line.trim().split(/\s+/)[1];
-        finish({ name, ok: bestmove !== undefined && bestmove !== "(none)", reason: bestmove ?? "missing bestmove" });
+        const matchesSearchMove = searchMove === undefined || bestmove === searchMove;
+        finish({ name, ok: bestmove !== undefined && bestmove !== "(none)" && matchesSearchMove, reason: searchMove === undefined ? (bestmove ?? "missing bestmove") : `bestmove=${bestmove ?? "missing"}; requested=${searchMove}` });
       }
     }
   });

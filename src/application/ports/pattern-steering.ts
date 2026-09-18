@@ -14,11 +14,12 @@ export type CandidateGeneratorRequest = Readonly<{
   limit: number;
 }>;
 
-export type CandidateGenerator = (request: CandidateGeneratorRequest) => Promise<Result<readonly CandidateSeed[], DomainError>>;
+export type CandidateGenerator = ((request: CandidateGeneratorRequest) => Promise<Result<readonly CandidateSeed[], DomainError>>) & Readonly<{ dispose?: () => void }>;
 
 export type EngineScore = Readonly<{
   kind: "centipawns" | "mate";
   value: number;
+  bound?: "exact" | "lower" | "upper";
 }>;
 
 export type TacticalCandidateAssessment = Readonly<{
@@ -30,11 +31,11 @@ export type TacticalCandidateAssessment = Readonly<{
   reason?: string;
 }>;
 
-export type CandidateTacticalGate = (request: Readonly<{
+export type CandidateTacticalGate = ((request: Readonly<{
   position: PositionSnapshot;
   candidates: readonly CandidateSeed[];
   lineId: string;
-}>) => Promise<Result<readonly TacticalCandidateAssessment[], DomainError>>;
+}>) => Promise<Result<readonly TacticalCandidateAssessment[], DomainError>>) & Readonly<{ dispose?: () => void }>;
 
 export type SteeredRollout = (request: Readonly<{
   chess: ChessRulesPort;

@@ -3,6 +3,13 @@
 Pattern steering is an opt-in benchmark mode. It does not change the live
 `/v1/style-lines/jobs` endpoint.
 
+The current catalog has 19 steerable approximate attractors and 15
+catalog-only families. The latter are retained for dataset/provenance labels
+but are not silently used by production steering.
+
+CSTal ABSURD is the explicit unified tactical safety judge for the current MVP;
+EXTREME and Patricia candidates must pass its relative-to-best Tal safety gate.
+
 ## Remote batch
 
 ```json
@@ -20,7 +27,8 @@ POST /v1/pattern-experiments/batches
 
 Read `GET /v1/pattern-experiments/batches/{batchId}/events` until the
 `complete` event. Steering results contain `steeringLine` with Tal-gated
-attacker plies and Maia defender plies. Omitted mode or `posthoc` keeps the
+attacker plies, Maia defender plies, and `decisionTraces` with per-candidate
+Tal scores and PatternAffinity values. Omitted mode or `posthoc` keeps the
 legacy ABSURD/EXTREME batch contract.
 
 ## CLI

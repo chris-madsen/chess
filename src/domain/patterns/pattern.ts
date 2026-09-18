@@ -98,6 +98,8 @@ export const PATTERN_FAMILY_CATALOG: readonly PatternFamilyDefinition[] = patter
 }));
 
 export const PATTERN_FAMILY_IDS: readonly PatternFamilyId[] = PATTERN_FAMILY_CATALOG.map(definition => definition.id);
+export const STEERABLE_PATTERN_FAMILY_IDS: readonly PatternFamilyId[] = PATTERN_FAMILY_CATALOG.filter(definition => definition.tier === "MVP_NAMED_CORE").map(definition => definition.id);
+export const CATALOG_ONLY_PATTERN_FAMILY_IDS: readonly PatternFamilyId[] = PATTERN_FAMILY_CATALOG.filter(definition => definition.tier === "MVP_EXTENDED").map(definition => definition.id);
 
 export const isPatternFamilyId = (value: string): value is PatternFamilyId => PATTERN_FAMILY_IDS.includes(value as PatternFamilyId);
 
@@ -113,6 +115,8 @@ export type PatternAssessment = Readonly<{
   tag: "PatternAssessment";
   family: PatternFamilyId;
   similarity: number;
+  /** Continuous PatternAffinity; similarity is retained as the stable wire name. */
+  affinity?: number;
   progress: number;
   state: PatternState;
   evidence: readonly PatternEvidence[];
