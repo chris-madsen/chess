@@ -82,6 +82,46 @@ test("remote Pattern batch adapter preserves case IDs and both lines", async () 
   }
 });
 
+test("remote Pattern steering adapter imports ScenarioPly provenance shape", async () => {
+  const position = chess.ingestPosition(startFen);
+  expect(position.tag).toBe("Ok");
+  const horizon = makeScenarioHorizon(2);
+  expect(horizon.tag).toBe("Ok");
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async url => ({
+    ok: true,
+    status: 202,
+    json: async () => url.endsWith("/batches") ? { batchId: "batch-scenario-ply" } : undefined,
+    body: url.includes("/batches/batch-scenario-ply/events") ? new ReadableStream({
+      start(controller) {
+        const line = {
+          status: "Complete",
+          plies: [
+            { tag: "ScenarioPly", index: 1, move: { uci: "e2e4", san: "e4" }, provenance: { source: "LOCAL_STYLE_ENGINE", provider: { name: "cstal-absurd", displayName: "CSTal ABSURD", version: "2.07-cst-absurd" }, requestId: "tal-1", configuration: { engineKey: "cstal-absurd" } } },
+            { tag: "ScenarioPly", index: 2, move: { uci: "e7e5", san: "e5" }, provenance: { source: "MAIA", provider: { name: "maia3", displayName: "Maia3 79M", version: "maia3-79m" }, requestId: "maia-2", configuration: { elo: 1800 } } }
+          ]
+        };
+        controller.enqueue(new TextEncoder().encode(`event: complete\ndata: ${JSON.stringify({ batchId: "batch-scenario-ply", status: "complete", results: [{ caseId: "case-scenario-ply", status: "complete", steeringLine: line }] })}\n\n`));
+        controller.close();
+      }
+    }) : null
+  });
+  try {
+    const result = await fetchRemotePatternSteeringBatch(chess, [{ caseId: "case-scenario-ply", position: position.value }], horizon.value, {
+      baseUrl: "https://example.test",
+      token: "test-token-1234567890",
+      cstalOpponent: "maia3",
+      maia3Elo: 1800,
+      timeoutMs: 1000
+    });
+    expect(result.tag).toBe("Ok");
+    expect(result.value["case-scenario-ply"].plies.map(ply => ply.provenance.source)).toEqual(["LOCAL_STYLE_ENGINE", "MAIA"]);
+    expect(result.value["case-scenario-ply"].plies[0].provenance.provider.name).toBe("cstal-absurd");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("remote Pattern steering preserves the Windows provider error for a failed case", async () => {
   const position = chess.ingestPosition(startFen);
   expect(position.tag).toBe("Ok");

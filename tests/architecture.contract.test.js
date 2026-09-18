@@ -4,7 +4,8 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-const cyrillicTranscriptPattern = new RegExp(`^docs${path.sep}(gemini-dialogue-cleaned|conversations${path.sep}(?:chess[^${path.sep}]*|ChatGPT-tal)|plans${path.sep}(PLAN|MVP_mating_pattern_catalog_plan))\\.md$`);
+const relativePath = file => path.relative(root, file).split(path.sep).join("/");
+const cyrillicTranscriptPattern = /^docs\/(gemini-dialogue-cleaned|conversations\/(?:chess[^/]*|ChatGPT-tal)|plans\/(PLAN|MVP_mating_pattern_catalog_plan))\.md$/;
 
 const collect = dir => {
   const files = [];
@@ -26,9 +27,9 @@ test("repository files contain no Cyrillic text", () => {
     && !file.includes(`${path.sep}.local${path.sep}`)
     && !file.includes(`${path.sep}docs${path.sep}reviews${path.sep}`)
     && !file.endsWith("package-lock.json")
-    && !cyrillicTranscriptPattern.test(path.relative(root, file))
+    && !cyrillicTranscriptPattern.test(relativePath(file))
   ));
-  const offenders = scanned.filter(file => /[\u0400-\u04FF]/u.test(fs.readFileSync(file, "utf8"))).map(file => path.relative(root, file));
+  const offenders = scanned.filter(file => /[\u0400-\u04FF]/u.test(fs.readFileSync(file, "utf8"))).map(relativePath);
   expect(offenders).toEqual([]);
 });
 
@@ -36,7 +37,7 @@ test("domain layer does not depend on adapter/application directories", () => {
   const domainFiles = collect(path.join(root, "src", "domain")).filter(file => file.endsWith(".ts"));
   const offenders = domainFiles.flatMap(file => {
     const text = fs.readFileSync(file, "utf8");
-    return ["../../adapters", "../adapters", "../../application", "../application"].filter(pattern => text.includes(pattern)).map(pattern => `${path.relative(root, file)} -> ${pattern}`);
+    return ["../../adapters", "../adapters", "../../application", "../application"].filter(pattern => text.includes(pattern)).map(pattern => `${relativePath(file)} -> ${pattern}`);
   });
   expect(offenders).toEqual([]);
 });

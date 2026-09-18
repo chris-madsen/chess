@@ -16,7 +16,20 @@ export type RemoteStylePathConfig = Readonly<{
   timeoutMs: number;
 }>;
 
-type RemotePly = Readonly<{ index: number; uci: string; san: string; source: string; provider: string; requestId?: string; inputPositionHash?: string; configuration?: Readonly<Record<string, unknown>> }>;
+type RemoteProvider = string | Readonly<{ name?: unknown; displayName?: unknown; version?: unknown }>;
+type RemoteProvenance = Readonly<{ source?: unknown; provider?: RemoteProvider; requestId?: unknown; configuration?: unknown }>;
+type RemotePly = Readonly<{
+  index: number;
+  uci?: string;
+  san?: string;
+  move?: Readonly<{ uci?: unknown }>;
+  source?: string;
+  provider?: RemoteProvider;
+  provenance?: RemoteProvenance;
+  requestId?: string;
+  inputPositionHash?: string;
+  configuration?: Readonly<Record<string, unknown>>;
+}>;
 type RemoteLine = Readonly<{ engineKey: string; label: string; status: string; styleDepth?: number; plies: readonly RemotePly[]; decisionTraces?: NonNullable<ScenarioLine["decisionTraces"]>; error?: DomainError }>;
 type RemoteJobSnapshot = Readonly<{ jobId: string; status: string; lines: readonly RemoteLine[] }>;
 type RemoteSteeringLine = Readonly<{ status: string; start?: unknown; horizon?: unknown; plies: readonly RemotePly[]; decisionTraces?: NonNullable<ScenarioLine["decisionTraces"]>; error?: DomainError }>;
@@ -53,27 +66,60 @@ const sourceFor = (source: string): MoveSource | undefined => source === "LOCAL_
 
 const statusFor = (status: string): ScenarioLineStatus => ["Complete", "Incomplete", "Terminal", "Failed"].includes(status) ? status as ScenarioLineStatus : "Incomplete";
 
-const providerIdentity = (provider: string): ProviderIdentity => ({ name: "remote-style-api", displayName: provider, version: "windows-cstal-api" });
+const providerIdentity = (provider: RemoteProvider): ProviderIdentity => {
+  if (typeof provider === "string") return { name: "remote-style-api", displayName: provider, version: "windows-cstal-api" };
+  const displayName = typeof provider.displayName === "string" ? provider.displayName : "Remote StylePath provider";
+  return {
+    name: typeof provider.name === "string" ? provider.name : "remote-style-api",
+    displayName,
+    version: typeof provider.version === "string" ? provider.version : "windows-cstal-api"
+  };
+};
+
+const remoteSource = (ply: RemotePly): string | undefined => (
+  typeof ply.provenance?.source === "string" ? ply.provenance.source : ply.source
+);
+
+const remoteProvider = (ply: RemotePly): RemoteProvider | undefined => ply.provenance?.provider ?? ply.provider;
+
+const remoteUci = (ply: RemotePly): string | undefined => (
+  typeof ply.uci === "string" ? ply.uci : typeof ply.move?.uci === "string" ? ply.move.uci : undefined
+);
+
+const remoteRequestId = (ply: RemotePly): string | undefined => (
+  typeof ply.provenance?.requestId === "string" ? ply.provenance.requestId : ply.requestId
+);
+
+const remoteConfiguration = (ply: RemotePly): Readonly<Record<string, unknown>> => {
+  const configuration = ply.provenance?.configuration ?? ply.configuration;
+  return configuration !== null && typeof configuration === "object" && !Array.isArray(configuration)
+    ? configuration as Readonly<Record<string, unknown>>
+    : {};
+};
 
 const makeRemoteLine = (chess: ChessRulesPort, start: PositionSnapshot, horizon: ScenarioHorizon, remote: RemoteLine, config: RemoteStylePathConfig): Result<StylePathLineResult, DomainError> => {
   let current = start;
   const plies = [];
   for (const [offset, remotePly] of remote.plies.entries()) {
-    const source = sourceFor(remotePly.source);
-    if (source === undefined) return responseError(`remoteStyleApi.${remote.engineKey}.plies.${offset}.source`, "Remote API returned an unsupported provenance source", { source: remotePly.source });
-    const move = chess.parseLegalMove(current, remotePly.uci);
-    if (isErr(move)) return err(domainError("PROVIDER_ILLEGAL_MOVE", `remoteStyleApi.${remote.engineKey}.plies.${offset}.move`, "Remote API returned an illegal move", { uci: remotePly.uci, cause: move.error }));
+    const source = sourceFor(remoteSource(remotePly) ?? "");
+    if (source === undefined) return responseError(`remoteStyleApi.${remote.engineKey}.plies.${offset}.source`, "Remote API returned an unsupported provenance source", { source: remoteSource(remotePly) });
+    const uci = remoteUci(remotePly);
+    if (uci === undefined) return responseError(`remoteStyleApi.${remote.engineKey}.plies.${offset}.move`, "Remote API returned a ply without a UCI move");
+    const provider = remoteProvider(remotePly);
+    if (provider === undefined) return responseError(`remoteStyleApi.${remote.engineKey}.plies.${offset}.provider`, "Remote API returned a ply without provider provenance");
+    const move = chess.parseLegalMove(current, uci);
+    if (isErr(move)) return err(domainError("PROVIDER_ILLEGAL_MOVE", `remoteStyleApi.${remote.engineKey}.plies.${offset}.move`, "Remote API returned an illegal move", { uci, cause: move.error }));
     plies.push({
       tag: "ScenarioPly" as const,
       index: makePlyIndex(remotePly.index > 0 ? remotePly.index : offset + 1),
       move: move.value,
       provenance: {
         source,
-        provider: providerIdentity(remotePly.provider),
+        provider: providerIdentity(provider),
         status: "IMPORTED" as const,
-        requestId: makeRequestId(remotePly.requestId ?? `remote-${remote.engineKey}-${offset + 1}`),
+        requestId: makeRequestId(remoteRequestId(remotePly) ?? `remote-${remote.engineKey}-${offset + 1}`),
         inputPositionHash: current.hash,
-        configuration: { remoteApiBaseUrl: config.baseUrl, ...(remotePly.configuration ?? {}) }
+        configuration: { remoteApiBaseUrl: config.baseUrl, ...remoteConfiguration(remotePly) }
       }
     });
     const next = chess.applyMove(current, move.value);
