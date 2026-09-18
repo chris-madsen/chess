@@ -30,3 +30,30 @@ export const candidateGeneratorFromProviders = (
   }
   return ok(candidates);
 };
+
+export const composeCandidateGenerators = (
+  chess: ChessRulesPort,
+  generators: readonly CandidateGenerator[]
+): CandidateGenerator => async request => {
+  const seen = new Set<string>();
+  const candidates = [];
+  for (const generator of generators) {
+    const result = await generator(request);
+    if (isErr(result)) return err(result.error);
+    for (const candidate of result.value) {
+      const legal = chess.parseLegalMove(request.position, candidate.move.uci);
+      if (isErr(legal)) return err(domainError("PROVIDER_ILLEGAL_MOVE", "patternSteering.composedPool", "Composed generator returned an illegal move", { uci: candidate.move.uci, cause: legal.error }));
+      const uci = String(legal.value.uci);
+      if (seen.has(uci)) continue;
+      seen.add(uci);
+      candidates.push({ tag: "CandidateSeed" as const, move: legal.value, provenance: candidate.provenance });
+      if (candidates.length >= request.limit) return ok(candidates);
+    }
+  }
+  return ok(candidates);
+};
+
+export const candidateGeneratorFromMoveProvider = (provider: MoveProvider): CandidateGenerator => async request => {
+  const result = await provider({ position: request.position, lineId: request.lineId, ply: 1 });
+  return isErr(result) ? err(result.error) : ok([{ tag: "CandidateSeed" as const, move: result.value.move, provenance: result.value.provenance }]);
+};

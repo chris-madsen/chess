@@ -55,6 +55,16 @@ test("Pattern cache identity ignores history while Maia identity preserves it by
   expect(analysisCacheKey({ namespace: "MAIA_RESPONSE", position: first, configuration: { elo: 1800 } }).position.historySignature).toBeDefined();
 });
 
+test("Pattern cache identity ignores halfmove and repetition rule counters", () => {
+  const first = mustOk(chess.ingestPosition("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"));
+  const second = mustOk(chess.ingestPosition("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 87 44"));
+  const firstKey = analysisCacheKey({ namespace: "PATTERN_CONTEXT", position: first, configuration: { extractor: "v1" } });
+  const secondKey = analysisCacheKey({ namespace: "PATTERN_CONTEXT", position: second, configuration: { extractor: "v1" } });
+  expect(firstKey.position.zobrist).toBe(secondKey.position.zobrist);
+  expect(firstKey.position.ruleContext).toEqual(secondKey.position.ruleContext);
+  expect(firstKey.position.ruleContext).toEqual({ halfmoveClock: 0 });
+});
+
 test("runtime retrieval ranks families without a supplied target family", () => {
   const position = mustOk(chess.ingestPosition("7k/6R1/5N2/8/8/8/8/K7 w - - 0 1"));
   const context = extractPatternPositionContext(position, mustOk(chess.computeFacts(position)), makePatternAnalysisContext("white"));

@@ -1,5 +1,5 @@
 import { createChessJsRulesAdapter } from "../src/adapters/chessjs/chess-rules-adapter.ts";
-import { candidateGeneratorFromProviders, runSteeredRollout, runSteeredRolloutArtifact } from "../src/wiring/index.ts";
+import { candidateGeneratorFromProviders, composeCandidateGenerators, runSteeredRollout, runSteeredRolloutArtifact } from "../src/wiring/index.ts";
 import { evaluatePatternSteeringCandidates } from "../src/application/use-cases/pattern-steering.ts";
 import { makeRequestId, maiaProvider, stockfishProvider } from "../src/domain/index.ts";
 
@@ -27,6 +27,19 @@ test("candidate pool deduplicates legal provider moves and keeps provenance", as
   const result = mustOk(await generator({ position: start, lineId: "pool", limit: 3 }));
   expect(result.map(candidate => String(candidate.move.uci))).toEqual(["e2e4", "d2d4"]);
   expect(result.every(candidate => candidate.provenance.inputPositionHash === start.hash)).toBe(true);
+});
+
+test("composed candidate pool takes Patricia-style roots before style-engine roots", async () => {
+  const make = (uci, name) => async request => {
+    const move = chess.parseLegalMove(request.position, uci);
+    return move.tag === "Err" ? move : { tag: "Ok", value: [{ tag: "CandidateSeed", move: move.value, provenance: {
+      source: "LOCAL_STYLE_ENGINE", provider: { name, displayName: name }, status: "ENGINE_GENERATED",
+      requestId: makeRequestId(`${name}-${request.lineId}`), inputPositionHash: request.position.hash, configuration: {}
+    } }] };
+  };
+  const result = mustOk(await composeCandidateGenerators(chess, [make("e2e4", "patricia-multipv"), make("e2e4", "cstal-absurd"), make("d2d4", "cstal-extreme")])({ position: start, lineId: "compose", limit: 3 }));
+  expect(result.map(candidate => String(candidate.move.uci))).toEqual(["e2e4", "d2d4"]);
+  expect(result[0].provenance.provider.name).toBe("patricia-multipv");
 });
 
 test("steered rollout delegates subsequent plies to HumanPath after selection", async () => {

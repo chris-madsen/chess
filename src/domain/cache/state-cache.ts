@@ -153,13 +153,18 @@ export const analysisCacheKey = (input: Readonly<{
   configuration: Readonly<Record<string, unknown>>;
   modelVersion?: PatternModelVersion;
   historyPolicy?: "ignore" | "include";
-}>): AnalysisCacheKey => ({
-  tag: "AnalysisCacheKey",
-  namespace: input.namespace,
-  position: positionStateKey(input.position, input.historyPolicy ?? (input.namespace === "MAIA_RESPONSE" || input.namespace === "ROLLOUT_SUFFIX" ? "include" : "ignore")),
-  configuration: providerConfigFingerprint(input.configuration),
-  ...(input.modelVersion === undefined ? {} : { modelVersion: input.modelVersion })
-});
+}>): AnalysisCacheKey => {
+  const patternNamespace = input.namespace === "PATTERN_CONTEXT" || input.namespace === "PATTERN_ASSESSMENT";
+  const state = positionStateKey(input.position, input.historyPolicy ?? (input.namespace === "MAIA_RESPONSE" || input.namespace === "ROLLOUT_SUFFIX" ? "include" : "ignore"));
+  const patternState = patternNamespace ? { ...state, ruleContext: { halfmoveClock: 0 } } : state;
+  return {
+    tag: "AnalysisCacheKey",
+    namespace: input.namespace,
+    position: patternState,
+    configuration: providerConfigFingerprint(input.configuration),
+    ...(input.modelVersion === undefined ? {} : { modelVersion: input.modelVersion })
+  };
+};
 
 export const makeCacheEntry = (input: Readonly<{
   key: AnalysisCacheKey;

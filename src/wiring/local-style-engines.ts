@@ -6,6 +6,7 @@ import type { CandidateGenerator } from "../application/ports/pattern-steering";
 import type { LocalStyleEngineProvider, MoveProvider, StylePathProviders } from "../application/ports/providers";
 import type { ProviderIdentity } from "../domain/provenance/provenance";
 import { createUciCandidateGenerator, createUciMoveProvider, type UciEngineConfig, type UciGoLimit } from "../adapters/uci/uci-engine-adapter";
+import { candidateGeneratorFromMoveProvider, composeCandidateGenerators } from "../application/use-cases/candidate-pool";
 
 export type LocalEnginePaths = Readonly<{
   stockfish19Path?: string;
@@ -272,6 +273,17 @@ export const createPatriciaCandidateGenerator = (
     configuration: { ...base.configuration, multiPv: candidateLimit, role: "root-candidate-generator" }
   };
   return createUciCandidateGenerator(chess, config, candidateLimit);
+};
+
+export const createLocalPatternCandidateGenerator = (
+  chess: ChessRulesPort,
+  paths = loadLocalEnginePaths(),
+  candidateLimit = 8
+): CandidateGenerator => {
+  const styleProviders = createLocalStylePathProviders(chess, paths);
+  const patricia = createPatriciaCandidateGenerator(chess, paths, candidateLimit);
+  const styleCandidates = styleProviders.styleEngines.map(engine => candidateGeneratorFromMoveProvider(engine.provideMove));
+  return composeCandidateGenerators(chess, [patricia, ...styleCandidates]);
 };
 
 export const createWindowsCstalStylePathProviders = (

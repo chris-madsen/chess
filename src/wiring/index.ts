@@ -1,6 +1,6 @@
 export { createChessJsRulesAdapter } from "../adapters/chessjs/chess-rules-adapter";
 export { generateHumanPath, ensureDecisionIsNotPlatformCommand } from "../application/use-cases/human-path";
-export { candidateGeneratorFromProviders } from "../application/use-cases/candidate-pool";
+export { candidateGeneratorFromMoveProvider, candidateGeneratorFromProviders, composeCandidateGenerators } from "../application/use-cases/candidate-pool";
 export { runSteeredRollout, runSteeredRolloutArtifact } from "../application/use-cases/steered-rollout";
 export type { ChessRulesPort } from "../application/ports/chess-rules";
 export type { HumanPathProviders, MoveProvider, ProvidedMove, LocalStyleEngineProvider, StylePathProviders } from "../application/ports/providers";
@@ -19,6 +19,6 @@ export { evaluatePatternSteeringCandidates, selectPatternSteeringCandidate } fro
 export type { CandidateGenerator, CandidateGeneratorRequest } from "../application/ports/pattern-steering";
 export type { SteeredRollout } from "../application/ports/pattern-steering";
 export { LICHESS_MATE_PATTERN_CATALOG, MATE_PATTERN_SOURCE_CATALOG, TACTICAL_MOTIF_SOURCE_CATALOG } from "../application/experiments/mate-pattern-catalog";
-export { createLocalStylePathProviders, createPatriciaCandidateGenerator, createWindowsCstalStylePathProviders, loadLocalEnginePaths, type LocalEnginePaths, type WindowsCstalOpponent, type WindowsCstalOptions } from "./local-style-engines";
+export { createLocalPatternCandidateGenerator, createLocalStylePathProviders, createPatriciaCandidateGenerator, createWindowsCstalStylePathProviders, loadLocalEnginePaths, type LocalEnginePaths, type WindowsCstalOpponent, type WindowsCstalOptions } from "./local-style-engines";
 export { createUciMoveProvider, createUciCandidateGenerator } from "../adapters/uci/uci-engine-adapter";
 export { createUciForcedMateProofProvider, parseUciMateScore, type UciForcedMateProofConfig } from "../adapters/uci/uci-forced-mate-proof-adapter";
