@@ -22,6 +22,7 @@ export type PatternSteeredTalPathRequest = Readonly<{
   candidateLimit?: number;
   cache?: AnalysisCachePort;
   maiaCacheIdentity?: string;
+  onProgress?: (line: ScenarioLine) => void;
 }>;
 
 const terminalLine = (request: PatternSteeredTalPathRequest, plies: readonly ScenarioPly[], status: ScenarioLine["status"], error?: DomainError): ScenarioLine => ({
@@ -33,6 +34,11 @@ const terminalLine = (request: PatternSteeredTalPathRequest, plies: readonly Sce
   plies,
   status,
   ...(error === undefined ? {} : { error })
+});
+
+const progressLine = (request: PatternSteeredTalPathRequest, plies: readonly ScenarioPly[], decisionTraces: readonly PatternSteeringDecisionTrace[], status: ScenarioLine["status"] = "Incomplete"): ScenarioLine => ({
+  ...terminalLine(request, plies, status),
+  ...(decisionTraces.length === 0 ? {} : { decisionTraces })
 });
 
 export const generatePatternSteeredTalPath = async (
@@ -54,6 +60,7 @@ export const generatePatternSteeredTalPath = async (
       decisionTraces.push(decision.value.trace);
       const selected = decision.value.selected;
       plies.push({ tag: "ScenarioPly", index: makePlyIndex(plyNumber), move: selected.seed.move, provenance: selected.seed.provenance });
+      request.onProgress?.(progressLine(request, plies, decisionTraces, selected.terminalAfterCandidate === true ? "Terminal" : "Incomplete"));
       plyNumber += 1;
       const committedFacts = request.chess.computeFacts(selected.afterPosition);
       if (isErr(committedFacts)) return err(committedFacts.error);
@@ -64,6 +71,7 @@ export const generatePatternSteeredTalPath = async (
       if (isErr(responseFacts)) return err(responseFacts.error);
       if (responseFacts.value.isTerminal) return ok({ ...terminalLine(request, plies, "Terminal"), decisionTraces });
       plies.push({ tag: "ScenarioPly", index: makePlyIndex(plyNumber), move: selected.responseMove, provenance: selected.responseProvenance });
+      request.onProgress?.(progressLine(request, plies, decisionTraces));
       current = selected.postResponsePosition;
       plyNumber += 1;
       continue;
@@ -76,6 +84,7 @@ export const generatePatternSteeredTalPath = async (
     const next = request.chess.applyMove(current, legal.value);
     if (isErr(next)) return err(next.error);
     plies.push({ tag: "ScenarioPly", index: makePlyIndex(plyNumber), move: legal.value, provenance: response.value.provenance });
+    request.onProgress?.(progressLine(request, plies, decisionTraces));
     current = next.value;
     plyNumber += 1;
   }

@@ -72,16 +72,23 @@ const main = async (): Promise<void> => {
   if (provider === "remote") {
     const config = makeRemoteStylePathConfig({ maia3Elo });
     if (isErr(config)) throw new Error(`${config.error.code}: ${config.error.message}`);
-    process.stdout.write(`remote steering: submitted ${selected.length} cases, concurrency=${concurrency}; waiting for Windows Tal+Maia workers...\n`);
     const renderedLines = new Map<string, string>();
+    let renderedLineCount = 0;
+    const renderLive = (text: string): void => {
+      if (!process.stdout.isTTY) {
+        process.stdout.write(text);
+        return;
+      }
+      const frame = renderedLineCount === 0 ? text : `\x1b[${renderedLineCount}F\x1b[0J${text}`;
+      process.stdout.write(frame);
+      renderedLineCount = text.replace(/\n$/u, "").split("\n").length;
+    };
     const remote = await fetchRemotePatternSteeringBatch(chess, selected.map(item => ({ caseId: item.caseId, position: item.position, ...("rawGame" in item && item.rawGame !== undefined ? { rawGame: item.rawGame } : {}) })), selected[0]?.horizon ?? cases!.value[0]!.horizon, config.value, concurrency, progress => {
-      if (progress.caseId === undefined) {
-        process.stdout.write(`remote steering: ${progress.completed}/${progress.total} completed, status=${progress.status}\n`);
-      } else if (progress.line !== undefined) {
+      if (progress.caseId !== undefined && progress.line !== undefined) {
         const rendered = renderPatternSteeringLine(progress.caseId, progress.line);
         if (renderedLines.get(progress.caseId) !== rendered) {
           renderedLines.set(progress.caseId, rendered);
-          process.stdout.write(rendered);
+          renderLive([...renderedLines.values()].join(""));
         }
       }
     });

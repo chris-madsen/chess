@@ -34,7 +34,7 @@ type RemoteLine = Readonly<{ engineKey: string; label: string; status: string; s
 type RemoteJobSnapshot = Readonly<{ jobId: string; status: string; lines: readonly RemoteLine[] }>;
 type RemoteSteeringLine = Readonly<{ status: string; start?: unknown; horizon?: unknown; plies: readonly RemotePly[]; decisionTraces?: NonNullable<ScenarioLine["decisionTraces"]>; error?: DomainError }>;
 type RemoteBatchResult = Readonly<{ caseId: string; status: string; snapshot?: RemoteJobSnapshot; steeringLine?: RemoteSteeringLine; error?: DomainError }>;
-type RemoteBatchSnapshot = Readonly<{ batchId: string; status: string; results: readonly RemoteBatchResult[] }>;
+type RemoteBatchSnapshot = Readonly<{ batchId: string; status: string; completed?: number; results: readonly RemoteBatchResult[] }>;
 
 const base64Utf8 = (value: string): string => Buffer.from(value, "utf8").toString("base64");
 
@@ -288,7 +288,8 @@ export const fetchRemotePatternSteeringBatch = async (
     if (!events.ok || events.body === null) return responseError("remotePatternSteering.events", "Remote Pattern steering event stream failed", { status: events.status });
     const final = (await parseSseSnapshots(events, snapshot => {
       if (!isRemoteBatchSnapshot(snapshot)) return;
-      onProgress?.({ status: snapshot.status, completed: snapshot.results.length, total: cases.length });
+      const completed = snapshot.completed ?? snapshot.results.filter(item => item.status === "complete" || item.status === "error").length;
+      onProgress?.({ status: snapshot.status, completed, total: cases.length });
       for (const item of snapshot.results) {
         const source = cases.find(candidate => candidate.caseId === item.caseId);
         if (source === undefined || item.steeringLine === undefined) continue;
@@ -296,7 +297,7 @@ export const fetchRemotePatternSteeringBatch = async (
         if (isErr(normalized)) continue;
         const remoteLine: RemoteLine = { engineKey: "pattern-steered-tal", label: "PatternSteeredTalPath", status: item.steeringLine.status, plies: item.steeringLine.plies, ...(item.steeringLine.decisionTraces === undefined ? {} : { decisionTraces: item.steeringLine.decisionTraces }), ...(item.steeringLine.error === undefined ? {} : { error: item.steeringLine.error }) };
         const lineResult = makeRemoteLine(chess, source.position, normalized.value, remoteLine, config);
-        if (!isErr(lineResult)) onProgress?.({ status: snapshot.status, completed: snapshot.results.length, total: cases.length, caseId: item.caseId, line: lineResult.value.line });
+        if (!isErr(lineResult)) onProgress?.({ status: snapshot.status, completed, total: cases.length, caseId: item.caseId, line: lineResult.value.line });
       }
     })).filter(isRemoteBatchSnapshot).at(-1);
     if (final === undefined) return responseError("remotePatternSteering.events", "Remote Pattern steering batch returned no final snapshot");

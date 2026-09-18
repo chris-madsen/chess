@@ -768,6 +768,15 @@ export const createStyleLineJobServer = (
       batch.subscribers.clear();
     }
   };
+  const setBatchResult = (batch: PatternBatch, caseId: string, result: PatternBatch["results"][number]): void => {
+    const index = batch.results.findIndex(result => result.caseId === caseId);
+    if (index < 0) batch.results.push(result);
+    else batch.results[index] = result;
+  };
+  const updateBatchLine = (batch: PatternBatch, caseId: string, steeringLine: unknown): void => {
+    setBatchResult(batch, caseId, { caseId, status: "running", steeringLine });
+    emitBatch(batch, "progress");
+  };
   const runBatch = async (batch: PatternBatch, request: Readonly<{ cases: readonly PatternBatchCase[]; concurrency: number; common: Omit<PatternBatchRequest, "cases" | "datasetVersion" | "concurrency"> }>): Promise<void> => {
     let nextIndex = 0;
     const worker = async (): Promise<void> => {
@@ -815,7 +824,8 @@ export const createStyleLineJobServer = (
                 lineId: `pattern-steering-${item.caseId}`,
                 horizon: horizon.value,
                 cache: patternCache,
-                maiaCacheIdentity: `${request.common.cstalOpponent ?? "maia3"}:${request.common.maia3Elo ?? 1800}`
+                maiaCacheIdentity: `${request.common.cstalOpponent ?? "maia3"}:${request.common.maia3Elo ?? 1800}`,
+                onProgress: steeringLine => updateBatchLine(batch, item.caseId, steeringLine)
               }),
               sleep(request.common.timeoutMs ?? 300_000).then(() => ({ tag: "Err" as const, error: { code: "PROVIDER_TIMEOUT" as const, path: `patternBatch.${item.caseId}`, message: "Pattern steering case timed out" } }))
             ]);
@@ -823,9 +833,9 @@ export const createStyleLineJobServer = (
             steering.dispose?.();
           }
           if (line.tag === "Err") {
-            batch.results.push({ caseId: item.caseId, status: "error", error: line.error });
+            setBatchResult(batch, item.caseId, { caseId: item.caseId, status: "error", error: line.error });
           } else {
-            batch.results.push({ caseId: item.caseId, status: line.value.status === "Incomplete" ? "error" : "complete", steeringLine: line.value, ...(line.value.error === undefined ? {} : { error: line.value.error }) });
+            setBatchResult(batch, item.caseId, { caseId: item.caseId, status: line.value.status === "Incomplete" ? "error" : "complete", steeringLine: line.value, ...(line.value.error === undefined ? {} : { error: line.value.error }) });
           }
           batch.completed += 1;
           emitBatch(batch, "progress");
