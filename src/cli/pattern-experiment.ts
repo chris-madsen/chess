@@ -4,11 +4,11 @@ import { dirname } from "node:path";
 import { createChessJsRulesAdapter } from "../adapters/chessjs/chess-rules-adapter";
 import { parsePatternDataset } from "../application/experiments/pattern-dataset";
 import { summarizePatternExperiment } from "../application/experiments/pattern-report";
-import { runPatternSelectionExperiment } from "../application/use-cases/pattern-experiment";
+import { runPatternSelectionExperiment, runPatternSelectionExperimentFromLines } from "../application/use-cases/pattern-experiment";
 import { domainError } from "../domain/shared/errors";
 import { isErr } from "../domain/shared/result";
 import { createInMemoryAnalysisCache } from "../adapters/cache/in-memory-analysis-cache";
-import { createForcedMateVerifier, createUciForcedMateProofProvider, createWindowsCstalStylePathProviders, loadLocalEnginePaths } from "../wiring/index";
+import { createForcedMateVerifier, createUciForcedMateProofProvider, createWindowsCstalStylePathProviders, fetchRemoteStylePaths, loadLocalEnginePaths, makeRemoteStylePathConfig } from "../wiring/index";
 
 const valueAfter = (args: readonly string[], flag: string): string | undefined => {
   const index = args.indexOf(flag);
@@ -33,6 +33,8 @@ Options:
   --horizon-full-moves <n>     Rollout horizon, default 8.
   --prefix-plies <n>           Prefix visible to selector, default 8.
   --maia3-elo <rating>         Maia3 Elo, default 1800.
+  --provider <remote|local>    Remote Windows API (default) or local engines.
+  --api-url <url>              Remote API base URL override.
 `;
 
 const main = async (): Promise<void> => {
@@ -47,6 +49,12 @@ const main = async (): Promise<void> => {
   const horizonFullMoves = integerOption(args, "--horizon-full-moves", 8);
   const prefixPlies = integerOption(args, "--prefix-plies", 8);
   const maia3Elo = integerOption(args, "--maia3-elo", 1800);
+  const providerMode = valueAfter(args, "--provider") ?? "remote";
+  if (providerMode !== "remote" && providerMode !== "local") {
+    process.stderr.write(`${usage}\n--provider must be remote or local.\n`);
+    process.exitCode = 2;
+    return;
+  }
   const outputPath = valueAfter(args, "--out") ?? `.local/pattern-experiment-${Date.now()}.jsonl`;
   const chess = createChessJsRulesAdapter();
   const dataset = parsePatternDataset(chess, readFileSync(datasetPath, "utf8"), horizonFullMoves, prefixPlies);
@@ -56,7 +64,16 @@ const main = async (): Promise<void> => {
     return;
   }
   const enginePaths = loadLocalEnginePaths();
-  const providers = createWindowsCstalStylePathProviders(chess, enginePaths, { opponent: "maia3", maia3Elo });
+  const providers = providerMode === "local" ? createWindowsCstalStylePathProviders(chess, enginePaths, { opponent: "maia3", maia3Elo }) : undefined;
+  const apiUrl = valueAfter(args, "--api-url");
+  const remoteConfig = providerMode === "remote"
+    ? makeRemoteStylePathConfig(apiUrl === undefined ? { maia3Elo } : { baseUrl: apiUrl, maia3Elo })
+    : undefined;
+  if (remoteConfig !== undefined && isErr(remoteConfig)) {
+    process.stderr.write(`${remoteConfig.error.code}: ${remoteConfig.error.message}\n`);
+    process.exitCode = 2;
+    return;
+  }
   const verifier = enginePaths.stockfish19Path === undefined ? undefined : createForcedMateVerifier(chess, createUciForcedMateProofProvider({
     key: "stockfish19-forced-mate",
     command: enginePaths.stockfish19Path,
@@ -67,7 +84,18 @@ const main = async (): Promise<void> => {
   const cache = createInMemoryAnalysisCache();
   const results = [];
   for (const experimentCase of dataset.value) {
-    const result = await runPatternSelectionExperiment(chess, providers, experimentCase, verifier, cache);
+    const result = providerMode === "remote"
+      ? remoteConfig === undefined
+        ? { tag: "Err" as const, error: domainError("PROVIDER_UNAVAILABLE", "remoteStyleApi", "Remote API configuration is unavailable") }
+        : await (async () => {
+          const remoteLines = await fetchRemoteStylePaths(chess, experimentCase.position, experimentCase.horizon, remoteConfig.value);
+          return isErr(remoteLines)
+            ? remoteLines
+            : await runPatternSelectionExperimentFromLines(chess, remoteLines.value, experimentCase, verifier, cache);
+        })()
+      : providers === undefined
+        ? { tag: "Err" as const, error: domainError("PROVIDER_UNAVAILABLE", "localStyleProviders", "Local provider configuration is unavailable") }
+        : await runPatternSelectionExperiment(chess, providers, experimentCase, verifier, cache);
     if (isErr(result)) {
       process.stderr.write(`${experimentCase.caseId}: ${result.error.code}: ${result.error.message}\n`);
       process.exitCode = 1;

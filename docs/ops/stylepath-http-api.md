@@ -74,6 +74,21 @@ Successful response includes:
 - source and provider provenance for every ply;
 - optional CLI-style rendered SAN movetext.
 
+The job/SSE endpoint used by remote pattern experiments also accepts exactly one
+of `rawGameBase64` or `fen`. `fen` is required for benchmark positions that do
+not have a RAW SAN prefix:
+
+```json
+{
+  "fen": "rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPPP1P/RNBQKBNR b KQkq - 0 2",
+  "engineSuite": "cstal-windows",
+  "cstalOpponent": "maia3",
+  "maia3Elo": 1800,
+  "maxFullMoves": 8,
+  "timeoutMs": 900000
+}
+```
+
 ## Windows Cloudflare connector token
 
 The Cloudflare tunnel and DNS route have already been created for:

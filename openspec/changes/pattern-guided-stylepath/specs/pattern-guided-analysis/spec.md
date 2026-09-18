@@ -78,6 +78,18 @@ Every dataset entry SHALL include a dataset version, example kind (`positive`, `
 
 The forced-mate verifier ACL SHALL reject proofs for non-checkmate terminal positions, missing provider/limits, or a terminal-position hash mismatch. It SHALL never upgrade a pattern score or terminal mate fact into `VERIFIED` without an independent provider proof.
 
+## Requirement: Use the Windows StylePath API for remote experiments
+
+The Linux experiment runner SHALL support importing existing CSTal ABSURD and CSTal EXTREME lines from the authenticated Windows StylePath job API. It SHALL validate every imported UCI move locally, preserve source/provider provenance as imported observations, and SHALL NOT require Windows engine binaries on Linux in remote mode.
+
+### Scenario: Remote benchmark line import
+
+- GIVEN an authenticated Windows StylePath job API and a benchmark FEN
+- WHEN remote experiment mode runs
+- THEN it submits the FEN to the Windows job endpoint
+- AND it consumes the final SSE snapshot containing the ABSURD and EXTREME lines
+- AND illegal or unsupported imported moves fail closed before pattern evaluation
+
 ## Requirement: Canonicalize reusable state
 
 The system SHALL identify reusable chess state using piece placement, side to move, castling rights, and en-passant state, while keeping rule and history context separate.

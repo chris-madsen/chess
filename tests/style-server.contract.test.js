@@ -181,6 +181,28 @@ test("Style server maps base64 raw game and CSTal params into provider factory",
   }
 });
 
+test("Style server accepts a FEN job input for remote benchmark clients", async () => {
+  const { server, port } = await listen(createStyleLineJobServer({ token }, {
+    chess,
+    createProviders: () => providersFor(() => "d8h4")
+  }));
+  try {
+    const created = await requestJson(port, "POST", "/v1/style-lines/jobs", {
+      fen: "rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq - 0 2",
+      engineSuite: "cstal-windows",
+      maxFullMoves: 1,
+      timeoutMs: 5000
+    });
+    expect(created.status).toBe(202);
+    const events = await collectSse(port, created.body.jobId, ["complete"]);
+    const complete = events.at(-1);
+    expect(complete.data.input.sideToMove).toBe("black");
+    expect(complete.data.lines[0].sanMovetext).toContain("Qh4#");
+  } finally {
+    await close(server);
+  }
+});
+
 test("Style server cancels an unfinished job when a new job is posted", async () => {
   const never = new Promise(() => undefined);
   let providerBuilds = 0;

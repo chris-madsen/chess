@@ -18,7 +18,8 @@ type JobStatus = "queued" | "running" | "complete" | "error" | "cancelled";
 type JobEventType = "queued" | "started" | "progress" | "complete" | "error" | "cancelled";
 
 export type StyleServerJobRequest = Readonly<{
-  rawGameBase64: string;
+  rawGameBase64?: string;
+  fen?: string;
   engineSuite?: "cstal-windows";
   cstalOpponent?: WindowsCstalOpponent;
   maia3Elo?: number;
@@ -28,7 +29,8 @@ export type StyleServerJobRequest = Readonly<{
 }>;
 
 type NormalizedJobRequest = Readonly<{
-  rawGame: string;
+  rawGame?: string;
+  fen?: string;
   engineSuite: "cstal-windows";
   cstalOpponent: WindowsCstalOpponent;
   maia3Elo: number;
@@ -177,8 +179,10 @@ const normalizeJobRequest = (body: unknown): NormalizedJobRequest | DomainError 
   if (data.engineSuite !== undefined && data.engineSuite !== "cstal-windows") {
     return { code: "INVALID_MOVE_NOTATION", path: "body.engineSuite", message: "engineSuite must be cstal-windows" };
   }
-  if (typeof data.rawGameBase64 !== "string" || data.rawGameBase64.length === 0) {
-    return { code: "INVALID_MOVE_NOTATION", path: "body.rawGameBase64", message: "rawGameBase64 is required" };
+  const hasRawGame = typeof data.rawGameBase64 === "string" && data.rawGameBase64.length > 0;
+  const hasFen = typeof data.fen === "string" && data.fen.trim().length > 0;
+  if (hasRawGame === hasFen) {
+    return { code: "INVALID_MOVE_NOTATION", path: "body.input", message: "Provide exactly one of rawGameBase64 or fen" };
   }
   const opponent = data.cstalOpponent ?? "maia3";
   if (opponent !== "maia3" && opponent !== "maia1900") {
@@ -192,12 +196,10 @@ const normalizeJobRequest = (body: unknown): NormalizedJobRequest | DomainError 
   if (refreshMs === undefined) return { code: "INVALID_MOVE_NOTATION", path: "body.refreshMs", message: "refreshMs must be an integer between 250 and 60000" };
   if (maxFullMoves === undefined) return { code: "INVALID_MOVE_NOTATION", path: "body.maxFullMoves", message: "maxFullMoves must be an integer between 1 and 300" };
   if (timeoutMs === undefined) return { code: "INVALID_MOVE_NOTATION", path: "body.timeoutMs", message: "timeoutMs must be an integer between 1000 and 3600000" };
-  const rawGame = Buffer.from(data.rawGameBase64, "base64").toString("utf8");
-  if (rawGame.trim().length === 0) {
-    return { code: "INVALID_MOVE_NOTATION", path: "body.rawGameBase64", message: "Decoded raw game is empty" };
-  }
+  const rawGame = hasRawGame ? Buffer.from(data.rawGameBase64 as string, "base64").toString("utf8") : undefined;
+  if (hasRawGame && rawGame?.trim().length === 0) return { code: "INVALID_MOVE_NOTATION", path: "body.rawGameBase64", message: "Decoded raw game is empty" };
   return {
-    rawGame,
+    ...(rawGame === undefined ? { fen: (data.fen as string).trim() } : { rawGame }),
     engineSuite: "cstal-windows",
     cstalOpponent: opponent,
     maia3Elo,
@@ -444,7 +446,7 @@ class StyleJobQueue {
     });
     job.providers = providers;
     const inputOptions: CliOptions = {
-      input: { tag: "RawFile", path: "__style_server_raw_game__.pgn" },
+      input: job.request.fen === undefined ? { tag: "RawFile", path: "__style_server_raw_game__.pgn" } : { tag: "Fen", value: job.request.fen },
       watchMode: false,
       refreshMs: job.request.refreshMs,
       engineSuite: "cstal-windows",
@@ -454,7 +456,7 @@ class StyleJobQueue {
     };
     const ingestedResult = ingestInput(inputOptions, {
       chess: this.chess,
-      readTextFile: () => job.request.rawGame
+      readTextFile: () => job.request.rawGame ?? ""
     });
     if (isErr(ingestedResult)) {
       job.status = "error";

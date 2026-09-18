@@ -5,7 +5,8 @@ export type { HumanPathProviders, MoveProvider, ProvidedMove, LocalStyleEnginePr
 export type { ForcedMateProof, ForcedMateProofProvider, ForcedMateVerifier, ForcedMateVerifierRequest } from "../application/ports/forced-mate";
 export { createForcedMateVerifier } from "../application/use-cases/forced-mate-verifier";
 export { generateStylePath, generateStylePaths } from "../application/use-cases/style-path";
-export { comparePatternTraces, evaluatePatternTrace, runPatternSelectionExperiment, selectPatternLine, tracePatternLine } from "../application/use-cases/pattern-experiment";
+export { comparePatternTraces, evaluatePatternTrace, runPatternSelectionExperiment, runPatternSelectionExperimentFromLines, selectPatternLine, tracePatternLine } from "../application/use-cases/pattern-experiment";
+export { fetchRemoteStylePaths, makeRemoteStylePathConfig, type RemoteStylePathConfig } from "../adapters/http/remote-style-path-adapter";
 export { parsePatternDataset, ingestPatternDatasetEntry } from "../application/experiments/pattern-dataset";
 export { pairedDifference95, summarizePatternExperiment } from "../application/experiments/pattern-report";
 export { PATTERN_FAMILY_CATALOG, PATTERN_FAMILY_IDS, isPatternFamilyId } from "../domain/patterns/pattern";

@@ -115,6 +115,15 @@ curl -N -H "Authorization: Bearer $STYLE_SERVER_TOKEN" \
 
 The server returns structured JSON events (`queued`, `started`, `progress`, `complete`, `error`, `cancelled`) and closes the SSE stream after the final event. `GET /v1/style-lines/jobs/<jobId>` returns the latest snapshot, and `DELETE /v1/style-lines/jobs/<jobId>` cancels running work. Jobs are in-memory only; restarting the server drops job state. The server keeps a single latest job: posting a new job cancels any unfinished previous job and starts the new calculation immediately.
 
+The Linux PatternSelectionExperiment uses the same job API with a `fen` body, imports both returned CSTal lines, validates each UCI move locally, and applies the prefix-only selector. Run it from Linux with:
+
+```bash
+npm run pattern:experiment -- \
+  --dataset datasets/pattern-mvp-lichess.jsonl \
+  --provider remote \
+  --maia3-elo 1800
+```
+
 When `npm run style:lines -- --raw-file game.txt --watch` runs on the Windows host and `STYLE_SERVER_TOKEN` or `.local/style-server-token.txt` is available, the CLI uses the local StylePath API instead of starting another in-process engine set. The CLI consumes SSE progress, deduplicates repeated snapshots, and redraws one live terminal frame. If stdout is redirected to a file, the ANSI redraw codes are preserved as text; run it in a normal terminal to see the live view.
 
 All local engines are invoked through UCI adapters. Their raw output is untrusted until the returned move is validated against the current `PositionSnapshot`.

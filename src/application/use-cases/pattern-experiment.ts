@@ -235,22 +235,16 @@ const deterministicControlEngine = (caseId: string, baselineKey: string, alterna
   return checksum % 2 === 0 ? baselineKey : alternativeKey;
 };
 
-export const runPatternSelectionExperiment = async (
+export const runPatternSelectionExperimentFromLines = async (
   chess: ChessRulesPort,
-  providers: StylePathProviders,
+  lines: readonly StylePathLineResult[],
   experimentCase: PatternExperimentCase,
   verifier?: ForcedMateVerifier,
   cache?: AnalysisCachePort,
   nowIso = new Date().toISOString()
 ): Promise<Result<PatternExperimentResult, ReturnType<typeof domainError>>> => {
-  const lines = await generateStylePaths(chess, providers, {
-    lineId: `pattern-experiment-${experimentCase.caseId}`,
-    start: experimentCase.position,
-    horizon: experimentCase.horizon
-  });
-  if (isErr(lines)) return err(lines.error);
-  const baseline = engineLine(lines.value, "cstal-absurd");
-  const alternative = engineLine(lines.value, "cstal-extreme");
+  const baseline = engineLine(lines, "cstal-absurd");
+  const alternative = engineLine(lines, "cstal-extreme");
   if (isErr(baseline)) return err(baseline.error);
   if (isErr(alternative)) return err(alternative.error);
   const baselineTrace = cache === undefined
@@ -286,4 +280,21 @@ export const runPatternSelectionExperiment = async (
       misses: (baselineTrace.value.cache?.misses ?? 0) + (alternativeTrace.value.cache?.misses ?? 0)
     }
   });
+};
+
+export const runPatternSelectionExperiment = async (
+  chess: ChessRulesPort,
+  providers: StylePathProviders,
+  experimentCase: PatternExperimentCase,
+  verifier?: ForcedMateVerifier,
+  cache?: AnalysisCachePort,
+  nowIso = new Date().toISOString()
+): Promise<Result<PatternExperimentResult, ReturnType<typeof domainError>>> => {
+  const lines = await generateStylePaths(chess, providers, {
+    lineId: `pattern-experiment-${experimentCase.caseId}`,
+    start: experimentCase.position,
+    horizon: experimentCase.horizon
+  });
+  if (isErr(lines)) return err(lines.error);
+  return runPatternSelectionExperimentFromLines(chess, lines.value, experimentCase, verifier, cache, nowIso);
 };
