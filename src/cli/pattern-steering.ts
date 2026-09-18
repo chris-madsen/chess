@@ -56,7 +56,10 @@ const main = async (): Promise<void> => {
   if (provider === "remote") {
     const config = makeRemoteStylePathConfig({ maia3Elo });
     if (isErr(config)) throw new Error(`${config.error.code}: ${config.error.message}`);
-    const remote = await fetchRemotePatternSteeringBatch(chess, selected.map(item => ({ caseId: item.caseId, position: item.position })), selected[0]?.horizon ?? cases.value[0]!.horizon, config.value, concurrency);
+    process.stdout.write(`remote steering: submitted ${selected.length} cases, concurrency=${concurrency}; waiting for Windows Tal+Maia workers...\n`);
+    const remote = await fetchRemotePatternSteeringBatch(chess, selected.map(item => ({ caseId: item.caseId, position: item.position })), selected[0]?.horizon ?? cases.value[0]!.horizon, config.value, concurrency, progress => {
+      process.stdout.write(`remote steering: ${progress.completed}/${progress.total} completed, status=${progress.status}\n`);
+    });
     if (isErr(remote)) throw new Error(`${remote.error.code}: ${remote.error.message}`);
     selected.forEach(item => records.push({ type: "case", caseId: item.caseId, mode: "steering", line: remote.value[item.caseId] ?? null }));
   } else {

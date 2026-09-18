@@ -93,12 +93,32 @@ const makeRemoteLine = (chess: ChessRulesPort, start: PositionSnapshot, horizon:
   return ok({ engineKey: remote.engineKey, line, ...(remote.styleDepth === undefined ? {} : { styleDepth: remote.styleDepth }) });
 };
 
-const parseSseSnapshots = async (response: Response): Promise<readonly unknown[]> => {
-  const eventText = await response.text();
-  return eventText.split(/\r?\n\r?\n/u)
-    .map(block => block.split(/\r?\n/u).find(line => line.startsWith("data:"))?.slice("data:".length).trim())
-    .filter((data): data is string => data !== undefined)
-    .map(data => JSON.parse(data) as unknown);
+const parseSseSnapshots = async (response: Response, onSnapshot?: (snapshot: unknown) => void): Promise<readonly unknown[]> => {
+  const snapshots: unknown[] = [];
+  const consume = (block: string): void => {
+    const data = block.split(/\r?\n/u).find(line => line.startsWith("data:"))?.slice("data:".length).trim();
+    if (data === undefined || data.length === 0) return;
+    const snapshot = JSON.parse(data) as unknown;
+    snapshots.push(snapshot);
+    onSnapshot?.(snapshot);
+  };
+  if (response.body === null || response.body === undefined) {
+    (await response.text()).split(/\r?\n\r?\n/u).forEach(consume);
+    return snapshots;
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const chunk = await reader.read();
+    buffer += decoder.decode(chunk.value, { stream: !chunk.done });
+    const blocks = buffer.split(/\r?\n\r?\n/u);
+    buffer = blocks.pop() ?? "";
+    blocks.forEach(consume);
+    if (chunk.done) break;
+  }
+  if (buffer.trim().length > 0) consume(buffer);
+  return snapshots;
 };
 
 export const fetchRemoteStylePaths = async (
@@ -202,7 +222,8 @@ export const fetchRemotePatternSteeringBatch = async (
   cases: readonly Readonly<{ caseId: string; position: PositionSnapshot }>[],
   horizon: ScenarioHorizon,
   config: RemoteStylePathConfig,
-  concurrency = 2
+  concurrency = 2,
+  onProgress?: (progress: Readonly<{ status: string; completed: number; total: number }>) => void
 ): Promise<Result<Readonly<Record<string, ScenarioLine>>, DomainError>> => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.timeoutMs * Math.max(1, cases.length));
@@ -216,7 +237,10 @@ export const fetchRemotePatternSteeringBatch = async (
     if (!response.ok || typeof created?.batchId !== "string") return responseError("remotePatternSteering.createBatch", "Remote Pattern steering batch creation failed", { status: response.status });
     const events = await fetch(`${config.baseUrl}/v1/pattern-experiments/batches/${encodeURIComponent(created.batchId)}/events`, { signal: controller.signal, headers: { authorization: `Bearer ${config.token}` } });
     if (!events.ok || events.body === null) return responseError("remotePatternSteering.events", "Remote Pattern steering event stream failed", { status: events.status });
-    const final = (await parseSseSnapshots(events)).filter(isRemoteBatchSnapshot).at(-1);
+    const final = (await parseSseSnapshots(events, snapshot => {
+      if (!isRemoteBatchSnapshot(snapshot)) return;
+      onProgress?.({ status: snapshot.status, completed: snapshot.results.length, total: cases.length });
+    })).filter(isRemoteBatchSnapshot).at(-1);
     if (final === undefined) return responseError("remotePatternSteering.events", "Remote Pattern steering batch returned no final snapshot");
     const result: Record<string, ScenarioLine> = {};
     for (const item of final.results) {
