@@ -39,6 +39,12 @@ Expected behavior:
 
 This command is intentionally not part of CI because the runtime files are local-only.
 
+## Forced-mate verification
+
+The pattern experiment can use the configured Stockfish path as an independent UCI proof provider. It sends `go mate 20`, records the reported mate score and exact search limits, and binds the proof to the terminal position hash. A missing engine or a non-positive mate score remains `UNAVAILABLE`/`NOT_VERIFIED`; it never becomes a pattern success.
+
+The provider is wired automatically by `npm run pattern:experiment` when `stockfish19Path` exists in ignored `engines.local.json`.
+
 ## Safety
 
 - Do not commit engine binaries, downloaded archives, model weights, `.env`, or `engines.local.json`.

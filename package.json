@@ -22,7 +22,8 @@
     "verify:cstal-windows": "node scripts/verify-cstal-windows.mjs",
     "verify:style-engines:local": "node scripts/verify-local-style-engines.mjs",
     "style:api": "tsx src/api/style-lines-http.ts",
-    "pattern:experiment": "tsx src/cli/pattern-experiment.ts"
+    "pattern:experiment": "tsx src/cli/pattern-experiment.ts",
+    "pattern:dataset:lichess": "node scripts/build-lichess-pattern-dataset.mjs"
   },
   "dependencies": {
     "chess.js": "^1.4.0"

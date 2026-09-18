@@ -7,6 +7,7 @@ import type { ProviderIdentity } from "../domain/provenance/provenance";
 import { createUciMoveProvider, type UciEngineConfig, type UciGoLimit } from "../adapters/uci/uci-engine-adapter";
 
 export type LocalEnginePaths = Readonly<{
+  stockfish19Path?: string;
   patriciaPath?: string;
   jackalPath?: string;
   seerPath?: string;
@@ -46,6 +47,7 @@ export const loadLocalEnginePaths = (configPath = localConfigPath): LocalEngineP
   const data = readJsonObject(configPath);
   const paths: Record<string, string | readonly string[]> = {};
   ([
+    "stockfish19Path",
     "patriciaPath",
     "jackalPath",
     "seerPath",

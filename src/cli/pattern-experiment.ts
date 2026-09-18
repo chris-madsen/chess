@@ -8,7 +8,7 @@ import { runPatternSelectionExperiment } from "../application/use-cases/pattern-
 import { domainError } from "../domain/shared/errors";
 import { isErr } from "../domain/shared/result";
 import { createInMemoryAnalysisCache } from "../adapters/cache/in-memory-analysis-cache";
-import { createWindowsCstalStylePathProviders, loadLocalEnginePaths } from "../wiring/local-style-engines";
+import { createForcedMateVerifier, createUciForcedMateProofProvider, createWindowsCstalStylePathProviders, loadLocalEnginePaths } from "../wiring/index";
 
 const valueAfter = (args: readonly string[], flag: string): string | undefined => {
   const index = args.indexOf(flag);
@@ -55,11 +55,19 @@ const main = async (): Promise<void> => {
     process.exitCode = 2;
     return;
   }
-  const providers = createWindowsCstalStylePathProviders(chess, loadLocalEnginePaths(), { opponent: "maia3", maia3Elo });
+  const enginePaths = loadLocalEnginePaths();
+  const providers = createWindowsCstalStylePathProviders(chess, enginePaths, { opponent: "maia3", maia3Elo });
+  const verifier = enginePaths.stockfish19Path === undefined ? undefined : createForcedMateVerifier(chess, createUciForcedMateProofProvider({
+    key: "stockfish19-forced-mate",
+    command: enginePaths.stockfish19Path,
+    options: [{ name: "Threads", value: 2 }, { name: "Hash", value: 1024 }],
+    mateMoves: 20,
+    timeoutMs: 300_000
+  }));
   const cache = createInMemoryAnalysisCache();
   const results = [];
   for (const experimentCase of dataset.value) {
-    const result = await runPatternSelectionExperiment(chess, providers, experimentCase, undefined, cache);
+    const result = await runPatternSelectionExperiment(chess, providers, experimentCase, verifier, cache);
     if (isErr(result)) {
       process.stderr.write(`${experimentCase.caseId}: ${result.error.code}: ${result.error.message}\n`);
       process.exitCode = 1;

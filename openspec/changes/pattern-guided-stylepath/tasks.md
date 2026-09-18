@@ -13,6 +13,8 @@
 - [x] Add deterministic king-centric canonicalization with file/rank symmetry.
 - [x] Require dataset version, example kind, and source-position hash for dataset entries.
 - [x] Add fail-closed forced-mate verifier ACL validation for independent provider proofs.
+- [x] Add a Stockfish UCI forced-mate proof provider and wire it into the offline experiment CLI.
+- [x] Add a reproducible Lichess puzzle-dump builder for a 320-case licensed seed corpus.
 - [x] Add deterministic symbolic PatternProgress policy.
 - [x] Add prefix-only ABSURD versus EXTREME selector.
 - [x] Add dataset schema/ingest and paired experiment report.
