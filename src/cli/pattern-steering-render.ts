@@ -51,8 +51,11 @@ const formatSanMovetext = (line: ScenarioLine): string => {
 
 export const renderPatternSteeringLine = (caseId: string, line: ScenarioLine): string => {
   const trace = line.decisionTraces?.at(-1);
-  const target = trace?.candidates.find(candidate => candidate.uci === trace.selectedUci)?.targetFamily;
-  const header = `## ${caseId} PatternSteeredTalPath${target === undefined ? "" : ` target ${target}`} status ${line.status}`;
+  const selected = trace?.candidates.find(candidate => candidate.uci === trace.selectedUci);
+  const pattern = selected === undefined
+    ? ""
+    : ` pattern ${selected.targetFamily} ${(Math.max(0, Math.min(1, selected.afterMaiaAffinity)) * 100).toFixed(1)}%`;
+  const header = `## ${caseId} PatternSteeredTalPath${pattern} status ${line.status}`;
   const movetext = formatSanMovetext(line);
   return `${header}\n${movetext.length === 0 ? "(no moves)" : movetext}\n\n`;
 };
