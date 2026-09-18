@@ -21,6 +21,6 @@
 - [x] Add offline/integration experiment CLI without MultiPV.
 - [ ] Add independent forced-mate verifier adapter.
 - [ ] Add suffix memoization and a durable cache adapter.
-- [ ] Add 300-case licensed benchmark corpus with calibration/evaluation splits.
+- [x] Add initial 472-case licensed seed corpus with calibration/evaluation splits and hard negatives.
 - [ ] Add Windows benchmark run and statistical MVP report.
 - [ ] Add API/CLI pattern facts after the experiment passes.
