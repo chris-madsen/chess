@@ -90,11 +90,15 @@ descriptive labels, not control-flow gates.
 
 ## Requirement: Tal safety and lifecycle
 
-The tactical gate SHALL verify that UCI `bestmove` and PV root match the
-requested `searchmoves` candidate, compare candidates against the best Tal
-score using an explicit allowed-loss policy, and preserve at least the best
-Tal candidate. Candidate generators, tactical gates, and Maia providers SHALL
-be disposed in a `finally` boundary for every local or remote case.
+The tactical gate SHALL use a verified UCI `searchmoves` implementation when
+that capability is available. For CSTal 2.07, whose deployed binaries ignore
+`searchmoves`, the ACL SHALL apply each legal candidate first and evaluate the
+resulting defender-to-move position with an identical search budget
+(`POST_MOVE_EVALUATION`). Scores SHALL be normalized to the attacker
+perspective, compared with an explicit mate/cp comparator and allowed-loss
+policy, and at least the best Tal candidate SHALL be preserved. Candidate
+generators, tactical gates, and Maia providers SHALL be disposed in a
+`finally` boundary for every local or remote case.
 
 ### Scenario: Terminal candidate
 

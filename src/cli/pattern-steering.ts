@@ -73,7 +73,7 @@ const main = async (): Promise<void> => {
       const tacticalGate = createWindowsCstalTacticalGate(chess, paths, { opponent: "maia3", maia3Elo });
       let line;
       try {
-        line = await generatePatternSteeredTalPath({ chess, start: item.position, attackerSide: item.position.sideToMove, generator, tacticalGate, maia: providers.maia, lineId: `pattern-steering-${item.caseId}`, horizon: item.horizon, cache: patternCache });
+        line = await generatePatternSteeredTalPath({ chess, start: item.position, attackerSide: item.position.sideToMove, generator, tacticalGate, maia: providers.maia, lineId: `pattern-steering-${item.caseId}`, horizon: item.horizon, cache: patternCache, maiaCacheIdentity: `maia3:${maia3Elo}` });
       } finally {
         generator.dispose?.();
         tacticalGate.dispose?.();

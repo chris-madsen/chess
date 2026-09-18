@@ -16,7 +16,7 @@ import type { ScenarioPly, ScenarioLineStatus } from "../domain/scenario-lines/s
 import type { MoveSource } from "../domain/provenance/provenance";
 import type { DomainError } from "../domain/shared/errors";
 import { isErr, type Result } from "../domain/shared/result";
-import { createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, loadLocalEnginePaths, type WindowsCstalOpponent } from "../wiring/local-style-engines";
+import { createPatriciaCandidateGenerator, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, loadLocalEnginePaths, type WindowsCstalOpponent } from "../wiring/local-style-engines";
 import { generatePatternSteeredTalPath } from "../application/use-cases/pattern-steered-tal-path";
 import { createInMemoryAnalysisCache } from "../adapters/cache/in-memory-analysis-cache";
 
@@ -728,7 +728,8 @@ export const createStyleLineJobServer = (
     createPatternSteering: ports.createPatternSteering ?? ((chess, options) => {
       const paths = loadLocalEnginePaths();
       const providers = createWindowsCstalStylePathProviders(chess, paths, options);
-      const generator = createWindowsCstalPatternCandidateGenerator(chess, paths, options, 8);
+      const patricia = paths.patriciaPath === undefined ? undefined : createPatriciaCandidateGenerator(chess, paths, 8);
+      const generator = createWindowsCstalPatternCandidateGenerator(chess, paths, options, 8, patricia);
       const tacticalGate = createWindowsCstalTacticalGate(chess, paths, options);
       return {
         generator,
@@ -813,7 +814,8 @@ export const createStyleLineJobServer = (
                 maia: steering.maia,
                 lineId: `pattern-steering-${item.caseId}`,
                 horizon: horizon.value,
-                cache: patternCache
+                cache: patternCache,
+                maiaCacheIdentity: `${request.common.cstalOpponent ?? "maia3"}:${request.common.maia3Elo ?? 1800}`
               }),
               sleep(request.common.timeoutMs ?? 300_000).then(() => ({ tag: "Err" as const, error: { code: "PROVIDER_TIMEOUT" as const, path: `patternBatch.${item.caseId}`, message: "Pattern steering case timed out" } }))
             ]);

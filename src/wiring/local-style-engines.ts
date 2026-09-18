@@ -5,7 +5,7 @@ import type { ChessRulesPort } from "../application/ports/chess-rules";
 import type { CandidateGenerator } from "../application/ports/pattern-steering";
 import type { LocalStyleEngineProvider, MoveProvider, StylePathProviders } from "../application/ports/providers";
 import type { ProviderIdentity } from "../domain/provenance/provenance";
-import { createUciCandidateGenerator, createUciMoveProvider, createUciTacticalGate, type UciEngineConfig, type UciGoLimit, type UciTacticalGatePolicy } from "../adapters/uci/uci-engine-adapter";
+import { createUciCandidateGenerator, createUciMoveProvider, createUciPostMoveTacticalGate, type UciEngineConfig, type UciGoLimit, type UciTacticalGatePolicy } from "../adapters/uci/uci-engine-adapter";
 import { candidateGeneratorFromMoveProvider, composeCandidateGenerators, type CandidateGeneratorSource } from "../application/use-cases/candidate-pool";
 
 export type LocalEnginePaths = Readonly<{
@@ -131,7 +131,7 @@ const styleConfig = (
     hashMb: engineMemoryMb
   },
   ...(key === "jackal" ? { allowInfoPvBestMoveFallback: true } : {}),
-  ...(key.startsWith("cstal-") ? { supportsSearchMoves: true } : {})
+  ...(key.startsWith("cstal-") ? { searchMovesCapability: "UNSUPPORTED" as const, scorePerspective: "SIDE_TO_MOVE" as const } : {})
 });
 
 const policyName = (limit: UciGoLimit): string => {
@@ -309,9 +309,9 @@ export const createWindowsCstalTacticalGate = (
   policy: UciTacticalGatePolicy = { minCentipawns: -150, allowedLossCentipawns: 100, preserveMateClass: true }
 ) => {
   const config = styleConfig("cstal-absurd", "CSTal ABSURD tactical gate", requirePath(paths, "cstalAbsurdPath"), "2.07-cst-absurd", cstalStyleDepth, styleEngineTimeoutMs, cstalThreads);
-  return createUciTacticalGate(chess, {
+  return createUciPostMoveTacticalGate(chess, {
     ...config,
-    configuration: { ...config.configuration, role: "tactical-gate", tacticalGatePolicy: "ABSURD_UNIFIED_SAFETY_JUDGE", opponent: options.opponent ?? "maia3", maia3Elo: options.maia3Elo ?? 1900 }
+    configuration: { ...config.configuration, role: "tactical-gate", gateMode: "POST_MOVE_EVALUATION", judge: "CSTal ABSURD", searchMovesCapability: "UNSUPPORTED", tacticalGatePolicy: "ABSURD_UNIFIED_SAFETY_JUDGE", opponent: options.opponent ?? "maia3", maia3Elo: options.maia3Elo ?? 1900 }
   }, policy);
 };
 

@@ -7,6 +7,7 @@ import type { ChessRulesPort } from "./chess-rules";
 import type { DomainError } from "../../domain/shared/errors";
 import type { Result } from "../../domain/shared/result";
 import type { LegalMove } from "../../domain/chess/moves";
+import type { Side } from "../../domain/chess/value-objects";
 
 export type CandidateGeneratorRequest = Readonly<{
   position: PositionSnapshot;
@@ -33,6 +34,7 @@ export type TacticalCandidateAssessment = Readonly<{
 
 export type CandidateTacticalGate = ((request: Readonly<{
   position: PositionSnapshot;
+  attackerSide: Side;
   candidates: readonly CandidateSeed[];
   lineId: string;
 }>) => Promise<Result<readonly TacticalCandidateAssessment[], DomainError>>) & Readonly<{ dispose?: () => void }>;

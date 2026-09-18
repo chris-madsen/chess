@@ -14,8 +14,11 @@ npm install
 npm run verify:cstal-windows
 ```
 
-The verifier includes a real `go ... searchmoves e2e4` probe for both CSTal
-profiles and fails closed if either binary returns another root move.
+The verifier checks normal startup and post-move analysis for both CSTal
+profiles. The deployed CSTal 2.07 binaries ignore UCI `searchmoves`, so
+Pattern steering uses `POST_MOVE_EVALUATION`: it applies each legal candidate
+first and evaluates the resulting position with CSTal. `searchmoves` is an
+optional capability, not a deployment gate.
 
 If the checkout is not clean, save local work first (`git stash push -u -m pattern-batch-update`) or use a separate deployment checkout. Never commit tokens, `engines.local.json`, or `style-server-token.txt`.
 

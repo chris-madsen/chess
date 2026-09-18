@@ -22,5 +22,5 @@ export type { CandidateTacticalGate, EngineScore, TacticalCandidateAssessment } 
 export type { SteeredRollout } from "../application/ports/pattern-steering";
 export { LICHESS_MATE_PATTERN_CATALOG, MATE_PATTERN_SOURCE_CATALOG, TACTICAL_MOTIF_SOURCE_CATALOG } from "../application/experiments/mate-pattern-catalog";
 export { createLocalPatternCandidateGenerator, createLocalStylePathProviders, createPatriciaCandidateGenerator, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, loadLocalEnginePaths, type LocalEnginePaths, type WindowsCstalOpponent, type WindowsCstalOptions } from "./local-style-engines";
-export { createUciMoveProvider, createUciCandidateGenerator, createUciTacticalGate, parseUciScore, type UciTacticalGatePolicy } from "../adapters/uci/uci-engine-adapter";
+export { createUciMoveProvider, createUciCandidateGenerator, createUciTacticalGate, createUciPostMoveTacticalGate, compareEngineScoresForAttacker, normalizeScoreToAttacker, parseUciScore, type UciTacticalGatePolicy } from "../adapters/uci/uci-engine-adapter";
 export { createUciForcedMateProofProvider, parseUciMateScore, type UciForcedMateProofConfig } from "../adapters/uci/uci-forced-mate-proof-adapter";

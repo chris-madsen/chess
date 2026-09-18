@@ -21,6 +21,7 @@ export type PatternSteeredTalPathRequest = Readonly<{
   horizon: ScenarioHorizon;
   candidateLimit?: number;
   cache?: AnalysisCachePort;
+  maiaCacheIdentity?: string;
 }>;
 
 const terminalLine = (request: PatternSteeredTalPathRequest, plies: readonly ScenarioPly[], status: ScenarioLine["status"], error?: DomainError): ScenarioLine => ({
@@ -48,7 +49,7 @@ export const generatePatternSteeredTalPath = async (
     if (facts.value.isTerminal) return ok(terminalLine(request, plies, "Terminal"));
     if (current.sideToMove === request.attackerSide) {
       const hasResponsePly = plyNumber + 1 <= maxPlies;
-      const decision = await evaluatePatternSteeringCandidates(request.chess, current, request.generator, request.tacticalGate, request.maia, request.lineId, request.candidateLimit ?? 8, hasResponsePly, request.cache);
+      const decision = await evaluatePatternSteeringCandidates(request.chess, current, request.generator, request.tacticalGate, request.maia, request.lineId, request.candidateLimit ?? 8, hasResponsePly, request.cache, request.maiaCacheIdentity ?? "unknown");
       if (isErr(decision)) return ok(terminalLine(request, plies, "Incomplete", decision.error));
       decisionTraces.push(decision.value.trace);
       const selected = decision.value.selected;

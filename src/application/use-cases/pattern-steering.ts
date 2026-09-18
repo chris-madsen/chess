@@ -47,13 +47,13 @@ const familyProgress = (before: readonly PatternAssessment[], after: readonly Pa
   const families = [...new Set([...before, ...after, ...postResponse].map(assessment => assessment.family))];
   const best = families.map(family => ({ family, beforeScore: scoreFor(before, family), afterCandidateScore: scoreFor(after, family), afterResponseScore: scoreFor(postResponse, family) }))
     .map(candidate => ({ targetFamily: candidate.family, beforeScore: candidate.beforeScore, afterCandidateScore: candidate.afterCandidateScore, afterResponseScore: candidate.afterResponseScore, delta: candidate.afterResponseScore - candidate.beforeScore }))
-    .sort((first, second) => second.delta - first.delta || String(first.targetFamily).localeCompare(String(second.targetFamily)))[0];
+    .sort((first, second) => second.afterResponseScore - first.afterResponseScore || second.delta - first.delta || String(first.targetFamily).localeCompare(String(second.targetFamily)))[0];
   return best ?? { targetFamily: "ANASTASIA", beforeScore: 0, afterCandidateScore: 0, afterResponseScore: 0, delta: 0 };
 };
 
 const familiesFor = async (position: PositionSnapshot, context: import("../../domain/patterns/context").PatternPositionContext, cache?: AnalysisCachePort): Promise<readonly PatternAssessment[]> => {
   if (cache === undefined) return retrieveSteerablePatternFamilies(context, 19);
-  const key = analysisCacheKey({ namespace: "PATTERN_ASSESSMENT", position, configuration: { modelVersion: `${PATTERN_MODEL_VERSION}-relational-v1`, retrieval: "steerable-19" } });
+  const key = analysisCacheKey({ namespace: "PATTERN_ASSESSMENT", position, configuration: { modelVersion: `${PATTERN_MODEL_VERSION}-relational-v1`, retrieval: "steerable-19", attackerSide: context.analysis.attackerSide } });
   const hit = await cache.get(key);
   if (!isErr(hit)) {
     const cached = hit.value?.value.assessments;
@@ -64,9 +64,9 @@ const familiesFor = async (position: PositionSnapshot, context: import("../../do
   return assessments;
 };
 
-const maiaResponseFor = async (chess: ChessRulesPort, position: PositionSnapshot, maia: MoveProvider, lineId: string, cache?: AnalysisCachePort): Promise<Result<ProvidedMove, DomainError>> => {
+const maiaResponseFor = async (chess: ChessRulesPort, position: PositionSnapshot, maia: MoveProvider, lineId: string, cache?: AnalysisCachePort, maiaCacheIdentity = "unknown"): Promise<Result<ProvidedMove, DomainError>> => {
   if (cache !== undefined) {
-    const key = analysisCacheKey({ namespace: "MAIA_RESPONSE", position, configuration: { provider: "maia", policy: "argmax-response" } });
+    const key = analysisCacheKey({ namespace: "MAIA_RESPONSE", position, configuration: { provider: "maia", policy: "argmax-response", identity: maiaCacheIdentity } });
     const hit = await cache.get(key);
     if (!isErr(hit)) {
       const cachedMove = hit.value?.value.moveUci;
@@ -99,7 +99,8 @@ export const evaluatePatternSteeringCandidates = async (
   lineId: string,
   limit = 8,
   includeMaiaResponse = true,
-  cache?: AnalysisCachePort
+  cache?: AnalysisCachePort,
+  maiaCacheIdentity = "unknown"
 ): Promise<Result<PatternSteeringDecision, DomainError>> => {
   const facts = chess.computeFacts(position);
   if (isErr(facts)) return err(facts.error);
@@ -115,7 +116,7 @@ export const evaluatePatternSteeringCandidates = async (
     if (seed.provenance === undefined || seed.provenance.inputPositionHash !== position.hash) return err(domainError("MISSING_PROVENANCE", "patternSteering.candidate.provenance", "Candidate provenance must refer to the input position"));
     legalSeeds.push({ ...seed, move: legal.value });
   }
-  const tactical = await tacticalGate({ position, candidates: legalSeeds, lineId });
+  const tactical = await tacticalGate({ position, attackerSide: analysis.attackerSide, candidates: legalSeeds, lineId });
   if (isErr(tactical)) return err(tactical.error);
   const tacticalByMove = new Map(tactical.value.map(assessment => [String(assessment.seed.move.uci), assessment]));
   const evaluated: PatternSteeringCandidate[] = [];
@@ -139,7 +140,7 @@ export const evaluatePatternSteeringCandidates = async (
       evaluated.push({ seed, tactical: tacticalAssessment, afterPosition: after.value, beforeFamilies, afterFamilies, postResponseFamilies: afterFamilies, targetFamily: progress.targetFamily, beforeScore: progress.beforeScore, afterCandidateScore: progress.afterCandidateScore, afterResponseScore: progress.afterResponseScore, patternDelta: progress.delta, progress: progress.delta });
       continue;
     }
-    const response = await maiaResponseFor(chess, after.value, maia, lineId, cache);
+    const response = await maiaResponseFor(chess, after.value, maia, lineId, cache, maiaCacheIdentity);
     if (isErr(response)) return err(response.error);
     if (response.value.provenance.source !== "MAIA") return err(domainError("SOURCE_SEQUENCE_VIOLATION", "patternSteering.maia.source", "Steering response must come from Maia", { source: response.value.provenance.source }));
     const responseMove = chess.parseLegalMove(after.value, response.value.move.uci);

@@ -4,6 +4,7 @@ import type { ChessRulesPort } from "../../application/ports/chess-rules";
 import type { MoveProvider, ProvidedMove, ProviderRequest, ProviderSearchLimit } from "../../application/ports/providers";
 import type { CandidateGenerator, CandidateTacticalGate, EngineScore } from "../../application/ports/pattern-steering";
 import type { PositionSnapshot } from "../../domain/chess/position";
+import type { Side } from "../../domain/chess/value-objects";
 import type { MoveSource, ProviderIdentity } from "../../domain/provenance/provenance";
 import { makeRequestId } from "../../domain/chess/value-objects";
 import { domainError, type DomainError } from "../../domain/shared/errors";
@@ -29,7 +30,10 @@ export type UciEngineConfig = Readonly<{
   timeoutMs: number;
   configuration: Readonly<Record<string, unknown>>;
   allowInfoPvBestMoveFallback?: boolean;
+  /** Legacy flag retained for callers; capability is preferred. */
   supportsSearchMoves?: boolean;
+  searchMovesCapability?: "VERIFIED" | "UNSUPPORTED" | "UNKNOWN";
+  scorePerspective?: "SIDE_TO_MOVE" | "ATTACKER";
 }>;
 
 type PendingWait = Readonly<{
@@ -427,7 +431,27 @@ export type UciTacticalGatePolicy = Readonly<{
   allowedLossCentipawns: number;
   preserveMateClass?: boolean;
   searchLimit?: ProviderSearchLimit;
+  scorePerspective?: "SIDE_TO_MOVE" | "ATTACKER";
 }>;
+
+export const compareEngineScoresForAttacker = (first: EngineScore, second: EngineScore): number => {
+  if (first.kind === "mate" && second.kind !== "mate") return first.value > 0 ? 1 : -1;
+  if (first.kind !== "mate" && second.kind === "mate") return second.value > 0 ? -1 : 1;
+  if (first.kind === "centipawns" && second.kind === "centipawns") return first.value - second.value;
+  if (first.value > 0 && second.value > 0) return second.value - first.value;
+  if (first.value < 0 && second.value < 0) return second.value - first.value;
+  return first.value > second.value ? 1 : first.value < second.value ? -1 : 0;
+};
+
+export const normalizeScoreToAttacker = (
+  score: EngineScore,
+  scorePerspective: "SIDE_TO_MOVE" | "ATTACKER",
+  sideToMove: Side,
+  attackerSide: Side
+): EngineScore => {
+  if (scorePerspective === "ATTACKER" || sideToMove === attackerSide) return score;
+  return { ...score, value: -score.value };
+};
 
 /**
  * ACL for Tal/CSTal candidate safety. Pattern code never parses engine scores;
@@ -511,6 +535,109 @@ export const createUciTacticalGate = (
       });
       if (relative.length > 0 && !relative.some(result => result.accepted)) {
         const fallback = [...relative].sort((first, second) => (second.talScore?.value ?? Number.NEGATIVE_INFINITY) - (first.talScore?.value ?? Number.NEGATIVE_INFINITY))[0];
+        if (fallback !== undefined) return ok(relative.map(result => result.seed.move.uci === fallback.seed.move.uci ? { ...result, accepted: true, reason: "TAL_BEST_CANDIDATE_FALLBACK" } : result));
+      }
+      return ok(relative);
+    } catch (error) {
+      const failedSession = sessionPromise;
+      sessionPromise = null;
+      try { (await failedSession)?.stop(); } catch { /* best-effort cleanup */ }
+      return providerFailure(config, error) as Result<readonly import("../../application/ports/pattern-steering").TacticalCandidateAssessment[], DomainError>;
+    }
+  };
+  const dispose = (): void => {
+    const current = sessionPromise;
+    sessionPromise = null;
+    queue = Promise.resolve(ok([]));
+    if (current !== null) void current.then(session => session.stop(), () => undefined);
+  };
+  return Object.assign(async (request: Parameters<CandidateTacticalGate>[0]) => {
+    queue = queue.then(() => requestGate(request), () => requestGate(request));
+    return queue;
+  }, { dispose });
+};
+
+/**
+ * CSTal 2.07 ACL. CSTal ignores UCI `searchmoves`, so the candidate is
+ * applied by the chess rules port first and the engine evaluates the resulting
+ * defender-to-move position. Scores are normalized to the attacker's view.
+ */
+export const createUciPostMoveTacticalGate = (
+  chess: ChessRulesPort,
+  config: UciEngineConfig,
+  policy: UciTacticalGatePolicy = { minCentipawns: -150, allowedLossCentipawns: 100, preserveMateClass: true }
+): CandidateTacticalGate => {
+  let sessionPromise: Promise<UciSession> | null = null;
+  let queue: Promise<Result<readonly import("../../application/ports/pattern-steering").TacticalCandidateAssessment[], DomainError>> = Promise.resolve(ok([]));
+  const getSession = async (): Promise<UciSession> => {
+    sessionPromise ??= initializeSession(config);
+    return sessionPromise;
+  };
+  const requestGate = async (request: Parameters<CandidateTacticalGate>[0]): Promise<Result<readonly import("../../application/ports/pattern-steering").TacticalCandidateAssessment[], DomainError>> => {
+    const session = await getSession();
+    const results: import("../../application/ports/pattern-steering").TacticalCandidateAssessment[] = [];
+    try {
+      for (const seed of request.candidates) {
+        const legal = chess.parseLegalMove(request.position, seed.move.uci);
+        if (isErr(legal)) return err(domainError("PROVIDER_ILLEGAL_MOVE", `providers.${config.key}.postMove`, "Tactical gate received an illegal candidate", { uci: seed.move.uci }));
+        const after = chess.applyMove(request.position, legal.value);
+        if (isErr(after)) return err(after.error);
+        const afterFacts = chess.computeFacts(after.value);
+        if (isErr(afterFacts)) return err(afterFacts.error);
+        let score: EngineScore | undefined;
+        let pv: readonly string[] = [];
+        if (afterFacts.value.isCheckmate) {
+          score = { kind: "mate", value: after.value.sideToMove === request.attackerSide ? -1 : 1, bound: "exact" };
+        } else if (afterFacts.value.isTerminal) {
+          score = { kind: "centipawns", value: 0, bound: "exact" };
+        } else {
+          const limit = policy.searchLimit ?? config.limit;
+          const timeoutMs = timeoutMsFor(config, limit);
+          session.send("isready");
+          await session.waitFor(line => line.trim() === "readyok", timeoutMs);
+          session.send(positionCommand(after.value));
+          session.send(goCommand(limit));
+          await session.waitFor(line => line.startsWith("bestmove "), timeoutMs, line => {
+            const nextScore = parseUciScore(line);
+            if (nextScore !== undefined) score = nextScore;
+            const nextPv = pvMoves(line);
+            if (nextPv.length > 0) pv = nextPv;
+          });
+          if (score !== undefined) {
+            score = normalizeScoreToAttacker(score, policy.scorePerspective ?? config.scorePerspective ?? "SIDE_TO_MOVE", after.value.sideToMove, request.attackerSide);
+          }
+        }
+        if (score === undefined) {
+          results.push({ seed, accepted: false, reason: "TAL_SCORE_UNAVAILABLE" });
+          continue;
+        }
+        const accepted = score.bound === "exact" && (score.kind === "mate" ? score.value > 0 : score.value >= (policy.minCentipawns ?? Number.NEGATIVE_INFINITY));
+        const legalPv: import("../../domain/chess/moves").LegalMove[] = [];
+        let current = after.value;
+        for (const rawMove of pv) {
+          const next = chess.parseLegalMove(current, rawMove);
+          if (isErr(next)) break;
+          legalPv.push(next.value);
+          const applied = chess.applyMove(current, next.value);
+          if (isErr(applied)) break;
+          current = applied.value;
+        }
+        results.push({ seed, accepted, talScore: score, ...(score.kind === "mate" ? { talMate: score.value } : {}), ...(legalPv.length === 0 ? {} : { talPv: legalPv }), ...(accepted ? {} : { reason: score.bound !== "exact" ? "TAL_SCORE_BOUND_UNSAFE" : "TAL_TACTICAL_VETO" }) });
+      }
+      const scored = results.filter(result => result.talScore?.bound === "exact" && result.talScore !== undefined);
+      const best = scored.reduce<EngineScore | undefined>((current, result) => {
+        const score = result.talScore;
+        return score !== undefined && (current === undefined || compareEngineScoresForAttacker(score, current) > 0) ? score : current;
+      }, undefined);
+      const relative = results.map(result => {
+        const score = result.talScore;
+        if (score === undefined || best === undefined || score.bound !== "exact") return result;
+        const mateClassOk = policy.preserveMateClass !== false && best.kind === "mate" ? score.kind === "mate" && score.value > 0 : true;
+        const lossOk = best.kind === "centipawns" && score.kind === "centipawns" ? best.value - score.value <= policy.allowedLossCentipawns : true;
+        return { ...result, accepted: result.accepted && mateClassOk && lossOk, ...(result.accepted && (!mateClassOk || !lossOk) ? { reason: "TAL_RELATIVE_SAFETY_VETO" } : {}) };
+      });
+      if (relative.length > 0 && !relative.some(result => result.accepted)) {
+        const fallback = [...relative].sort((first, second) => compareEngineScoresForAttacker(second.talScore ?? { kind: "mate", value: -999 }, first.talScore ?? { kind: "mate", value: -999 }))[0];
         if (fallback !== undefined) return ok(relative.map(result => result.seed.move.uci === fallback.seed.move.uci ? { ...result, accepted: true, reason: "TAL_BEST_CANDIDATE_FALLBACK" } : result));
       }
       return ok(relative);

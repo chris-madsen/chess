@@ -142,7 +142,7 @@ export type PatternFeatures = Readonly<{
   isCheckmate: boolean;
 }>;
 
-export const PATTERN_MODEL_VERSION = "symbolic-v3-named-catalog";
+export const PATTERN_MODEL_VERSION = "symbolic-v4-postmove-attractor";
 export const PATTERN_MATCH_THRESHOLD = 0.65;
 
 const opposite = (side: Side): Side => side === "white" ? "black" : "white";
