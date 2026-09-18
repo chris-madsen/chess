@@ -76,7 +76,7 @@ export const renderPatternDiscoveryStart = (caseId: string, position: PositionSn
     status: "Incomplete"
   };
   const movetext = formatSanMovetext(preview);
-  return `## ${caseId} Pattern discovery status Running\n${movetext.length === 0 ? "(calculating first move...)" : movetext}\n\n`;
+  return `## ${caseId} Pattern discovery status Running\n${movetext.length === 0 ? "(calculating first move...)" : movetext}\n(calculating first move: CSTal candidates + tactical gate + Maia response)\n\n`;
 };
 
 export const renderPatternReference = (line: ScenarioLine, minimumAffinityByFamily: ReadonlyMap<PatternFamilyId, number> = new Map()): string => {

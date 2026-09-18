@@ -55,11 +55,26 @@ const ansiLiveOutputSupported = (): boolean => {
 
 const createLiveRenderer = (): { render: (text: string, final?: boolean) => void } => {
   let rendered = false;
+  let compactLength = 0;
   const ansi = ansiLiveOutputSupported();
+  const compact = (text: string): string => {
+    const singleLine = text.replace(/\s+/gu, " ").trim();
+    if (singleLine.length <= 72) return singleLine;
+    return `${singleLine.slice(0, 34)} ... ${singleLine.slice(-34)}`;
+  };
   return {
     render: (text, final = false) => {
       if (!ansi) {
-        if (!rendered || final) process.stdout.write(text);
+        if (final) {
+          process.stdout.write(`\r${" ".repeat(compactLength)}\r${text}`);
+        } else if (!rendered) {
+          process.stdout.write(text);
+          compactLength = 0;
+        } else {
+          const status = compact(text);
+          process.stdout.write(`\r${status}${" ".repeat(Math.max(0, compactLength - status.length))}`);
+          compactLength = status.length;
+        }
         rendered = true;
         return;
       }
