@@ -26,9 +26,10 @@ const valueAfter = flag => {
 const outputPath = valueAfter("--out") ?? "datasets/pattern-mvp-lichess.jsonl";
 const targetPerFamily = Number(valueAfter("--per-family") ?? "16");
 const controlCount = Number(valueAfter("--controls") ?? "16");
+const hardNegativePerFamily = Number(valueAfter("--hard-negatives") ?? "8");
 const datasetVersion = valueAfter("--dataset-version") ?? "lichess-puzzle-mvp-2026-09";
-if (!Number.isInteger(targetPerFamily) || targetPerFamily <= 0 || !Number.isInteger(controlCount) || controlCount < 0) {
-  throw new Error("--per-family must be positive and --controls must be non-negative integers");
+if (!Number.isInteger(targetPerFamily) || targetPerFamily <= 0 || !Number.isInteger(controlCount) || controlCount < 0 || !Number.isInteger(hardNegativePerFamily) || hardNegativePerFamily < 0) {
+  throw new Error("--per-family must be positive; --controls and --hard-negatives must be non-negative integers");
 }
 
 const csvFields = line => {
@@ -65,10 +66,12 @@ const validFen = fen => {
   }
 };
 const counts = new Map([...themeFamilies.values()].map(family => [family, 0]));
+const hardNegativeCounts = new Map([...themeFamilies.values()].map(family => [family, 0]));
 const selected = [];
 const usedFens = new Set();
 const controls = [];
-const required = targetPerFamily * themeFamilies.size + controlCount;
+const hardNegatives = [];
+const required = (targetPerFamily + hardNegativePerFamily) * themeFamilies.size + controlCount;
 
 const ensureDump = async dumpPath => {
   if (existsSync(dumpPath)) return;
@@ -118,6 +121,28 @@ const main = async () => {
       usedFens.add(fen);
       continue;
     }
+    const negativeFamily = [...themeFamilies.values()].find(family => (hardNegativeCounts.get(family) ?? 0) < hardNegativePerFamily && !themes.has([...themeFamilies.entries()].find(([, candidate]) => candidate === family)?.[0] ?? ""));
+    if (negativeFamily !== undefined && [...themeFamilies.keys()].some(theme => themes.has(theme))) {
+      const sourceTheme = [...themes].find(theme => themeFamilies.has(theme)) ?? "other-mate-theme";
+      hardNegatives.push({
+        caseId: `hard-negative-${negativeFamily.toLowerCase()}-${row.PuzzleId}`,
+        datasetVersion,
+        split: (hardNegativeCounts.get(negativeFamily) ?? 0) < Math.ceil(hardNegativePerFamily / 2) ? "calibration" : "evaluation",
+        exampleKind: "hard_negative",
+        fen,
+        family: negativeFamily,
+        sourcePositionHash: hashFen(fen),
+        source: { kind: "lichess-puzzle-database-hard-negative", reference: `${sourceReference}#${row.PuzzleId}`, license: sourceLicense },
+        sourceTheme,
+        negativeAgainst: negativeFamily,
+        solutionMoves: row.Moves,
+        rating: Number(row.Rating),
+        gameUrl: row.GameUrl
+      });
+      hardNegativeCounts.set(negativeFamily, (hardNegativeCounts.get(negativeFamily) ?? 0) + 1);
+      usedFens.add(fen);
+      continue;
+    }
     if (controls.length < controlCount && ![...themeFamilies.keys()].some(theme => themes.has(theme))) {
       controls.push({
         caseId: `control-${row.PuzzleId}`,
@@ -135,22 +160,25 @@ const main = async () => {
       });
       usedFens.add(fen);
     }
-    if (selected.length + controls.length >= required && [...counts.values()].every(count => count >= targetPerFamily)) break;
+    if (selected.length + hardNegatives.length + controls.length >= required
+      && [...counts.values()].every(count => count >= targetPerFamily)
+      && [...hardNegativeCounts.values()].every(count => count >= hardNegativePerFamily)) break;
   }
   decompressor.kill();
   const missing = [...counts.entries()].filter(([, count]) => count < targetPerFamily);
-  if (missing.length > 0 || controls.length < controlCount) {
-    throw new Error(`insufficient corpus: missing ${JSON.stringify(missing)}; controls=${controls.length}/${controlCount}`);
+  const missingHardNegatives = [...hardNegativeCounts.entries()].filter(([, count]) => count < hardNegativePerFamily);
+  if (missing.length > 0 || missingHardNegatives.length > 0 || controls.length < controlCount) {
+    throw new Error(`insufficient corpus: missing=${JSON.stringify(missing)} hardNegatives=${JSON.stringify(missingHardNegatives)} controls=${controls.length}/${controlCount}`);
   }
   mkdirSync("datasets", { recursive: true });
-  const output = [...selected, ...controls].map(entry => JSON.stringify(entry)).join("\n") + "\n";
+  const output = [...selected, ...hardNegatives, ...controls].map(entry => JSON.stringify(entry)).join("\n") + "\n";
   await new Promise((resolve, reject) => {
     const stream = createWriteStream(outputPath);
     stream.once("error", reject);
     stream.once("finish", resolve);
     stream.end(output);
   });
-  console.log(JSON.stringify({ outputPath, datasetVersion, cases: selected.length + controls.length, perFamily: Object.fromEntries(counts), controls: controls.length, license: sourceLicense }));
+  console.log(JSON.stringify({ outputPath, datasetVersion, cases: selected.length + hardNegatives.length + controls.length, perFamily: Object.fromEntries(counts), hardNegatives: Object.fromEntries(hardNegativeCounts), controls: controls.length, license: sourceLicense }));
 };
 
 await main();

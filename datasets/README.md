@@ -37,10 +37,10 @@ The acceptance benchmark requires at least 300 independent cases with separate `
 
 ## Generated seed corpus
 
-The initial checked-in seed corpus is `datasets/pattern-mvp-lichess.jsonl`: 320 unique positions, 16 per core family, plus 16 controls. It was generated from the public Lichess puzzle database with:
+The initial checked-in seed corpus is `datasets/pattern-mvp-lichess.jsonl`: 472 unique positions, 16 positives and 8 hard negatives per core family, plus 16 controls. It was generated from the public Lichess puzzle database with:
 
 ```bash
-npm run pattern:dataset:lichess -- --per-family 16 --controls 16
+npm run pattern:dataset:lichess -- --per-family 16 --hard-negatives 8 --controls 16
 ```
 
 The compressed dump is downloaded to ignored `.local/datasets/`. The builder records the database reference and `CC-BY-SA-4.0` attribution on every entry. Re-run it with a new `--dataset-version` when refreshing the source dump.
