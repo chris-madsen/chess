@@ -115,6 +115,9 @@ export const parsePatternDataset = (
         received: entry.value.sourcePositionHash
       }));
     }
+    const actualStartFen = entry.value.trajectory?.find(state => state.ply === 1)?.fen;
+    const actualStart = actualStartFen === undefined ? ok(position.value) : chess.ingestPosition(actualStartFen);
+    if (isErr(actualStart)) return err(domainError("INVALID_RAW_GAME", `dataset.line.${index + 1}.trajectory`, "trajectory actual start is not a valid FEN", { cause: actualStart.error }));
     cases.push({
       caseId: entry.value.caseId,
       datasetVersion: entry.value.datasetVersion,
@@ -126,7 +129,8 @@ export const parsePatternDataset = (
       ...(entry.value.solutionMoves === undefined ? {} : { solutionMoves: entry.value.solutionMoves }),
       ...(entry.value.trajectory === undefined ? {} : { trajectory: entry.value.trajectory }),
       ...(entry.value.expected === undefined ? {} : { expected: entry.value.expected }),
-      position: position.value,
+      // Lichess stores the pre-puzzle position; ply 1 is the actual puzzle start.
+      position: actualStart.value,
       horizon: horizon.value,
       prefixPlies
     });

@@ -43,3 +43,24 @@ test("dataset ingest normalizes legacy solution move strings", () => {
   expect(result.tag).toBe("Ok");
   expect(result.value[0].solutionMoves).toEqual(["e8e7", "g7e5"]);
 });
+
+test("dataset uses trajectory ply 1 as the actual puzzle start", () => {
+  const actualSourceFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+  const source = chess.ingestPosition(actualSourceFen).value;
+  const move = chess.parseLegalMove(source, "e2e4");
+  const after = chess.applyMove(source, move.value).value;
+  const raw = {
+    caseId: "actual-start-0001",
+    datasetVersion: "test-v2",
+    split: "evaluation",
+    exampleKind: "positive",
+    fen: actualSourceFen,
+    family: "BACK_RANK",
+    sourcePositionHash: String(source.hash),
+    source: { kind: "fixture", reference: "test" },
+    trajectory: [{ ply: 0, fen: actualSourceFen, distanceToTerminal: 1 }, { ply: 1, fen: String(after.fen), distanceToTerminal: 0 }]
+  };
+  const result = parsePatternDataset(chess, JSON.stringify(raw), 1, 1);
+  expect(result.tag).toBe("Ok");
+  expect(String(result.value[0].position.fen)).toBe(String(after.fen));
+});
