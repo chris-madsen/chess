@@ -77,7 +77,7 @@ The post-hoc PatternSelectionExperiment and legacy scorer SHALL remain explicitl
 ## Requirement: Continuous attractor semantics
 
 Production steering SHALL use soft `PatternAffinity` for steerable families. A
-matcher prefilter MAY reduce retrieval cost but SHALL NOT semantically replace
+matcher retrieval hints MAY reduce retrieval cost but SHALL NOT semantically replace
 the affinity with zero. Display states such as `far` and `near` SHALL remain
 descriptive labels, not control-flow gates.
 

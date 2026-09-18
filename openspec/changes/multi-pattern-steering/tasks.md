@@ -3,3 +3,7 @@
 - [x] Carry the target through the remote batch request and Windows worker.
 - [x] Add contract tests for fixed target selection, line isolation, and threshold rendering.
 - [x] Run lint, typecheck, and contract tests.
+- [x] Discover every unique threshold-hit family and evaluate branches with a maximum of three concurrent workers.
+- [x] Rank completed target branches by total root-to-terminal length and retain the three shortest.
+- [x] Keep per-target failures as incomplete diagnostics without failing unrelated target branches.
+- [x] Replace the first five generic family scorers with continuous king-relative MateGeometry descriptors.
