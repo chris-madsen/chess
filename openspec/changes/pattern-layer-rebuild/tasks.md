@@ -13,4 +13,5 @@
 - [x] Add Patricia MultiPV candidate generator adapter.
 - [x] Add full steered rollout artifact and independent forced-mate evaluation.
 - [x] Expand structural matcher dispatch from the first five families to all core families.
-- [ ] Run held-out recognizer and steering reports on updated dataset.
+- [x] Run held-out recognizer report on the updated dataset.
+- [ ] Run held-out steering report on the updated dataset after Windows batch API deployment.
