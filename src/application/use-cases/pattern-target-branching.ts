@@ -6,6 +6,8 @@ import { err, ok, isErr, type Result } from "../../domain/shared/result";
 import type { PatternSteeredTalPathRequest } from "./pattern-steered-tal-path";
 import { generatePatternSteeredTalPath } from "./pattern-steered-tal-path";
 
+export const MAX_PATTERN_TARGETS = 3;
+
 export type PatternTargetBranch = Readonly<{
   targetFamily: PatternFamilyId;
   triggerPly: number;
@@ -36,9 +38,9 @@ export const registerPatternTarget = (
   targets: readonly PatternTargetBranch[],
   event: PatternTargetAffinityEvent,
   threshold = 0.97,
-  maxTargets = 5
+  maxTargets = MAX_PATTERN_TARGETS
 ): Readonly<{ accepted: boolean; targets: readonly PatternTargetBranch[] }> => {
-  const limit = Math.min(5, Math.max(1, maxTargets));
+  const limit = Math.min(MAX_PATTERN_TARGETS, Math.max(1, maxTargets));
   if (event.affinity < threshold || targets.some(target => target.targetFamily === event.targetFamily) || targets.length >= limit) return { accepted: false, targets };
   return {
     accepted: true,
@@ -66,7 +68,7 @@ export const generatePatternTargetSession = async (
   request: PatternTargetSessionRequest
 ): Promise<Result<PatternTargetSession, DomainError>> => {
   const threshold = request.threshold ?? 0.97;
-  const maxTargets = Math.min(5, Math.max(1, request.maxTargets ?? 5));
+  const maxTargets = Math.min(MAX_PATTERN_TARGETS, Math.max(1, request.maxTargets ?? MAX_PATTERN_TARGETS));
   const targets: PatternTargetBranch[] = [];
   let latestDiscovery: ScenarioLine | undefined;
   const targetPromises: Promise<void>[] = [];
@@ -111,5 +113,13 @@ export const generatePatternTargetSession = async (
   } catch (error) {
     return err({ code: "PROVIDER_UNAVAILABLE", path: "patternTargetBranching.target", message: error instanceof Error ? error.message : String(error) });
   }
-  return ok(snapshot(discovery.value, targets));
+  const rankedTargets = [...targets].sort((first, second) => {
+    const firstTerminal = first.line?.status === "Terminal";
+    const secondTerminal = second.line?.status === "Terminal";
+    if (firstTerminal !== secondTerminal) return firstTerminal ? -1 : 1;
+    const firstPlies = first.line?.plies.length ?? Number.POSITIVE_INFINITY;
+    const secondPlies = second.line?.plies.length ?? Number.POSITIVE_INFINITY;
+    return firstPlies - secondPlies || first.targetFamily.localeCompare(second.targetFamily);
+  });
+  return ok(snapshot(discovery.value, rankedTargets));
 };
