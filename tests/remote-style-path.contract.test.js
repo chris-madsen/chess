@@ -88,6 +88,7 @@ test("remote Pattern steering adapter imports ScenarioPly provenance shape", asy
   const horizon = makeScenarioHorizon(2);
   expect(horizon.tag).toBe("Ok");
   const originalFetch = globalThis.fetch;
+  const progress = [];
   globalThis.fetch = async url => ({
     ok: true,
     status: 202,
@@ -113,10 +114,11 @@ test("remote Pattern steering adapter imports ScenarioPly provenance shape", asy
       cstalOpponent: "maia3",
       maia3Elo: 1800,
       timeoutMs: 1000
-    });
+    }, 1, event => progress.push(event));
     expect(result.tag).toBe("Ok");
     expect(result.value["case-scenario-ply"].plies.map(ply => ply.provenance.source)).toEqual(["LOCAL_STYLE_ENGINE", "MAIA"]);
     expect(result.value["case-scenario-ply"].plies[0].provenance.provider.name).toBe("cstal-absurd");
+    expect(progress.some(event => event.caseId === "case-scenario-ply" && event.line?.plies.length === 2)).toBe(true);
   } finally {
     globalThis.fetch = originalFetch;
   }

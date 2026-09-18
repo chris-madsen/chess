@@ -39,6 +39,12 @@ npm run pattern:experiment -- \
   --provider remote --subset 100 --maia3-elo 1800
 ```
 
+The CLI prints each completed steering line as SAN while the batch is running,
+then writes the same structured lines to the JSONL artifact. Dataset cases are
+FEN-based benchmark positions, so their output starts at the case position. A
+raw PGN input keeps its full SAN prefix in `PositionSnapshot` and appends the
+generated continuation; the Maia UCI history remains in the position command.
+
 The old line-selection benchmark is explicit:
 
 ```bash

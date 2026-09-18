@@ -7,6 +7,7 @@ import { generatePatternSteeredTalPath } from "../application/use-cases/pattern-
 import { isErr } from "../domain/shared/result";
 import { createInMemoryAnalysisCache } from "../adapters/cache/in-memory-analysis-cache";
 import { createPatriciaCandidateGenerator, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, fetchRemotePatternSteeringBatch, loadLocalEnginePaths, makeRemoteStylePathConfig } from "../wiring/index";
+import { renderPatternSteeringLine } from "./pattern-steering-render";
 
 const valueAfter = (args: readonly string[], flag: string): string | undefined => {
   const index = args.indexOf(flag);
@@ -59,8 +60,17 @@ const main = async (): Promise<void> => {
     const config = makeRemoteStylePathConfig({ maia3Elo });
     if (isErr(config)) throw new Error(`${config.error.code}: ${config.error.message}`);
     process.stdout.write(`remote steering: submitted ${selected.length} cases, concurrency=${concurrency}; waiting for Windows Tal+Maia workers...\n`);
+    const renderedLines = new Map<string, string>();
     const remote = await fetchRemotePatternSteeringBatch(chess, selected.map(item => ({ caseId: item.caseId, position: item.position })), selected[0]?.horizon ?? cases.value[0]!.horizon, config.value, concurrency, progress => {
-      process.stdout.write(`remote steering: ${progress.completed}/${progress.total} completed, status=${progress.status}\n`);
+      if (progress.caseId === undefined) {
+        process.stdout.write(`remote steering: ${progress.completed}/${progress.total} completed, status=${progress.status}\n`);
+      } else if (progress.line !== undefined) {
+        const rendered = renderPatternSteeringLine(progress.caseId, progress.line);
+        if (renderedLines.get(progress.caseId) !== rendered) {
+          renderedLines.set(progress.caseId, rendered);
+          process.stdout.write(rendered);
+        }
+      }
     });
     if (isErr(remote)) throw new Error(`${remote.error.code}: ${remote.error.message}`);
     selected.forEach(item => records.push({ type: "case", caseId: item.caseId, mode: "steering", line: remote.value[item.caseId] ?? null }));

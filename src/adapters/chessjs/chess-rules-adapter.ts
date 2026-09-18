@@ -76,7 +76,8 @@ const legalMovesFromChess = (chess: Chess): readonly LegalMove[] => chess.moves(
 const snapshotFromChess = (
   chess: Chess,
   hashFen: (fen: Fen) => PositionHash,
-  uciPosition?: UciPositionCommand
+  uciPosition?: UciPositionCommand,
+  pgn?: string
 ): PositionSnapshot => {
   const fen = makeFen(chess.fen());
   return {
@@ -85,7 +86,8 @@ const snapshotFromChess = (
     sideToMove: sideFromTurn(chess.turn()),
     hash: hashFen(fen),
     legalMoves: legalMovesFromChess(chess),
-    uciPosition: uciPosition ?? { base: "fen", fen, moves: [] }
+    uciPosition: uciPosition ?? { base: "fen", fen, moves: [] },
+    ...(pgn === undefined ? {} : { pgn })
   };
 };
 
@@ -149,7 +151,7 @@ export const createChessJsRulesAdapter = (): ChessRulesPort => {
       const chessResult = applyRawSanGame(rawGame);
       return chessResult.tag === "Err"
         ? chessResult
-        : ok(snapshotFromChess(chessResult.value.chess, hashFen, { base: "startpos", moves: chessResult.value.uciMoves }));
+        : ok(snapshotFromChess(chessResult.value.chess, hashFen, { base: "startpos", moves: chessResult.value.uciMoves }, rawGame));
     },
     parseLegalMove: (position: PositionSnapshot, rawMove: string): Result<LegalMove, DomainError> => {
       const chessResult = makeChess(position.fen, "position.fen");

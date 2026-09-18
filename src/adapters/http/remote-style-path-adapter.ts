@@ -270,7 +270,7 @@ export const fetchRemotePatternSteeringBatch = async (
   horizon: ScenarioHorizon,
   config: RemoteStylePathConfig,
   concurrency = 2,
-  onProgress?: (progress: Readonly<{ status: string; completed: number; total: number }>) => void
+  onProgress?: (progress: Readonly<{ status: string; completed: number; total: number; caseId?: string; line?: ScenarioLine }>) => void
 ): Promise<Result<Readonly<Record<string, ScenarioLine>>, DomainError>> => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.timeoutMs * Math.max(1, cases.length));
@@ -287,6 +287,15 @@ export const fetchRemotePatternSteeringBatch = async (
     const final = (await parseSseSnapshots(events, snapshot => {
       if (!isRemoteBatchSnapshot(snapshot)) return;
       onProgress?.({ status: snapshot.status, completed: snapshot.results.length, total: cases.length });
+      for (const item of snapshot.results) {
+        const source = cases.find(candidate => candidate.caseId === item.caseId);
+        if (source === undefined || item.steeringLine === undefined) continue;
+        const normalized = makeScenarioHorizon(Number(horizon));
+        if (isErr(normalized)) continue;
+        const remoteLine: RemoteLine = { engineKey: "pattern-steered-tal", label: "PatternSteeredTalPath", status: item.steeringLine.status, plies: item.steeringLine.plies, ...(item.steeringLine.decisionTraces === undefined ? {} : { decisionTraces: item.steeringLine.decisionTraces }), ...(item.steeringLine.error === undefined ? {} : { error: item.steeringLine.error }) };
+        const lineResult = makeRemoteLine(chess, source.position, normalized.value, remoteLine, config);
+        if (!isErr(lineResult)) onProgress?.({ status: snapshot.status, completed: snapshot.results.length, total: cases.length, caseId: item.caseId, line: lineResult.value.line });
+      }
     })).filter(isRemoteBatchSnapshot).at(-1);
     if (final === undefined) return responseError("remotePatternSteering.events", "Remote Pattern steering batch returned no final snapshot");
     const result: Record<string, ScenarioLine> = {};
