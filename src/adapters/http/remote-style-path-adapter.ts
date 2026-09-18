@@ -19,6 +19,8 @@ export type RemoteStylePathConfig = Readonly<{
 type RemotePly = Readonly<{ index: number; uci: string; san: string; source: string; provider: string; requestId?: string; inputPositionHash?: string; configuration?: Readonly<Record<string, unknown>> }>;
 type RemoteLine = Readonly<{ engineKey: string; label: string; status: string; styleDepth?: number; plies: readonly RemotePly[]; error?: DomainError }>;
 type RemoteJobSnapshot = Readonly<{ jobId: string; status: string; lines: readonly RemoteLine[] }>;
+type RemoteBatchResult = Readonly<{ caseId: string; status: string; snapshot?: RemoteJobSnapshot; error?: DomainError }>;
+type RemoteBatchSnapshot = Readonly<{ batchId: string; status: string; results: readonly RemoteBatchResult[] }>;
 
 const tokenFromEnvironment = (): string | undefined => {
   const direct = process.env.CHESS_STYLE_API_TOKEN ?? process.env.CHESS_TRAINER_API_TOKEN;
@@ -44,6 +46,7 @@ export const makeRemoteStylePathConfig = (overrides: Partial<Omit<RemoteStylePat
 const responseError = (path: string, message: string, details?: Readonly<Record<string, unknown>>): Result<never, DomainError> => err(domainError("PROVIDER_UNAVAILABLE", path, message, details));
 
 const isRemoteJobSnapshot = (value: unknown): value is RemoteJobSnapshot => value !== null && typeof value === "object" && typeof (value as { jobId?: unknown }).jobId === "string" && Array.isArray((value as { lines?: unknown }).lines);
+const isRemoteBatchSnapshot = (value: unknown): value is RemoteBatchSnapshot => value !== null && typeof value === "object" && typeof (value as { batchId?: unknown }).batchId === "string" && Array.isArray((value as { results?: unknown }).results);
 
 const sourceFor = (source: string): MoveSource | undefined => source === "LOCAL_STYLE_ENGINE" || source === "MAIA" ? source : undefined;
 
@@ -89,6 +92,14 @@ const makeRemoteLine = (chess: ChessRulesPort, start: PositionSnapshot, horizon:
   return ok({ engineKey: remote.engineKey, line, ...(remote.styleDepth === undefined ? {} : { styleDepth: remote.styleDepth }) });
 };
 
+const parseSseSnapshots = async (response: Response): Promise<readonly unknown[]> => {
+  const eventText = await response.text();
+  return eventText.split(/\r?\n\r?\n/u)
+    .map(block => block.split(/\r?\n/u).find(line => line.startsWith("data:"))?.slice("data:".length).trim())
+    .filter((data): data is string => data !== undefined)
+    .map(data => JSON.parse(data) as unknown);
+};
+
 export const fetchRemoteStylePaths = async (
   chess: ChessRulesPort,
   start: PositionSnapshot,
@@ -112,12 +123,7 @@ export const fetchRemoteStylePaths = async (
       headers: { authorization: `Bearer ${config.token}` }
     });
     if (!events.ok || events.body === null) return responseError("remoteStyleApi.events", "Remote StylePath API event stream failed", { status: events.status });
-    const eventText = await events.text();
-    const snapshots = eventText.split(/\r?\n\r?\n/u)
-      .map(block => block.split(/\r?\n/u).find(line => line.startsWith("data:"))?.slice("data:".length).trim())
-      .filter((data): data is string => data !== undefined)
-      .map(data => JSON.parse(data) as unknown)
-      .filter(isRemoteJobSnapshot);
+    const snapshots = (await parseSseSnapshots(events)).filter(isRemoteJobSnapshot);
     const body = snapshots.at(-1);
     if (body === undefined) return responseError("remoteStyleApi.events", "Remote StylePath API returned no final snapshot");
     const normalizedHorizon = makeScenarioHorizon(Number(horizon));
@@ -131,6 +137,60 @@ export const fetchRemoteStylePaths = async (
     return ok(values);
   } catch (error) {
     return responseError("remoteStyleApi.request", "Remote StylePath API request failed", { cause: error instanceof Error ? error.message : String(error) });
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+export const fetchRemoteStylePathBatch = async (
+  chess: ChessRulesPort,
+  cases: readonly Readonly<{ caseId: string; position: PositionSnapshot }>[] ,
+  horizon: ScenarioHorizon,
+  config: RemoteStylePathConfig,
+  concurrency = 2
+): Promise<Result<Readonly<Record<string, readonly StylePathLineResult[]>>, DomainError>> => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs * Math.max(1, cases.length));
+  try {
+    const response = await fetch(`${config.baseUrl}/v1/pattern-experiments/batches`, {
+      method: "POST",
+      signal: controller.signal,
+      headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        datasetVersion: "pattern-steering-remote",
+        concurrency,
+        cstalOpponent: config.cstalOpponent,
+        maia3Elo: config.maia3Elo,
+        refreshMs: 2_000,
+        maxFullMoves: Math.max(1, Math.floor(Number(horizon) / 2)),
+        timeoutMs: config.timeoutMs,
+        cases: cases.map(item => ({ caseId: item.caseId, fen: String(item.position.fen) }))
+      })
+    });
+    const created = await response.json().catch(() => undefined) as { batchId?: unknown } | undefined;
+    if (!response.ok || typeof created?.batchId !== "string") return responseError("remoteStyleApi.createBatch", "Remote Pattern batch API creation failed", { status: response.status });
+    const events = await fetch(`${config.baseUrl}/v1/pattern-experiments/batches/${encodeURIComponent(created.batchId)}/events`, { signal: controller.signal, headers: { authorization: `Bearer ${config.token}` } });
+    if (!events.ok || events.body === null) return responseError("remoteStyleApi.batchEvents", "Remote Pattern batch event stream failed", { status: events.status });
+    const snapshots = (await parseSseSnapshots(events)).filter(isRemoteBatchSnapshot);
+    const final = snapshots.at(-1);
+    if (final === undefined) return responseError("remoteStyleApi.batchEvents", "Remote Pattern batch returned no final snapshot");
+    const normalizedHorizon = makeScenarioHorizon(Number(horizon));
+    if (isErr(normalizedHorizon)) return err(normalizedHorizon.error);
+    const values: Record<string, readonly StylePathLineResult[]> = {};
+    for (const item of final.results) {
+      const source = cases.find(candidate => candidate.caseId === item.caseId);
+      if (source === undefined || item.snapshot === undefined) return responseError(`remoteStyleApi.batch.${item.caseId}`, "Remote Pattern batch result is incomplete");
+      const lines = item.snapshot.lines.map(line => makeRemoteLine(chess, source.position, normalizedHorizon.value, line, config));
+      const resolved: StylePathLineResult[] = [];
+      for (const line of lines) {
+        if (isErr(line)) return err(line.error);
+        resolved.push(line.value);
+      }
+      values[item.caseId] = resolved;
+    }
+    return ok(values);
+  } catch (error) {
+    return responseError("remoteStyleApi.batchRequest", "Remote Pattern batch request failed", { cause: error instanceof Error ? error.message : String(error) });
   } finally {
     clearTimeout(timer);
   }

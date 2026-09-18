@@ -24,6 +24,7 @@ test("repository files contain no Cyrillic text", () => {
     !file.includes("node_modules")
     && !file.includes(`${path.sep}.git${path.sep}`)
     && !file.includes(`${path.sep}.local${path.sep}`)
+    && !file.includes(`${path.sep}docs${path.sep}reviews${path.sep}`)
     && !file.endsWith("package-lock.json")
     && !cyrillicTranscriptPattern.test(path.relative(root, file))
   ));

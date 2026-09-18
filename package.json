@@ -23,6 +23,7 @@
     "verify:style-engines:local": "node scripts/verify-local-style-engines.mjs",
     "style:api": "tsx src/api/style-lines-http.ts",
     "pattern:experiment": "tsx src/cli/pattern-experiment.ts",
+    "pattern:recognizer": "tsx src/cli/pattern-recognizer.ts",
     "pattern:dataset:lichess": "node scripts/build-lichess-pattern-dataset.mjs"
   },
   "dependencies": {

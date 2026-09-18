@@ -126,6 +126,24 @@ npm run pattern:experiment -- \
   --maia3-elo 1800
 ```
 
+For the full recognizer corpus, avoid remote engine work entirely:
+
+```bash
+npm run pattern:recognizer -- \
+  --dataset datasets/pattern-mvp-lichess.jsonl
+```
+
+The opt-in remote steering benchmark submits a bounded batch to Windows and
+keeps sibling cases independent:
+
+```bash
+npm run pattern:experiment -- \
+  --dataset datasets/pattern-mvp-lichess.jsonl \
+  --provider remote \
+  --remote-concurrency 2 \
+  --maia3-elo 1800
+```
+
 When `npm run style:lines -- --raw-file game.txt --watch` runs on the Windows host and `STYLE_SERVER_TOKEN` or `.local/style-server-token.txt` is available, the CLI uses the local StylePath API instead of starting another in-process engine set. The CLI consumes SSE progress, deduplicates repeated snapshots, and redraws one live terminal frame. If stdout is redirected to a file, the ANSI redraw codes are preserved as text; run it in a normal terminal to see the live view.
 
 All local engines are invoked through UCI adapters. Their raw output is untrusted until the returned move is validated against the current `PositionSnapshot`.

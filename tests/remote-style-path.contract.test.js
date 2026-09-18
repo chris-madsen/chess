@@ -1,5 +1,5 @@
 import { createChessJsRulesAdapter } from "../src/adapters/chessjs/chess-rules-adapter.ts";
-import { fetchRemoteStylePaths } from "../src/wiring/index.ts";
+import { fetchRemoteStylePathBatch, fetchRemoteStylePaths } from "../src/wiring/index.ts";
 import { makeScenarioHorizon } from "../src/domain/index.ts";
 
 const chess = createChessJsRulesAdapter();
@@ -42,6 +42,41 @@ test("remote StylePath adapter imports and validates Windows CSTal lines", async
     expect(result.value[0].line.plies[0].provenance.status).toBe("IMPORTED");
     expect(result.value[0].line.plies[0].provenance.source).toBe("LOCAL_STYLE_ENGINE");
     expect(result.value[0].line.plies[1].provenance.source).toBe("MAIA");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("remote Pattern batch adapter preserves case IDs and both lines", async () => {
+  const position = chess.ingestPosition(startFen);
+  expect(position.tag).toBe("Ok");
+  const horizon = makeScenarioHorizon(2);
+  expect(horizon.tag).toBe("Ok");
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async url => ({
+    ok: true,
+    status: 202,
+    json: async () => url.endsWith("/batches") ? { batchId: "batch-test" } : undefined,
+    text: async () => url.includes("/batches/batch-test/events") ? `event: complete\ndata: ${JSON.stringify({ batchId: "batch-test", status: "complete", results: ["case-a", "case-b"].map(caseId => ({ caseId, status: "complete", snapshot: { jobId: `${caseId}-job`, status: "complete", lines: [
+      { engineKey: "cstal-absurd-maia3", label: "CSTal ABSURD", status: "Complete", plies: [{ index: 1, uci: "e2e4", san: "e4", source: "LOCAL_STYLE_ENGINE", provider: "CSTal ABSURD" }] },
+      { engineKey: "cstal-extreme-maia3", label: "CSTal EXTREME", status: "Complete", plies: [{ index: 1, uci: "d2d4", san: "d4", source: "LOCAL_STYLE_ENGINE", provider: "CSTal EXTREME" }] }
+    ] } })) })}\n\n` : ""
+  });
+  try {
+    const result = await fetchRemoteStylePathBatch(chess, [
+      { caseId: "case-a", position: position.value },
+      { caseId: "case-b", position: position.value }
+    ], horizon.value, {
+      baseUrl: "https://example.test",
+      token: "test-token-1234567890",
+      cstalOpponent: "maia3",
+      maia3Elo: 1800,
+      timeoutMs: 1000
+    }, 2);
+    expect(result.tag).toBe("Ok");
+    expect(Object.keys(result.value)).toEqual(["case-a", "case-b"]);
+    expect(result.value["case-a"]).toHaveLength(2);
+    expect(result.value["case-a"][0].line.plies[0].provenance.status).toBe("IMPORTED");
   } finally {
     globalThis.fetch = originalFetch;
   }

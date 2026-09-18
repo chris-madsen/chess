@@ -33,6 +33,11 @@ The repository does not include copied `deadly` or puzzle data until its license
 
 `exampleKind=hard_negative` is reserved for visually similar but tactically invalid positions. The parser now validates the source-position hash before any rollout starts. Canonical geometry keys are derived at analysis time and are not supplied as trusted dataset input.
 
+New dataset records may additionally contain `solutionMoves`, `trajectory`, and
+`expected.terminalFamily`. The parser normalizes legacy whitespace-delimited
+solution move strings to arrays. Trajectory states are preserved for proximity
+metrics and are never treated as engine-generated lines.
+
 The acceptance benchmark requires at least 300 independent cases with separate `calibration` and `evaluation` splits. Do not treat the runner's result as a positive MVP finding while the report is `INCONCLUSIVE` or forced-mate verification is unavailable.
 
 ## Generated seed corpus

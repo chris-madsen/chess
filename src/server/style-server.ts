@@ -13,7 +13,7 @@ import type { PositionSnapshot } from "../domain/chess/position";
 import type { ScenarioPly, ScenarioLineStatus } from "../domain/scenario-lines/scenario-line";
 import type { MoveSource } from "../domain/provenance/provenance";
 import type { DomainError } from "../domain/shared/errors";
-import { isErr } from "../domain/shared/result";
+import { isErr, type Result } from "../domain/shared/result";
 import { createWindowsCstalStylePathProviders, type WindowsCstalOpponent } from "../wiring/local-style-engines";
 
 type JobStatus = "queued" | "running" | "complete" | "error" | "cancelled";
@@ -106,6 +106,30 @@ type JobEvent = Readonly<{
   at: string;
   data: JobSnapshot;
 }>;
+
+type PatternBatchCase = Readonly<{ caseId: string; fen: string }>;
+type PatternBatchRequest = Readonly<{
+  datasetVersion?: string;
+  cases: readonly PatternBatchCase[];
+  concurrency?: number;
+  cstalOpponent?: WindowsCstalOpponent;
+  maia3Elo?: number;
+  refreshMs?: number;
+  maxFullMoves?: number;
+  timeoutMs?: number;
+}>;
+type PatternBatch = {
+  id: string;
+  status: "running" | "complete" | "incomplete";
+  datasetVersion: string;
+  createdAt: string;
+  total: number;
+  completed: number;
+  results: Array<Readonly<{ caseId: string; status: JobStatus; snapshot?: JobSnapshot; error?: DomainError }>>;
+  subscribers: Set<ServerResponse>;
+  events: Array<Readonly<{ type: "started" | "progress" | "complete"; data: unknown }>>;
+  finalEmitted: boolean;
+};
 
 type LineState = {
   currentPosition: PositionSnapshot;
@@ -306,8 +330,8 @@ class StyleJobQueue {
     this.makeJobId = ports.makeJobId ?? (() => randomUUID());
   }
 
-  public create(request: NormalizedJobRequest): StyleJob | DomainError {
-    this.cancelUnfinishedJobs();
+  public create(request: NormalizedJobRequest, cancelExisting = true): StyleJob | DomainError {
+    if (cancelExisting) this.cancelUnfinishedJobs();
     const now = this.now();
     const job: StyleJob = {
       id: this.makeJobId(),
@@ -327,6 +351,17 @@ class StyleJobQueue {
     this.emit(job, "queued");
     void this.run(job);
     return job;
+  }
+
+  public awaitCompletion(job: StyleJob): Promise<JobSnapshot> {
+    if (job.finalEmitted) return Promise.resolve(job.snapshot);
+    return new Promise(resolve => {
+      const timer = setInterval(() => {
+        if (!job.finalEmitted) return;
+        clearInterval(timer);
+        resolve(job.snapshot);
+      }, 50);
+    });
   }
 
   public get(jobId: string): StyleJob | undefined {
@@ -675,6 +710,62 @@ export const createStyleLineJobServer = (
 ): Server => {
   const config = { ...defaultConfig(), ...configOverrides };
   const queue = new StyleJobQueue(config, ports);
+  const batches = new Map<string, PatternBatch>();
+
+  const batchSnapshot = (batch: PatternBatch): Readonly<Record<string, unknown>> => ({
+    batchId: batch.id,
+    status: batch.status,
+    datasetVersion: batch.datasetVersion,
+    createdAt: batch.createdAt,
+    total: batch.total,
+    completed: batch.completed,
+    results: batch.results
+  });
+  const emitBatch = (batch: PatternBatch, type: "started" | "progress" | "complete"): void => {
+    const event = { type, data: batchSnapshot(batch) } as const;
+    batch.events.push(event);
+    batch.subscribers.forEach(response => {
+      response.write(`event: ${event.type}\n`);
+      response.write(`data: ${JSON.stringify(event.data)}\n\n`);
+    });
+    if (type === "complete") {
+      batch.finalEmitted = true;
+      batch.subscribers.forEach(response => response.end());
+      batch.subscribers.clear();
+    }
+  };
+  const runBatch = async (batch: PatternBatch, request: Readonly<{ cases: readonly PatternBatchCase[]; concurrency: number; common: Omit<PatternBatchRequest, "cases" | "datasetVersion" | "concurrency"> }>): Promise<void> => {
+    let nextIndex = 0;
+    const worker = async (): Promise<void> => {
+      for (;;) {
+        const index = nextIndex;
+        nextIndex += 1;
+        const item = request.cases[index];
+        if (item === undefined) return;
+        const normalized = normalizeJobRequest({ ...request.common, fen: item.fen });
+        if ("code" in normalized) {
+          batch.results.push({ caseId: item.caseId, status: "error", error: normalized });
+          batch.completed += 1;
+          emitBatch(batch, "progress");
+          continue;
+        }
+        const job = queue.create(normalized, false);
+        if ("code" in job) {
+          batch.results.push({ caseId: item.caseId, status: "error", error: job });
+          batch.completed += 1;
+          emitBatch(batch, "progress");
+          continue;
+        }
+        const snapshot = await queue.awaitCompletion(job);
+        batch.results.push({ caseId: item.caseId, status: snapshot.status, snapshot, ...(snapshot.error === undefined ? {} : { error: snapshot.error }) });
+        batch.completed += 1;
+        emitBatch(batch, "progress");
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(request.concurrency, request.cases.length) }, () => worker()));
+    batch.status = batch.results.some(result => result.status !== "complete") ? "incomplete" : "complete";
+    emitBatch(batch, "complete");
+  };
 
   return createServer(async (request, response) => {
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
@@ -695,6 +786,58 @@ export const createStyleLineJobServer = (
     }
 
     try {
+      if (request.method === "POST" && url.pathname === "/v1/pattern-experiments/batches") {
+        const body = await readJsonBody(request);
+        const normalized = normalizePatternBatchRequest(body);
+        if (normalized.tag === "Err") {
+          jsonResponse(response, 400, { error: normalized.error });
+          return;
+        }
+        const batch: PatternBatch = {
+          id: randomUUID(),
+          status: "running",
+          datasetVersion: normalized.value.datasetVersion,
+          createdAt: new Date().toISOString(),
+          total: normalized.value.cases.length,
+          completed: 0,
+          results: [],
+          subscribers: new Set(),
+          events: [],
+          finalEmitted: false
+        };
+        batches.set(batch.id, batch);
+        emitBatch(batch, "started");
+        void runBatch(batch, normalized.value);
+        jsonResponse(response, 202, { batchId: batch.id, status: batch.status, total: batch.total });
+        return;
+      }
+
+      const batchMatch = /^\/v1\/pattern-experiments\/batches\/([^/]+)(?:\/events)?$/.exec(url.pathname);
+      if (batchMatch !== null) {
+        const batch = batches.get(decodeURIComponent(batchMatch[1] as string));
+        if (batch === undefined) {
+          jsonResponse(response, 404, { error: "Batch not found" });
+          return;
+        }
+        if (request.method === "GET" && url.pathname.endsWith("/events")) {
+          response.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache, no-transform", connection: "keep-alive" });
+          batch.events.forEach(event => {
+            response.write(`event: ${event.type}\n`);
+            response.write(`data: ${JSON.stringify(event.data)}\n\n`);
+          });
+          if (batch.finalEmitted) response.end();
+          else {
+            batch.subscribers.add(response);
+            response.on("close", () => batch.subscribers.delete(response));
+          }
+          return;
+        }
+        if (request.method === "GET") {
+          jsonResponse(response, 200, batchSnapshot(batch));
+          return;
+        }
+      }
+
       if (request.method === "POST" && url.pathname === "/v1/style-lines/jobs") {
         const body = await readJsonBody(request);
         const normalized = normalizeJobRequest(body);
@@ -739,6 +882,34 @@ export const createStyleLineJobServer = (
       jsonResponse(response, message === "REQUEST_BODY_TOO_LARGE" ? 413 : 400, { error: message });
     }
   });
+};
+
+const normalizePatternBatchRequest = (body: unknown): Result<Readonly<{
+  datasetVersion: string;
+  cases: readonly PatternBatchCase[];
+  concurrency: number;
+  common: Omit<PatternBatchRequest, "cases" | "datasetVersion" | "concurrency">;
+}>, DomainError> => {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) return { tag: "Err", error: { code: "INVALID_MOVE_NOTATION", path: "body", message: "Batch body must be an object" } };
+  const data = body as Record<string, unknown>;
+  if (!Array.isArray(data.cases) || data.cases.length === 0 || data.cases.length > 500) return { tag: "Err", error: { code: "INVALID_MOVE_NOTATION", path: "body.cases", message: "cases must contain between 1 and 500 items" } };
+  const cases: PatternBatchCase[] = [];
+  for (const [index, value] of data.cases.entries()) {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return { tag: "Err", error: { code: "INVALID_MOVE_NOTATION", path: `body.cases.${index}`, message: "case must be an object" } };
+    const item = value as Record<string, unknown>;
+    if (typeof item.caseId !== "string" || item.caseId.length === 0 || typeof item.fen !== "string" || item.fen.trim().length === 0) return { tag: "Err", error: { code: "INVALID_MOVE_NOTATION", path: `body.cases.${index}`, message: "caseId and fen are required" } };
+    cases.push({ caseId: item.caseId, fen: item.fen.trim() });
+  }
+  const concurrency = integerInRange(data.concurrency, 2, 1, 4);
+  if (concurrency === undefined) return { tag: "Err", error: { code: "INVALID_MOVE_NOTATION", path: "body.concurrency", message: "concurrency must be an integer between 1 and 4" } };
+  const common: Omit<PatternBatchRequest, "cases" | "datasetVersion" | "concurrency"> = {
+    ...(data.cstalOpponent === undefined ? {} : { cstalOpponent: data.cstalOpponent as WindowsCstalOpponent }),
+    ...(data.maia3Elo === undefined ? {} : { maia3Elo: data.maia3Elo as number }),
+    ...(data.refreshMs === undefined ? {} : { refreshMs: data.refreshMs as number }),
+    ...(data.maxFullMoves === undefined ? {} : { maxFullMoves: data.maxFullMoves as number }),
+    ...(data.timeoutMs === undefined ? {} : { timeoutMs: data.timeoutMs as number })
+  };
+  return { tag: "Ok", value: { datasetVersion: typeof data.datasetVersion === "string" ? data.datasetVersion : "unknown", cases, concurrency, common } };
 };
 
 export const startStyleServer = (configOverrides: Partial<ServerConfig> = {}): Server => {

@@ -145,6 +145,27 @@ const collectSse = async (port, jobId, wantedTypes) => new Promise((resolve, rej
   request.end();
 });
 
+const collectBatchSse = async (port, batchId) => new Promise((resolve, reject) => {
+  const events = [];
+  const request = http.request({ hostname: "127.0.0.1", port, path: `/v1/pattern-experiments/batches/${batchId}/events`, method: "GET", headers: { authorization: `Bearer ${token}` } }, response => {
+    let buffer = "";
+    response.on("data", chunk => {
+      buffer += chunk.toString("utf8");
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() ?? "";
+      for (const frame of frames) {
+        const eventLine = frame.split("\n").find(line => line.startsWith("event: "));
+        const dataLine = frame.split("\n").find(line => line.startsWith("data: "));
+        if (eventLine === undefined || dataLine === undefined) continue;
+        events.push({ type: eventLine.slice("event: ".length), data: JSON.parse(dataLine.slice("data: ".length)) });
+      }
+    });
+    response.on("end", () => resolve(events));
+  });
+  request.on("error", reject);
+  request.end();
+});
+
 test("Style server rejects missing bearer token", async () => {
   const { server, port } = await listen(createStyleLineJobServer({ token }, { chess, createProviders: () => providersFor(() => "d8h4") }));
   try {
@@ -216,6 +237,36 @@ test("Style server accepts a FEN job input for remote benchmark clients", async 
     const complete = events.at(-1);
     expect(complete.data.input.sideToMove).toBe("black");
     expect(complete.data.lines[0].sanMovetext).toContain("Qh4#");
+  } finally {
+    await close(server);
+  }
+});
+
+test("Pattern batch runs sibling Windows jobs concurrently without cancellation", async () => {
+  const { server, port } = await listen(createStyleLineJobServer({ token }, {
+    chess,
+    createProviders: () => providersFor(() => "d8h4", () => "g1h3")
+  }));
+  try {
+    const body = {
+      datasetVersion: "test-batch-v1",
+      concurrency: 2,
+      maxFullMoves: 1,
+      timeoutMs: 5000,
+      cases: [
+        { caseId: "batch-a", fen: "rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPPP1P/RNBQKBNR b KQkq - 0 2" },
+        { caseId: "batch-b", fen: "rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPPP1P/RNBQKBNR b KQkq - 0 2" }
+      ]
+    };
+    const created = await requestJson(port, "POST", "/v1/pattern-experiments/batches", body);
+    expect(created.status).toBe(202);
+    const events = await collectBatchSse(port, created.body.batchId);
+    const complete = events.at(-1);
+    expect(complete.type).toBe("complete");
+    expect(complete.data.status).toBe("complete");
+    expect(complete.data.completed).toBe(2);
+    expect(complete.data.results).toHaveLength(2);
+    expect(complete.data.results.every(result => result.status === "complete")).toBe(true);
   } finally {
     await close(server);
   }

@@ -8,7 +8,7 @@ import { runPatternSelectionExperiment, runPatternSelectionExperimentFromLines }
 import { domainError } from "../domain/shared/errors";
 import { isErr } from "../domain/shared/result";
 import { createInMemoryAnalysisCache } from "../adapters/cache/in-memory-analysis-cache";
-import { createForcedMateVerifier, createUciForcedMateProofProvider, createWindowsCstalStylePathProviders, fetchRemoteStylePaths, loadLocalEnginePaths, makeRemoteStylePathConfig } from "../wiring/index";
+import { createForcedMateVerifier, createUciForcedMateProofProvider, createWindowsCstalStylePathProviders, fetchRemoteStylePathBatch, loadLocalEnginePaths, makeRemoteStylePathConfig } from "../wiring/index";
 
 const valueAfter = (args: readonly string[], flag: string): string | undefined => {
   const index = args.indexOf(flag);
@@ -49,6 +49,7 @@ Options:
   --maia3-elo <rating>         Maia3 Elo, default 1800.
   --provider <remote|local>    Remote Windows API (default) or local engines.
   --api-url <url>              Remote API base URL override.
+  --remote-concurrency <n>     Batch workers on Windows, default 2.
 `;
 
 const main = async (): Promise<void> => {
@@ -63,6 +64,7 @@ const main = async (): Promise<void> => {
   const horizonFullMoves = integerOption(args, "--horizon-full-moves", 8);
   const prefixPlies = integerOption(args, "--prefix-plies", 8);
   const maia3Elo = integerOption(args, "--maia3-elo", 1800);
+  const remoteConcurrency = integerOption(args, "--remote-concurrency", 2);
   const providerMode = valueAfter(args, "--provider") ?? "remote";
   if (providerMode !== "remote" && providerMode !== "local") {
     process.stderr.write(`${usage}\n--provider must be remote or local.\n`);
@@ -74,6 +76,17 @@ const main = async (): Promise<void> => {
   const dataset = parsePatternDataset(chess, readFileSync(datasetPath, "utf8"), horizonFullMoves, prefixPlies);
   if (isErr(dataset)) {
     process.stderr.write(`${dataset.error.code}: ${dataset.error.message}\n`);
+    process.exitCode = 2;
+    return;
+  }
+  const firstCase = dataset.value[0];
+  if (firstCase === undefined) {
+    process.stderr.write("Dataset must contain at least one case.\n");
+    process.exitCode = 2;
+    return;
+  }
+  if (remoteConcurrency > 4) {
+    process.stderr.write("--remote-concurrency must be between 1 and 4.\n");
     process.exitCode = 2;
     return;
   }
@@ -96,16 +109,26 @@ const main = async (): Promise<void> => {
     timeoutMs: 300_000
   }));
   const cache = createInMemoryAnalysisCache();
+  const remoteBatch = providerMode === "remote"
+    ? remoteConfig === undefined
+      ? { tag: "Err" as const, error: domainError("PROVIDER_UNAVAILABLE", "remoteStyleApi", "Remote API configuration is unavailable") }
+      : await runRemoteCaseWithProgress(`batch:${dataset.value.length}`, () => fetchRemoteStylePathBatch(chess, dataset.value.map(experimentCase => ({ caseId: experimentCase.caseId, position: experimentCase.position })), firstCase.horizon, remoteConfig.value, remoteConcurrency))
+    : undefined;
+  if (remoteBatch !== undefined && isErr(remoteBatch)) {
+    process.stderr.write(`${remoteBatch.error.code}: ${remoteBatch.error.message}\n`);
+    process.exitCode = 1;
+    return;
+  }
   const results = [];
   for (const experimentCase of dataset.value) {
     const result = providerMode === "remote"
       ? remoteConfig === undefined
         ? { tag: "Err" as const, error: domainError("PROVIDER_UNAVAILABLE", "remoteStyleApi", "Remote API configuration is unavailable") }
         : await (async () => {
-          const remoteLines = await runRemoteCaseWithProgress(experimentCase.caseId, () => fetchRemoteStylePaths(chess, experimentCase.position, experimentCase.horizon, remoteConfig.value));
-          return isErr(remoteLines)
-            ? remoteLines
-            : await runPatternSelectionExperimentFromLines(chess, remoteLines.value, experimentCase, verifier, cache);
+          const remoteLines = remoteBatch?.value[experimentCase.caseId];
+          return remoteLines === undefined
+            ? { tag: "Err" as const, error: domainError("PROVIDER_UNAVAILABLE", `remoteStyleApi.batch.${experimentCase.caseId}`, "Remote batch did not return this case") }
+            : await runPatternSelectionExperimentFromLines(chess, remoteLines, experimentCase, verifier, cache);
         })()
       : providers === undefined
         ? { tag: "Err" as const, error: domainError("PROVIDER_UNAVAILABLE", "localStyleProviders", "Local provider configuration is unavailable") }

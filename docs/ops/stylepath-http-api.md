@@ -64,6 +64,24 @@ Request body accepts exactly one of `fen` or `rawSan`:
 }
 ```
 
+## Pattern experiment batch API
+
+The Pattern recognizer runs locally on Linux. Expensive remote steering cases use
+the opt-in batch endpoint so Windows can process independent FENs with bounded
+concurrency without cancelling sibling jobs:
+
+```http
+POST /v1/pattern-experiments/batches
+GET  /v1/pattern-experiments/batches/<batchId>/events
+GET  /v1/pattern-experiments/batches/<batchId>
+```
+
+The request contains `datasetVersion`, `concurrency` (default `2`, maximum `4`),
+and `cases: [{"caseId":"...","fen":"..."}]`, plus the same CSTal/Maia
+settings as a StylePath job. Batch results preserve `caseId`, complete line
+snapshots, and explicit incomplete/error status. The existing
+`/v1/style-lines/jobs` endpoint remains the single-latest interactive endpoint.
+
 Successful response includes:
 
 - generated timestamp;
