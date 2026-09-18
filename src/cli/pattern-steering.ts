@@ -41,49 +41,34 @@ const selectSubset = <T extends { caseId: string }>(items: readonly T[], raw: st
   return [...items].sort((a, b) => a.caseId.localeCompare(b.caseId)).slice(0, limit);
 };
 
-const ansiLiveOutputSupported = (): boolean => {
-  if (process.env.STYLE_PATTERN_ANSI === "1") return true;
-  if (process.env.STYLE_PATTERN_ANSI === "0" || process.env.NO_COLOR !== undefined) return false;
-  if (process.stdout.isTTY !== true) return false;
-  if (process.platform !== "win32") return false;
-  return process.env.WT_SESSION !== undefined
-    || process.env.ConEmuANSI === "ON"
-    || process.env.ANSICON !== undefined
-    || process.env.TERM_PROGRAM === "vscode"
-    || process.env.TERM_PROGRAM === "Windows_Terminal";
+const terminalColumns = (): number => {
+  const columns = process.stdout.columns;
+  return Number.isInteger(columns) && columns > 0 ? columns : 80;
 };
+
+const renderedLineCount = (text: string): number => {
+  const normalized = text.endsWith("\n") ? text.slice(0, -1) : text;
+  if (normalized.length === 0) return 0;
+  return normalized.split("\n").reduce((count, line) => count + Math.max(1, Math.ceil(line.length / terminalColumns())), 0);
+};
+
+const renderUpdateFrame = (text: string, previousLineCount: number): string => (
+  previousLineCount <= 0 ? text : `\x1b[${previousLineCount}F\x1b[J${text}`
+);
 
 const createLiveRenderer = (): { render: (text: string, final?: boolean) => void } => {
   let rendered = false;
-  let compactLength = 0;
-  const ansi = ansiLiveOutputSupported();
-  const compact = (text: string): string => {
-    const moveBlocks = text.split(/\n(?=## |########)/u)
-      .filter(block => block.startsWith("## "))
-      .map(block => block.replace(/^## [^\n]+\n/u, "").split("\n").filter(line => line.trim().length > 0 && !line.trim().startsWith("(")).join(" "))
-      .map(block => block.replace(/\s+/gu, " ").trim())
-      .filter(block => block.length > 0);
-    const singleLine = (moveBlocks.sort((first, second) => second.length - first.length)[0] ?? text).replace(/\s+/gu, " ").trim();
-    if (singleLine.length <= 76) return `live line: ${singleLine}`;
-    return `live line: ${singleLine.slice(0, 34)} ... ${singleLine.slice(-38)}`;
-  };
+  let previousLineCount = 0;
+  const ansi = process.stdout.isTTY === true && process.env.NO_COLOR === undefined;
   return {
     render: (text, final = false) => {
       if (!ansi) {
-        if (final) {
-          process.stdout.write(`\r${" ".repeat(compactLength)}\r${text}`);
-        } else if (!rendered) {
-          process.stdout.write(text);
-          compactLength = 0;
-        } else {
-          const status = compact(text);
-          process.stdout.write(`\r${status}${" ".repeat(Math.max(0, compactLength - status.length))}`);
-          compactLength = status.length;
-        }
+        if (!rendered || final) process.stdout.write(text);
         rendered = true;
         return;
       }
-      process.stdout.write(rendered ? `\x1b[2J\x1b[H${text}` : text);
+      process.stdout.write(renderUpdateFrame(text, previousLineCount));
+      previousLineCount = renderedLineCount(text);
       rendered = true;
     }
   };
