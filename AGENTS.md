@@ -27,6 +27,9 @@ Before planning or editing code, read in order:
 - Stockfish 19 NNUE provides strong continuations for the player's side after a Maia response. It is a calculation assistant and safety check, not the default decision-maker.
 - Every move in every generated line must have `MoveProvenance`: source, model/engine identity, version, configuration, request ID, and timestamp when available.
 - Never invent a bot move, a model response, an engine evaluation, or a game result.
+- Pattern steering SHALL NOT override a CSTal/Tal tactical veto. Pattern similarity is an attractor signal only after a candidate passes the Tal tactical gate.
+- The production PatternSteeredTalPath repeats the attacker-side loop `CandidatePool -> TalGate -> PatternProgress -> commit`, with Maia responses on defender plies; Stockfish is not a substitute for Tal in this path.
+- The legacy post-hoc PatternSelectionExperiment and legacy `assessPattern` scorer are benchmark-only and SHALL NOT be used as the production runtime steering path.
 
 ## Architecture rules
 

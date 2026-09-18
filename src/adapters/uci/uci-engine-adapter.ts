@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface, type Interface } from "node:readline";
 import type { ChessRulesPort } from "../../application/ports/chess-rules";
 import type { MoveProvider, ProvidedMove, ProviderRequest, ProviderSearchLimit } from "../../application/ports/providers";
-import type { CandidateGenerator } from "../../application/ports/pattern-steering";
+import type { CandidateGenerator, CandidateTacticalGate, EngineScore } from "../../application/ports/pattern-steering";
 import type { PositionSnapshot } from "../../domain/chess/position";
 import type { MoveSource, ProviderIdentity } from "../../domain/provenance/provenance";
 import { makeRequestId } from "../../domain/chess/value-objects";
@@ -29,6 +29,7 @@ export type UciEngineConfig = Readonly<{
   timeoutMs: number;
   configuration: Readonly<Record<string, unknown>>;
   allowInfoPvBestMoveFallback?: boolean;
+  supportsSearchMoves?: boolean;
 }>;
 
 type PendingWait = Readonly<{
@@ -71,6 +72,8 @@ const goCommand = (limit: ProviderSearchLimit): string => {
     case "Nodes": return `go nodes ${limit.nodes}`;
   }
 };
+
+const goSearchMovesCommand = (limit: ProviderSearchLimit, move: string): string => `${goCommand(limit)} searchmoves ${move}`;
 
 const optionCommand = (option: UciOption): string => `setoption name ${option.name} value ${String(option.value)}`;
 
@@ -205,6 +208,17 @@ const timeoutMsFor = (config: UciEngineConfig, limit: ProviderSearchLimit): numb
 const firstPvMove = (line: string): string | undefined => {
   const match = /(?:^|\s)pv\s+(\S+)/.exec(line.trim());
   return match?.[1];
+};
+
+export const parseUciScore = (line: string): EngineScore | undefined => {
+  const match = /(?:^|\s)score\s+(cp|mate)\s+(-?\d+)/.exec(line.trim());
+  if (match === null || match[1] === undefined || match[2] === undefined) return undefined;
+  return { kind: match[1] === "cp" ? "centipawns" : "mate", value: Number(match[2]) };
+};
+
+const pvMoves = (line: string): readonly string[] => {
+  const match = /(?:^|\s)pv\s+(.+)$/u.exec(line.trim());
+  return match?.[1]?.split(/\s+/u).filter(token => /^[a-h][1-8][a-h][1-8][qrbn]?$/u.test(token)) ?? [];
 };
 
 export const parseUciMultiPvRootMove = (line: string): Readonly<{ index: number; move: string }> | undefined => {
@@ -403,6 +417,84 @@ export const createUciCandidateGenerator = (
   };
   return Object.assign(async (request: Parameters<CandidateGenerator>[0]) => {
     queue = queue.then(() => requestCandidates(request), () => requestCandidates(request));
+    return queue;
+  }, { dispose });
+};
+
+export type UciTacticalGatePolicy = Readonly<{
+  minCentipawns: number;
+  searchLimit?: ProviderSearchLimit;
+}>;
+
+/**
+ * ACL for Tal/CSTal candidate safety. Pattern code never parses engine scores;
+ * it receives only an accepted/rejected candidate assessment.
+ */
+export const createUciTacticalGate = (
+  chess: ChessRulesPort,
+  config: UciEngineConfig,
+  policy: UciTacticalGatePolicy = { minCentipawns: -150 }
+): CandidateTacticalGate => {
+  let sessionPromise: Promise<UciSession> | null = null;
+  let queue: Promise<Result<readonly import("../../application/ports/pattern-steering").TacticalCandidateAssessment[], DomainError>> = Promise.resolve(ok([]));
+  const getSession = async (): Promise<UciSession> => {
+    sessionPromise ??= initializeSession(config);
+    return sessionPromise;
+  };
+  const requestGate = async (request: Parameters<CandidateTacticalGate>[0]): Promise<Result<readonly import("../../application/ports/pattern-steering").TacticalCandidateAssessment[], DomainError>> => {
+    if (config.supportsSearchMoves !== true) return err(domainError("PROVIDER_UNAVAILABLE", `providers.${config.key}.searchmoves`, "Tactical gate requires documented UCI searchmoves support"));
+    const session = await getSession();
+    const results: import("../../application/ports/pattern-steering").TacticalCandidateAssessment[] = [];
+    try {
+      for (const seed of request.candidates) {
+        const legal = chess.parseLegalMove(request.position, seed.move.uci);
+        if (isErr(legal)) return err(domainError("PROVIDER_ILLEGAL_MOVE", `providers.${config.key}.searchmoves`, "Tactical gate received an illegal candidate", { uci: seed.move.uci }));
+        let score: EngineScore | undefined;
+        let pv: readonly string[] = [];
+        const timeoutMs = timeoutMsFor(config, policy.searchLimit ?? config.limit);
+        session.send("isready");
+        await session.waitFor(line => line.trim() === "readyok", timeoutMs);
+        session.send(positionCommand(request.position));
+        session.send(goSearchMovesCommand(policy.searchLimit ?? config.limit, String(seed.move.uci)));
+        await session.waitFor(line => line.startsWith("bestmove "), timeoutMs, line => {
+          const nextScore = parseUciScore(line);
+          if (nextScore !== undefined) score = nextScore;
+          const nextPv = pvMoves(line);
+          if (nextPv.length > 0) pv = nextPv;
+        });
+        if (score === undefined) {
+          results.push({ seed, accepted: false, reason: "TAL_SCORE_UNAVAILABLE" });
+          continue;
+        }
+        const accepted = score.kind === "mate" ? score.value > 0 : score.value >= policy.minCentipawns;
+        const legalPv: import("../../domain/chess/moves").LegalMove[] = [];
+        let current = request.position;
+        for (const rawMove of pv) {
+          const next = chess.parseLegalMove(current, rawMove);
+          if (isErr(next)) break;
+          legalPv.push(next.value);
+          const applied = chess.applyMove(current, next.value);
+          if (isErr(applied)) break;
+          current = applied.value;
+        }
+        results.push({ seed, accepted, talScore: score, ...(score.kind === "mate" ? { talMate: score.value } : {}), ...(legalPv.length === 0 ? {} : { talPv: legalPv }), ...(accepted ? {} : { reason: "TAL_TACTICAL_VETO" }) });
+      }
+      return ok(results);
+    } catch (error) {
+      const failedSession = sessionPromise;
+      sessionPromise = null;
+      try { (await failedSession)?.stop(); } catch { /* best-effort cleanup */ }
+      return providerFailure(config, error) as Result<readonly import("../../application/ports/pattern-steering").TacticalCandidateAssessment[], DomainError>;
+    }
+  };
+  const dispose = (): void => {
+    const current = sessionPromise;
+    sessionPromise = null;
+    queue = Promise.resolve(ok([]));
+    if (current !== null) void current.then(session => session.stop(), () => undefined);
+  };
+  return Object.assign(async (request: Parameters<CandidateTacticalGate>[0]) => {
+    queue = queue.then(() => requestGate(request), () => requestGate(request));
     return queue;
   }, { dispose });
 };

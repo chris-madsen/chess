@@ -18,12 +18,14 @@ const seedFor = (uci, index) => makeCandidateSeed(mustOk(chess.parseLegalMove(st
   inputPositionHash: start.hash,
   configuration: {}
 }).value;
+const acceptAll = async request => ({ tag: "Ok", value: request.candidates.map(seed => ({ seed, accepted: true })) });
 
 test("Pattern steering evaluates candidates before selecting a move and preserves attacker side", async () => {
   const result = mustOk(await evaluatePatternSteeringCandidates(
     chess,
     start,
     async () => ({ tag: "Ok", value: [seedFor("e2e4", 1), seedFor("d2d4", 2)] }),
+    acceptAll,
     async request => {
       const rawMove = String(request.position.fen).includes("4P3") ? "e7e5" : "d7d5";
       const move = chess.parseLegalMove(request.position, rawMove);
@@ -58,10 +60,35 @@ test("Pattern steering rejects candidate provenance from another position", asyn
     chess,
     start,
     async () => ({ tag: "Ok", value: [{ tag: "CandidateSeed", move, provenance: { source: "PLAYER_IDEA", provider: playerProvider, status: "PLAYER_ENTERED", requestId: makeRequestId("bad-seed"), inputPositionHash: other.hash, configuration: {} } }] }),
+    acceptAll,
     async () => ({ tag: "Err", error: { code: "PROVIDER_MALFORMED_OUTPUT", path: "test", message: "not reached" } }),
     "steering-invalid",
     5
   );
   expect(result.tag).toBe("Err");
   expect(result.error.code).toBe("MISSING_PROVENANCE");
+});
+
+test("Tal tactical veto removes a candidate before Pattern ranking", async () => {
+  const gate = async request => ({ tag: "Ok", value: request.candidates.map(seed => ({
+    seed,
+    accepted: String(seed.move.uci) === "d2d4",
+    ...(String(seed.move.uci) === "e2e4" ? { reason: "TAL_TACTICAL_VETO" } : {})
+  })) });
+  const result = mustOk(await evaluatePatternSteeringCandidates(
+    chess,
+    start,
+    async () => ({ tag: "Ok", value: [seedFor("e2e4", 1), seedFor("d2d4", 2)] }),
+    gate,
+    async request => {
+      const move = chess.parseLegalMove(request.position, String(request.position.fen).includes("P3") ? "e7e5" : "d7d5");
+      return move.tag === "Err" ? move : { tag: "Ok", value: { move: move.value, provenance: {
+        source: "MAIA", provider: maiaProvider("test"), status: "MODELED_LOCAL", requestId: makeRequestId("veto-maia"), inputPositionHash: request.position.hash, configuration: {}
+      } } };
+    },
+    "steering-veto",
+    5
+  ));
+  expect(result.candidates.map(candidate => String(candidate.seed.move.uci))).toEqual(["d2d4"]);
+  expect(result.selected.tactical.accepted).toBe(true);
 });

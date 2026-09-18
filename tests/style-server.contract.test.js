@@ -272,6 +272,46 @@ test("Pattern batch runs sibling Windows jobs concurrently without cancellation"
   }
 });
 
+test("Pattern batch steering mode runs iterative Tal gate and Maia path", async () => {
+  let steeringBuilds = 0;
+  const { server, port } = await listen(createStyleLineJobServer({ token }, {
+    chess,
+    createPatternSteering: () => {
+      steeringBuilds += 1;
+      const providers = providersFor(() => "e2e4", () => "e7e5");
+      const engine = providers.styleEngines[0];
+      return {
+        generator: async request => {
+          const provided = await engine.provideMove(request);
+          if (provided.tag === "Err") return provided;
+          return { tag: "Ok", value: [{ tag: "CandidateSeed", move: provided.value.move, provenance: provided.value.provenance }] };
+        },
+        tacticalGate: async request => ({ tag: "Ok", value: request.candidates.map(seed => ({ seed, accepted: true, talScore: { kind: "centipawns", value: 100 } })) }),
+        maia: providers.maia,
+        dispose: () => undefined
+      };
+    }
+  }));
+  try {
+    const created = await requestJson(port, "POST", "/v1/pattern-experiments/batches", {
+      mode: "steering", concurrency: 2, maxFullMoves: 1,
+      cases: [
+        { caseId: "steering-a", fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" },
+        { caseId: "steering-b", fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" }
+      ]
+    });
+    expect(created.status).toBe(202);
+    const events = await collectBatchSse(port, created.body.batchId);
+    const complete = events.at(-1);
+    expect(complete.data.status).toBe("complete");
+    expect(complete.data.results.every(result => result.steeringLine?.label === "PatternSteeredTalPath")).toBe(true);
+    expect(complete.data.results.every(result => result.steeringLine?.plies.length === 2)).toBe(true);
+    expect(steeringBuilds).toBe(2);
+  } finally {
+    await close(server);
+  }
+});
+
 test("Style server cancels an unfinished job when a new job is posted", async () => {
   const never = new Promise(() => undefined);
   let providerBuilds = 0;

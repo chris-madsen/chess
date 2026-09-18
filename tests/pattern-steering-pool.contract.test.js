@@ -1,5 +1,5 @@
 import { createChessJsRulesAdapter } from "../src/adapters/chessjs/chess-rules-adapter.ts";
-import { candidateGeneratorFromProviders, composeCandidateGenerators, runSteeredRollout, runSteeredRolloutArtifact } from "../src/wiring/index.ts";
+import { candidateGeneratorFromProviders, composeCandidateGenerators, generatePatternSteeredTalPath, runSteeredRollout, runSteeredRolloutArtifact } from "../src/wiring/index.ts";
 import { evaluatePatternSteeringCandidates } from "../src/application/use-cases/pattern-steering.ts";
 import { makeRequestId, maiaProvider, stockfishProvider } from "../src/domain/index.ts";
 
@@ -17,6 +17,7 @@ const provider = (uci, source, identity) => async request => {
     requestId: makeRequestId(`${identity.name}-${request.ply}`), inputPositionHash: request.position.hash, configuration: {}
   } } };
 };
+const acceptAll = async request => ({ tag: "Ok", value: request.candidates.map(seed => ({ seed, accepted: true })) });
 
 test("candidate pool deduplicates legal provider moves and keeps provenance", async () => {
   const generator = candidateGeneratorFromProviders(chess, [
@@ -51,6 +52,7 @@ test("steered rollout delegates subsequent plies to HumanPath after selection", 
     chess,
     start,
     async () => ({ tag: "Ok", value: [{ tag: "CandidateSeed", move: seed.move, provenance: seed.provenance }] }),
+    acceptAll,
     maia,
     "rollout",
     2
@@ -69,11 +71,41 @@ test("steered rollout artifact keeps independent forced-mate verification separa
   const stockfish = provider("g1f3", "STOCKFISH", stockfishProvider("test"));
   const seedProvider = provider("e2e4", "LOCAL_STYLE_ENGINE", { name: "patricia", displayName: "Patricia" });
   const seed = mustOk(await seedProvider({ position: start, lineId: "artifact", ply: 1 }));
-  const decision = mustOk(await evaluatePatternSteeringCandidates(chess, start, async () => ({ tag: "Ok", value: [{ tag: "CandidateSeed", move: seed.move, provenance: seed.provenance }] }), maia, "artifact", 2));
+  const decision = mustOk(await evaluatePatternSteeringCandidates(chess, start, async () => ({ tag: "Ok", value: [{ tag: "CandidateSeed", move: seed.move, provenance: seed.provenance }] }), acceptAll, maia, "artifact", 2));
   const artifact = mustOk(await runSteeredRolloutArtifact({ chess, start, decision, lineId: "artifact", providers: { maia, stockfish }, horizon: 3 }, async request => ({
     tag: "Ok",
     value: { status: "NOT_VERIFIED", provider: "test-verifier", limits: { depth: 1 }, terminalPositionHash: String(request.terminalPosition.hash) }
   })));
   expect(artifact.decision.selected.seed.move.uci).toBe("e2e4");
   expect(artifact.forcedMate.status).toBe("NOT_VERIFIED");
+});
+
+test("PatternSteeredTalPath repeats Tal-gated attacker plies around Maia plies", async () => {
+  let gateCalls = 0;
+  let maiaCalls = 0;
+  const seed = (request, uci) => {
+    const move = chess.parseLegalMove(request.position, uci);
+    if (move.tag === "Err") return move;
+    return { tag: "Ok", value: [{ tag: "CandidateSeed", move: move.value, provenance: {
+      source: "LOCAL_STYLE_ENGINE", provider: { name: "cstal-test", displayName: "CSTal test", version: "test" }, status: "ENGINE_GENERATED",
+      requestId: makeRequestId(`tal-${request.ply}`), inputPositionHash: request.position.hash, configuration: { role: "candidate" }
+    } }] };
+  };
+  const generator = async request => {
+    const preferred = request.position.hash === start.hash ? "e2e4" : ["g1f3", "c2c4", "b1c3"].find(uci => chess.parseLegalMove(request.position, uci).tag === "Ok") ?? String(request.position.legalMoves[0]?.uci);
+    return seed(request, preferred);
+  };
+  const gate = async request => { gateCalls += 1; return { tag: "Ok", value: request.candidates.map(candidate => ({ seed: candidate, accepted: true })) }; };
+  const maia = async request => {
+    maiaCalls += 1;
+    const rawMove = ["e7e5", "d7d5", "c7c5", "g8f6"].find(uci => chess.parseLegalMove(request.position, uci).tag === "Ok") ?? String(request.position.legalMoves[0]?.uci);
+    const move = chess.parseLegalMove(request.position, rawMove);
+    if (move.tag === "Err") return move;
+    return { tag: "Ok", value: { move: move.value, provenance: { source: "MAIA", provider: maiaProvider("test"), status: "MODELED_LOCAL", requestId: makeRequestId(`maia-path-${maiaCalls}`), inputPositionHash: request.position.hash, configuration: {} } } };
+  };
+  const line = mustOk(await generatePatternSteeredTalPath({ chess, start, attackerSide: "white", generator, tacticalGate: gate, maia, lineId: "iterative", horizon: 5, candidateLimit: 2 }));
+  expect(line.plies).toHaveLength(5);
+  expect(line.plies.map(ply => ply.provenance.source)).toEqual(["LOCAL_STYLE_ENGINE", "MAIA", "LOCAL_STYLE_ENGINE", "MAIA", "LOCAL_STYLE_ENGINE"]);
+  expect(gateCalls).toBe(3);
+  expect(maiaCalls).toBe(2);
 });

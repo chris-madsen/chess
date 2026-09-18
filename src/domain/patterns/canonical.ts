@@ -1,7 +1,7 @@
 import type { PositionSnapshot } from "../chess/position";
 import type { Side } from "../chess/value-objects";
 import type { PositionFacts } from "../position-intelligence/facts";
-import { extractPatternPositionContext, legacyPatternAnalysisContext, type PatternAnalysisContext } from "./context";
+import { extractPatternPositionContext, legacyPatternAnalysisContext, type PatternAnalysisContext, type PatternEscapeSquare } from "./context";
 
 export type CanonicalPatternPiece = Readonly<{
   role: "attacker" | "defender";
@@ -45,6 +45,20 @@ const encode = (
   .sort()
   .join(";");
 
+const encodeGeometry = (
+  escapes: readonly PatternEscapeSquare[],
+  targetKing: Readonly<{ file: number; rank: number }>,
+  attackingSide: Side,
+  fileSign: 1 | -1,
+  rankSign: 1 | -1
+): string => escapes.map(escape => {
+  const file = (escape.square.file - targetKing.file) * fileSign;
+  const rank = (escape.square.rank - targetKing.rank) * rankSign;
+  const occupied = escape.occupiedBy === undefined ? "-" : escape.occupiedBy === attackingSide ? "a" : "d";
+  const flags = `${occupied}:${escape.controlledByAttacker ? "a" : "-"}${escape.controlledByDefender ? "d" : "-"}`;
+  return `e${file >= 0 ? "+" : ""}${file},${rank >= 0 ? "+" : ""}${rank}=${flags}`;
+}).sort().join(";");
+
 export const canonicalizePatternPosition = (
   position: PositionSnapshot,
   facts: PositionFacts,
@@ -59,9 +73,10 @@ export const canonicalizePatternPosition = (
     rank: piece.square.rank
   }));
   const targetKing = { piece: "k", file: context.targetKing.file, rank: context.targetKing.rank };
-  const orientations = ([1, -1] as const).flatMap(fileSign => ([1, -1] as const).map(rankSign => encode(pieces, targetKing, attackingSide, fileSign, rankSign)));
-  const key = `roles:attacker-defender|${[...orientations].sort()[0] ?? ""}`;
-  const canonicalOrientation = [...orientations].sort()[0] ?? "";
+  const orientations = ([1, -1] as const).flatMap(fileSign => ([1, -1] as const).map(rankSign => ({ pieces: encode(pieces, targetKing, attackingSide, fileSign, rankSign), geometry: encodeGeometry(context.escapeSquares, targetKing, attackingSide, fileSign, rankSign) })));
+  const canonical = [...orientations].sort((a, b) => `${a.pieces}|${a.geometry}`.localeCompare(`${b.pieces}|${b.geometry}`))[0] ?? { pieces: "", geometry: "" };
+  const key = `roles:attacker-defender|pieces:${canonical.pieces}|geometry:${canonical.geometry}`;
+  const canonicalOrientation = canonical.pieces;
   const canonicalPieces = canonicalOrientation.split(";").filter(Boolean).map(token => {
     const match = /^(a|d)([pnbrqk])([+-]?\d+),([+-]?\d+)$/u.exec(token);
     if (match === null || match[1] === undefined || match[2] === undefined || match[3] === undefined || match[4] === undefined) {

@@ -8,7 +8,7 @@ export type { ForcedMateProof, ForcedMateProofProvider, ForcedMateVerifier, Forc
 export { createForcedMateVerifier } from "../application/use-cases/forced-mate-verifier";
 export { generateStylePath, generateStylePaths } from "../application/use-cases/style-path";
 export { comparePatternTraces, evaluatePatternTrace, runPatternSelectionExperiment, runPatternSelectionExperimentFromLines, selectPatternLine, tracePatternLine } from "../application/use-cases/pattern-experiment";
-export { fetchRemoteStylePaths, fetchRemoteStylePathBatch, makeRemoteStylePathConfig, type RemoteStylePathConfig } from "../adapters/http/remote-style-path-adapter";
+export { fetchRemoteStylePaths, fetchRemoteStylePathBatch, fetchRemotePatternSteeringBatch, makeRemoteStylePathConfig, type RemoteStylePathConfig } from "../adapters/http/remote-style-path-adapter";
 export { parsePatternDataset, ingestPatternDatasetEntry } from "../application/experiments/pattern-dataset";
 export { pairedDifference95, summarizePatternExperiment } from "../application/experiments/pattern-report";
 export { PATTERN_FAMILY_CATALOG, PATTERN_FAMILY_IDS, isPatternFamilyId } from "../domain/patterns/pattern";
@@ -16,9 +16,11 @@ export { makePatternAnalysisContext, extractPatternPositionContext } from "../do
 export { assessPatternContext, patternMatcherFor, retrievePatternFamilies } from "../domain/patterns/matchers";
 export { recognizePatternCase, summarizePatternRecognition } from "../application/experiments/pattern-recognizer";
 export { evaluatePatternSteeringCandidates, selectPatternSteeringCandidate } from "../application/use-cases/pattern-steering";
+export { generatePatternSteeredTalPath } from "../application/use-cases/pattern-steered-tal-path";
 export type { CandidateGenerator, CandidateGeneratorRequest } from "../application/ports/pattern-steering";
+export type { CandidateTacticalGate, EngineScore, TacticalCandidateAssessment } from "../application/ports/pattern-steering";
 export type { SteeredRollout } from "../application/ports/pattern-steering";
 export { LICHESS_MATE_PATTERN_CATALOG, MATE_PATTERN_SOURCE_CATALOG, TACTICAL_MOTIF_SOURCE_CATALOG } from "../application/experiments/mate-pattern-catalog";
-export { createLocalPatternCandidateGenerator, createLocalStylePathProviders, createPatriciaCandidateGenerator, createWindowsCstalStylePathProviders, loadLocalEnginePaths, type LocalEnginePaths, type WindowsCstalOpponent, type WindowsCstalOptions } from "./local-style-engines";
-export { createUciMoveProvider, createUciCandidateGenerator } from "../adapters/uci/uci-engine-adapter";
+export { createLocalPatternCandidateGenerator, createLocalStylePathProviders, createPatriciaCandidateGenerator, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, loadLocalEnginePaths, type LocalEnginePaths, type WindowsCstalOpponent, type WindowsCstalOptions } from "./local-style-engines";
+export { createUciMoveProvider, createUciCandidateGenerator, createUciTacticalGate, parseUciScore, type UciTacticalGatePolicy } from "../adapters/uci/uci-engine-adapter";
 export { createUciForcedMateProofProvider, parseUciMateScore, type UciForcedMateProofConfig } from "../adapters/uci/uci-forced-mate-proof-adapter";

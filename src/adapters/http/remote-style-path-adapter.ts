@@ -19,7 +19,8 @@ export type RemoteStylePathConfig = Readonly<{
 type RemotePly = Readonly<{ index: number; uci: string; san: string; source: string; provider: string; requestId?: string; inputPositionHash?: string; configuration?: Readonly<Record<string, unknown>> }>;
 type RemoteLine = Readonly<{ engineKey: string; label: string; status: string; styleDepth?: number; plies: readonly RemotePly[]; error?: DomainError }>;
 type RemoteJobSnapshot = Readonly<{ jobId: string; status: string; lines: readonly RemoteLine[] }>;
-type RemoteBatchResult = Readonly<{ caseId: string; status: string; snapshot?: RemoteJobSnapshot; error?: DomainError }>;
+type RemoteSteeringLine = Readonly<{ status: string; start?: unknown; horizon?: unknown; plies: readonly RemotePly[]; error?: DomainError }>;
+type RemoteBatchResult = Readonly<{ caseId: string; status: string; snapshot?: RemoteJobSnapshot; steeringLine?: RemoteSteeringLine; error?: DomainError }>;
 type RemoteBatchSnapshot = Readonly<{ batchId: string; status: string; results: readonly RemoteBatchResult[] }>;
 
 const tokenFromEnvironment = (): string | undefined => {
@@ -191,6 +192,46 @@ export const fetchRemoteStylePathBatch = async (
     return ok(values);
   } catch (error) {
     return responseError("remoteStyleApi.batchRequest", "Remote Pattern batch request failed", { cause: error instanceof Error ? error.message : String(error) });
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+export const fetchRemotePatternSteeringBatch = async (
+  chess: ChessRulesPort,
+  cases: readonly Readonly<{ caseId: string; position: PositionSnapshot }>[],
+  horizon: ScenarioHorizon,
+  config: RemoteStylePathConfig,
+  concurrency = 2
+): Promise<Result<Readonly<Record<string, ScenarioLine>>, DomainError>> => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs * Math.max(1, cases.length));
+  try {
+    const response = await fetch(`${config.baseUrl}/v1/pattern-experiments/batches`, {
+      method: "POST", signal: controller.signal,
+      headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ datasetVersion: "pattern-steering-runtime", mode: "steering", concurrency, cstalOpponent: config.cstalOpponent, maia3Elo: config.maia3Elo, maxFullMoves: Math.max(1, Math.floor(Number(horizon) / 2)), timeoutMs: config.timeoutMs, cases: cases.map(item => ({ caseId: item.caseId, fen: String(item.position.fen) })) })
+    });
+    const created = await response.json().catch(() => undefined) as { batchId?: unknown } | undefined;
+    if (!response.ok || typeof created?.batchId !== "string") return responseError("remotePatternSteering.createBatch", "Remote Pattern steering batch creation failed", { status: response.status });
+    const events = await fetch(`${config.baseUrl}/v1/pattern-experiments/batches/${encodeURIComponent(created.batchId)}/events`, { signal: controller.signal, headers: { authorization: `Bearer ${config.token}` } });
+    if (!events.ok || events.body === null) return responseError("remotePatternSteering.events", "Remote Pattern steering event stream failed", { status: events.status });
+    const final = (await parseSseSnapshots(events)).filter(isRemoteBatchSnapshot).at(-1);
+    if (final === undefined) return responseError("remotePatternSteering.events", "Remote Pattern steering batch returned no final snapshot");
+    const result: Record<string, ScenarioLine> = {};
+    for (const item of final.results) {
+      const source = cases.find(candidate => candidate.caseId === item.caseId);
+      if (source === undefined || item.steeringLine === undefined) return responseError(`remotePatternSteering.batch.${item.caseId}`, "Remote steering result is incomplete");
+      const normalized = makeScenarioHorizon(Number(horizon));
+      if (isErr(normalized)) return err(normalized.error);
+      const remoteLine: RemoteLine = { engineKey: "pattern-steered-tal", label: "PatternSteeredTalPath", status: item.steeringLine.status, plies: item.steeringLine.plies, ...(item.steeringLine.error === undefined ? {} : { error: item.steeringLine.error }) };
+      const lineResult = makeRemoteLine(chess, source.position, normalized.value, remoteLine, config);
+      if (isErr(lineResult)) return err(lineResult.error);
+      result[item.caseId] = lineResult.value.line;
+    }
+    return ok(result);
+  } catch (error) {
+    return responseError("remotePatternSteering.request", "Remote Pattern steering batch request failed", { cause: error instanceof Error ? error.message : String(error) });
   } finally {
     clearTimeout(timer);
   }

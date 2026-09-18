@@ -1,5 +1,5 @@
 import { Chess } from "chess.js";
-import { controlledHardNegative } from "../scripts/pattern-hard-negative.mjs";
+import { controlledHardNegative } from "../scripts/pattern-hard-negative.js";
 
 test("controlled hard negative removes the target-family critical piece", () => {
   const source = "4r1k1/5ppp/p1p5/p1n1RP2/8/2P2N1P/2P3P1/3R2K1 b - - 0 21";

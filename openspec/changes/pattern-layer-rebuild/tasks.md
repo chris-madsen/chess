@@ -15,3 +15,7 @@
 - [x] Expand structural matcher dispatch from the first five families to all core families.
 - [x] Run held-out recognizer report on the updated dataset.
 - [ ] Run held-out steering report on the updated dataset after Windows batch API deployment.
+- [x] Add CSTal/Tal tactical gate and veto contract.
+- [x] Add iterative PatternSteeredTalPath with Tal attacker plies and Maia defender plies.
+- [x] Separate legacy post-hoc CLI/scorer from production steering CLI.
+- [x] Add opt-in remote steering batch mode without changing live StylePath semantics.

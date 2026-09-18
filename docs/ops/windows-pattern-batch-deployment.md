@@ -1,6 +1,6 @@
 # Windows Pattern batch deployment
 
-The Linux CLI calls the Windows StylePath service through Cloudflare. The batch API is part of the same `style-server` process, but the live `/v1/style-lines/jobs` semantics remain unchanged.
+The Linux CLI calls the Windows StylePath service through Cloudflare. The batch API is part of the same `style-server` process, but the live `/v1/style-lines/jobs` semantics remain unchanged. Use `mode: "steering"` for the iterative Tal/Maia benchmark; omit it for the legacy ABSURD/EXTREME post-hoc batch.
 
 ## Safe update
 
@@ -35,7 +35,7 @@ TOKEN="$(cat /media/ilja/DATA/chess/chess-api.ken)"
 curl -sS -X POST https://chess.network-communications.net/v1/pattern-experiments/batches \
   -H "Authorization: Bearer $TOKEN" \
   -H 'content-type: application/json' \
-  -d '{"cases":[{"caseId":"smoke","fen":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"}],"engineSuite":"cstal-windows","cstalOpponent":"maia3","maia3Elo":1800,"concurrency":2}'
+  -d '{"mode":"steering","cases":[{"caseId":"smoke","fen":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"}],"cstalOpponent":"maia3","maia3Elo":1800,"concurrency":2}'
 ```
 
 Expected result is JSON containing a non-empty `batchId`, not `404 Not found`. Then run the bounded held-out benchmark from Linux:
@@ -44,8 +44,8 @@ Expected result is JSON containing a non-empty `batchId`, not `404 Not found`. T
 npm run pattern:experiment -- \
   --dataset datasets/pattern-mvp-lichess.jsonl \
   --provider remote \
-  --subset steering-100 \
-  --remote-concurrency 2 \
+  --subset 100 \
+  --concurrency 2 \
   --maia3-elo 1800
 ```
 

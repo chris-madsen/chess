@@ -4,6 +4,11 @@ import type { ChessRulesPort } from "../ports/chess-rules";
 import { domainError } from "../../domain/shared/errors";
 import { err, isErr, ok } from "../../domain/shared/result";
 
+export type CandidateGeneratorSource = Readonly<{
+  generator: CandidateGenerator;
+  budget: number;
+}>;
+
 /**
  * Builds a legal, provenance-preserving candidate pool from existing engines.
  * Providers are queried once per position and duplicate UCI moves are removed.
@@ -33,12 +38,15 @@ export const candidateGeneratorFromProviders = (
 
 export const composeCandidateGenerators = (
   chess: ChessRulesPort,
-  generators: readonly CandidateGenerator[]
+  sources: readonly (CandidateGenerator | CandidateGeneratorSource)[]
 ): CandidateGenerator => async request => {
   const seen = new Set<string>();
   const candidates = [];
-  for (const generator of generators) {
-    const result = await generator(request);
+  const defaultBudget = Math.max(1, Math.ceil(request.limit / Math.max(1, sources.length)));
+  for (const source of sources) {
+    const generator = typeof source === "function" ? source : source.generator;
+    const budget = typeof source === "function" ? defaultBudget : Math.max(1, Math.floor(source.budget));
+    const result = await generator({ ...request, limit: budget });
     if (isErr(result)) return err(result.error);
     for (const candidate of result.value) {
       const legal = chess.parseLegalMove(request.position, candidate.move.uci);
@@ -47,10 +55,9 @@ export const composeCandidateGenerators = (
       if (seen.has(uci)) continue;
       seen.add(uci);
       candidates.push({ tag: "CandidateSeed" as const, move: legal.value, provenance: candidate.provenance });
-      if (candidates.length >= request.limit) return ok(candidates);
     }
   }
-  return ok(candidates);
+  return ok(candidates.slice(0, request.limit));
 };
 
 export const candidateGeneratorFromMoveProvider = (provider: MoveProvider): CandidateGenerator => async request => {

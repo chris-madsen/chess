@@ -4,7 +4,7 @@ import { createWriteStream, existsSync, mkdirSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { spawn } from "node:child_process";
 import { Chess } from "chess.js";
-import { controlledHardNegative } from "./pattern-hard-negative.mjs";
+import { controlledHardNegative } from "./pattern-hard-negative.js";
 
 const dumpUrl = "https://database.lichess.org/lichess_db_puzzle.csv.zst";
 const sourceLicense = "CC-BY-SA-4.0";

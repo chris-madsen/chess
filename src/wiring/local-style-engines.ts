@@ -5,8 +5,8 @@ import type { ChessRulesPort } from "../application/ports/chess-rules";
 import type { CandidateGenerator } from "../application/ports/pattern-steering";
 import type { LocalStyleEngineProvider, MoveProvider, StylePathProviders } from "../application/ports/providers";
 import type { ProviderIdentity } from "../domain/provenance/provenance";
-import { createUciCandidateGenerator, createUciMoveProvider, type UciEngineConfig, type UciGoLimit } from "../adapters/uci/uci-engine-adapter";
-import { candidateGeneratorFromMoveProvider, composeCandidateGenerators } from "../application/use-cases/candidate-pool";
+import { createUciCandidateGenerator, createUciMoveProvider, createUciTacticalGate, type UciEngineConfig, type UciGoLimit, type UciTacticalGatePolicy } from "../adapters/uci/uci-engine-adapter";
+import { candidateGeneratorFromMoveProvider, composeCandidateGenerators, type CandidateGeneratorSource } from "../application/use-cases/candidate-pool";
 
 export type LocalEnginePaths = Readonly<{
   stockfish19Path?: string;
@@ -130,7 +130,8 @@ const styleConfig = (
     threads,
     hashMb: engineMemoryMb
   },
-  ...(key === "jackal" ? { allowInfoPvBestMoveFallback: true } : {})
+  ...(key === "jackal" ? { allowInfoPvBestMoveFallback: true } : {}),
+  ...(key.startsWith("cstal-") ? { supportsSearchMoves: true } : {})
 });
 
 const policyName = (limit: UciGoLimit): string => {
@@ -283,7 +284,35 @@ export const createLocalPatternCandidateGenerator = (
   const styleProviders = createLocalStylePathProviders(chess, paths);
   const patricia = createPatriciaCandidateGenerator(chess, paths, candidateLimit);
   const styleCandidates = styleProviders.styleEngines.map(engine => candidateGeneratorFromMoveProvider(engine.provideMove));
-  return composeCandidateGenerators(chess, [patricia, ...styleCandidates]);
+  return composeCandidateGenerators(chess, [{ generator: patricia, budget: candidateLimit }, ...styleCandidates.map(generator => ({ generator, budget: 1 }))]);
+};
+
+export const createWindowsCstalPatternCandidateGenerator = (
+  chess: ChessRulesPort,
+  paths = loadLocalEnginePaths(),
+  options: WindowsCstalOptions = {},
+  candidateLimit = 8,
+  patricia?: CandidateGenerator
+): CandidateGenerator => {
+  const providers = createWindowsCstalStylePathProviders(chess, paths, options);
+  const styleSources: readonly CandidateGeneratorSource[] = providers.styleEngines.map(engine => ({ generator: candidateGeneratorFromMoveProvider(engine.provideMove), budget: 1 }));
+  return composeCandidateGenerators(chess, [
+    ...(patricia === undefined ? [] : [{ generator: patricia, budget: candidateLimit }]),
+    ...styleSources
+  ]);
+};
+
+export const createWindowsCstalTacticalGate = (
+  chess: ChessRulesPort,
+  paths = loadLocalEnginePaths(),
+  options: WindowsCstalOptions = {},
+  policy: UciTacticalGatePolicy = { minCentipawns: -150 }
+) => {
+  const config = styleConfig("cstal-absurd", "CSTal ABSURD tactical gate", requirePath(paths, "cstalAbsurdPath"), "2.07-cst-absurd", cstalStyleDepth, styleEngineTimeoutMs, cstalThreads);
+  return createUciTacticalGate(chess, {
+    ...config,
+    configuration: { ...config.configuration, role: "tactical-gate", opponent: options.opponent ?? "maia3", maia3Elo: options.maia3Elo ?? 1900 }
+  }, policy);
 };
 
 export const createWindowsCstalStylePathProviders = (

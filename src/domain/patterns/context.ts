@@ -136,6 +136,7 @@ const relevant = (board: Board, context: PatternAnalysisContext, king: PatternSq
   const criticalSquares = [king, ...escapes.map(escape => escape.square)];
   return board.filter(piece => (
     criticalSquares.some(square => attacksSquare(piece, square, board))
+    || escapes.some(escape => sameSquare(piece.square, escape.square))
     || (piece.side === context.attackerSide && ["n", "b", "r", "q"].includes(piece.type) && Math.max(Math.abs(piece.square.file - king.file), Math.abs(piece.square.rank - king.rank)) <= 3)
     || sameSquare(piece.square, king)
   )).map(piece => ({ side: piece.side, type: piece.type, square: piece.square }));

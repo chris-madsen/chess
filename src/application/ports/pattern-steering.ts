@@ -6,6 +6,7 @@ import type { ScenarioHorizon } from "../../domain/chess/value-objects";
 import type { ChessRulesPort } from "./chess-rules";
 import type { DomainError } from "../../domain/shared/errors";
 import type { Result } from "../../domain/shared/result";
+import type { LegalMove } from "../../domain/chess/moves";
 
 export type CandidateGeneratorRequest = Readonly<{
   position: PositionSnapshot;
@@ -14,6 +15,26 @@ export type CandidateGeneratorRequest = Readonly<{
 }>;
 
 export type CandidateGenerator = (request: CandidateGeneratorRequest) => Promise<Result<readonly CandidateSeed[], DomainError>>;
+
+export type EngineScore = Readonly<{
+  kind: "centipawns" | "mate";
+  value: number;
+}>;
+
+export type TacticalCandidateAssessment = Readonly<{
+  seed: CandidateSeed;
+  accepted: boolean;
+  talScore?: EngineScore;
+  talMate?: number;
+  talPv?: readonly LegalMove[];
+  reason?: string;
+}>;
+
+export type CandidateTacticalGate = (request: Readonly<{
+  position: PositionSnapshot;
+  candidates: readonly CandidateSeed[];
+  lineId: string;
+}>) => Promise<Result<readonly TacticalCandidateAssessment[], DomainError>>;
 
 export type SteeredRollout = (request: Readonly<{
   chess: ChessRulesPort;

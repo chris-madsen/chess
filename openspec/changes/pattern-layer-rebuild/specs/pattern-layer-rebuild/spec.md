@@ -45,3 +45,43 @@ Recognizer precision/recall/F1, hard-negative rejection, proximity metrics, and 
 ## Requirement: Bounded batch execution
 
 The authenticated batch API SHALL execute independent cases with bounded concurrency, preserve every case ID, and report incomplete/provider-error cases explicitly. Posting a batch case SHALL NOT cancel sibling batch cases. Existing live StylePath job cancellation semantics SHALL remain unchanged.
+
+## Requirement: Tal tactical gate
+
+Pattern steering SHALL evaluate candidate moves through a CSTal/Tal tactical gate before Pattern ranking. A rejected candidate SHALL NOT be selected even when its PatternProgress is higher than an accepted candidate's progress.
+
+### Scenario: Tal veto wins over Pattern similarity
+
+- GIVEN candidate A has higher PatternProgress but is rejected by the Tal gate
+- AND candidate B is accepted by the Tal gate
+- WHEN the steering decision is made
+- THEN candidate B SHALL be the only selectable result
+- AND PatternAssessment SHALL NOT declare candidate A unsafe or safe by itself
+
+## Requirement: Iterative Tal-Maia steering
+
+Production steering SHALL repeat candidate generation, Tal gating, and Pattern family progress on every attacker-side ply. Defender-side plies SHALL be supplied by Maia according to HumanPath semantics. A generic Stockfish continuation SHALL NOT replace the Tal candidate loop.
+
+### Scenario: Repeated attacker decisions
+
+- GIVEN a non-terminal position and a bounded horizon
+- WHEN PatternSteeredTalPath is generated
+- THEN attacker plies SHALL be committed from Tal-gated candidate decisions
+- AND intervening defender plies SHALL be sourced from Maia
+- AND every committed ply SHALL retain MoveProvenance.
+
+## Requirement: Legacy separation
+
+The post-hoc PatternSelectionExperiment and legacy scorer SHALL remain explicitly labelled legacy benchmark operations. The production steering CLI SHALL invoke iterative PatternSteeredTalPath and SHALL NOT rank completed StylePath lines after the fact.
+
+## Requirement: Opt-in remote steering mode
+
+The pattern batch API SHALL accept `mode: "steering"` as an explicit opt-in. Omitted mode and `mode: "posthoc"` SHALL preserve the existing ABSURD/EXTREME batch contract.
+
+### Scenario: Remote iterative steering
+
+- GIVEN an authenticated batch request with `mode: "steering"`
+- WHEN a bounded Windows worker processes a case
+- THEN it runs the iterative Tal gate, Pattern progress, and Maia defender loop
+- AND it returns a validated `PatternSteeredTalPath` result
+- AND provider errors or incomplete lines are not reported as successful

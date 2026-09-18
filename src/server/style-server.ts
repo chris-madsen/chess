@@ -7,14 +7,17 @@ import { randomUUID } from "node:crypto";
 import { createChessJsRulesAdapter } from "../adapters/chessjs/chess-rules-adapter";
 import type { ChessRulesPort } from "../application/ports/chess-rules";
 import type { LocalStyleEngineProvider, MoveProvider, StylePathProviders } from "../application/ports/providers";
+import type { CandidateGenerator, CandidateTacticalGate } from "../application/ports/pattern-steering";
 import { formatSanMovetext, ingestInput, INITIAL_ANALYSIS_SETTINGS, type CliOptions, type IngestedCliInput } from "../cli/style-lines";
 import { makePlyIndex } from "../domain/chess/value-objects";
+import { makeScenarioHorizon } from "../domain/chess/value-objects";
 import type { PositionSnapshot } from "../domain/chess/position";
 import type { ScenarioPly, ScenarioLineStatus } from "../domain/scenario-lines/scenario-line";
 import type { MoveSource } from "../domain/provenance/provenance";
 import type { DomainError } from "../domain/shared/errors";
 import { isErr, type Result } from "../domain/shared/result";
-import { createWindowsCstalStylePathProviders, type WindowsCstalOpponent } from "../wiring/local-style-engines";
+import { createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, loadLocalEnginePaths, type WindowsCstalOpponent } from "../wiring/local-style-engines";
+import { generatePatternSteeredTalPath } from "../application/use-cases/pattern-steered-tal-path";
 
 type JobStatus = "queued" | "running" | "complete" | "error" | "cancelled";
 type JobEventType = "queued" | "started" | "progress" | "complete" | "error" | "cancelled";
@@ -117,6 +120,13 @@ type PatternBatchRequest = Readonly<{
   refreshMs?: number;
   maxFullMoves?: number;
   timeoutMs?: number;
+  mode?: "posthoc" | "steering";
+}>;
+type PatternSteeringProviders = Readonly<{
+  generator: CandidateGenerator;
+  tacticalGate: CandidateTacticalGate;
+  maia: MoveProvider;
+  dispose?: () => void;
 }>;
 type PatternBatch = {
   id: string;
@@ -125,7 +135,7 @@ type PatternBatch = {
   createdAt: string;
   total: number;
   completed: number;
-  results: Array<Readonly<{ caseId: string; status: JobStatus; snapshot?: JobSnapshot; error?: DomainError }>>;
+  results: Array<Readonly<{ caseId: string; status: JobStatus; snapshot?: JobSnapshot; steeringLine?: unknown; error?: DomainError }>>;
   subscribers: Set<ServerResponse>;
   events: Array<Readonly<{ type: "started" | "progress" | "complete"; data: unknown }>>;
   finalEmitted: boolean;
@@ -162,6 +172,7 @@ export type StyleServerPorts = Readonly<{
   createProviders?: (chess: ChessRulesPort, options: Readonly<{ opponent: WindowsCstalOpponent; maia3Elo: number }>) => StylePathProviders;
   now?: () => Date;
   makeJobId?: () => string;
+  createPatternSteering?: (chess: ChessRulesPort, options: Readonly<{ opponent: WindowsCstalOpponent; maia3Elo: number }>) => PatternSteeringProviders;
 }>;
 
 const defaultConfig = (): ServerConfig => ({
@@ -312,7 +323,7 @@ const lineSnapshot = (
 };
 
 class StyleJobQueue {
-  private readonly chess: ChessRulesPort;
+  readonly chess: ChessRulesPort;
   private readonly createProviders: NonNullable<StyleServerPorts["createProviders"]>;
   private readonly now: () => Date;
   private readonly makeJobId: () => string;
@@ -710,6 +721,22 @@ export const createStyleLineJobServer = (
 ): Server => {
   const config = { ...defaultConfig(), ...configOverrides };
   const queue = new StyleJobQueue(config, ports);
+  const resolvedPorts: StyleServerPorts = {
+    ...ports,
+    createPatternSteering: ports.createPatternSteering ?? ((chess, options) => {
+      const paths = loadLocalEnginePaths();
+      const providers = createWindowsCstalStylePathProviders(chess, paths, options);
+      return {
+        generator: createWindowsCstalPatternCandidateGenerator(chess, paths, options, 8),
+        tacticalGate: createWindowsCstalTacticalGate(chess, paths, options),
+        maia: providers.maia,
+        dispose: () => {
+          providers.styleEngines.forEach(engine => engine.provideMove.dispose?.());
+          providers.maia.dispose?.();
+        }
+      };
+    })
+  };
   const batches = new Map<string, PatternBatch>();
 
   const batchSnapshot = (batch: PatternBatch): Readonly<Record<string, unknown>> => ({
@@ -742,6 +769,52 @@ export const createStyleLineJobServer = (
         nextIndex += 1;
         const item = request.cases[index];
         if (item === undefined) return;
+        if (request.common.mode === "steering") {
+          const start = queue.chess.ingestPosition(item.fen);
+          if (isErr(start)) {
+            batch.results.push({ caseId: item.caseId, status: "error", error: start.error });
+            batch.completed += 1;
+            emitBatch(batch, "progress");
+            continue;
+          }
+          const steering = resolvedPorts.createPatternSteering?.(queue.chess, {
+            opponent: request.common.cstalOpponent ?? "maia3",
+            maia3Elo: request.common.maia3Elo ?? 1800
+          });
+          if (steering === undefined) {
+            batch.results.push({ caseId: item.caseId, status: "error", error: { code: "PROVIDER_UNAVAILABLE", path: "patternBatch.steering", message: "Pattern steering providers are not configured" } });
+            batch.completed += 1;
+            emitBatch(batch, "progress");
+            continue;
+          }
+          const horizon = makeScenarioHorizon(Math.max(1, (request.common.maxFullMoves ?? 8) * 2));
+          if (isErr(horizon)) {
+            steering.dispose?.();
+            batch.results.push({ caseId: item.caseId, status: "error", error: horizon.error });
+            batch.completed += 1;
+            emitBatch(batch, "progress");
+            continue;
+          }
+          const line = await generatePatternSteeredTalPath({
+            chess: queue.chess,
+            start: start.value,
+            attackerSide: start.value.sideToMove,
+            generator: steering.generator,
+            tacticalGate: steering.tacticalGate,
+            maia: steering.maia,
+            lineId: `pattern-steering-${item.caseId}`,
+            horizon: horizon.value
+          });
+          steering.dispose?.();
+          if (isErr(line)) {
+            batch.results.push({ caseId: item.caseId, status: "error", error: line.error });
+          } else {
+            batch.results.push({ caseId: item.caseId, status: line.value.status === "Incomplete" ? "error" : "complete", steeringLine: line.value, ...(line.value.error === undefined ? {} : { error: line.value.error }) });
+          }
+          batch.completed += 1;
+          emitBatch(batch, "progress");
+          continue;
+        }
         const normalized = normalizeJobRequest({ ...request.common, fen: item.fen });
         if ("code" in normalized) {
           batch.results.push({ caseId: item.caseId, status: "error", error: normalized });
@@ -903,12 +976,14 @@ const normalizePatternBatchRequest = (body: unknown): Result<Readonly<{
   const concurrency = integerInRange(data.concurrency, 2, 1, 4);
   if (concurrency === undefined) return { tag: "Err", error: { code: "INVALID_MOVE_NOTATION", path: "body.concurrency", message: "concurrency must be an integer between 1 and 4" } };
   const common: Omit<PatternBatchRequest, "cases" | "datasetVersion" | "concurrency"> = {
+    ...(data.mode === undefined ? {} : { mode: data.mode as "posthoc" | "steering" }),
     ...(data.cstalOpponent === undefined ? {} : { cstalOpponent: data.cstalOpponent as WindowsCstalOpponent }),
     ...(data.maia3Elo === undefined ? {} : { maia3Elo: data.maia3Elo as number }),
     ...(data.refreshMs === undefined ? {} : { refreshMs: data.refreshMs as number }),
     ...(data.maxFullMoves === undefined ? {} : { maxFullMoves: data.maxFullMoves as number }),
     ...(data.timeoutMs === undefined ? {} : { timeoutMs: data.timeoutMs as number })
   };
+  if (data.mode !== undefined && data.mode !== "posthoc" && data.mode !== "steering") return { tag: "Err", error: { code: "INVALID_RAW_GAME", path: "body.mode", message: "mode must be posthoc or steering" } };
   return { tag: "Ok", value: { datasetVersion: typeof data.datasetVersion === "string" ? data.datasetVersion : "unknown", cases, concurrency, common } };
 };
 
