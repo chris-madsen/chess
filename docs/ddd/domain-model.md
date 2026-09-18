@@ -17,6 +17,7 @@ This document defines the first anemic DDD model for Chess Trainer. Records carr
 | Puzzle Training | Future tactics mode with forcing-move discipline | PuzzleAttempt |
 | Pattern Intelligence | Pattern families, progress, reachability, and mate precedence | PatternAssessment |
 | Analysis Cache | Reusable provider/pattern state and rollout suffixes | CacheEntry |
+| Pattern Experiment | Paired baseline/treatment/control evaluation | PatternSelectionExperiment |
 
 ## Entities and aggregates
 
@@ -52,6 +53,10 @@ An immutable analysis result for one `PositionSnapshot` and `PatternFamily`. It 
 
 A versioned reusable value keyed by canonical position state, namespace, provider/model configuration, and policy version. It is not authoritative chess truth until its stored moves and provenance pass the same validation gates as fresh provider output.
 
+### PatternSelectionExperiment
+
+A reproducible comparison of existing CSTal ABSURD and CSTal EXTREME trajectories. It owns the dataset case, prefix-only selection decision, baseline/treatment/control outcomes, cache statistics, and statistical report status.
+
 ## Value objects
 
 - `Fen`, `Pgn`, `SanMove`, `UciMove`.
@@ -83,3 +88,4 @@ A versioned reusable value keyed by canonical position state, namespace, provide
 - Provider failures produce explicit incomplete states, never invented moves.
 - Zobrist identity never replaces rule/history context.
 - Forced mate is separate from Pattern similarity and disables further beauty steering.
+- A PatternSelectionExperiment is `INCONCLUSIVE` when its corpus or independent verifier is unavailable.

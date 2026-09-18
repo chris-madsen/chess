@@ -28,11 +28,17 @@ An exact hit may reuse the complete value. A partial hit may reuse only compatib
 
 ## Runtime stages
 
-1. Build a candidate pool from CSTal best move and, when available, external MultiPV sources.
-2. Look up compatible state and suffix entries.
-3. Run missing CSTal × Maia rollouts to terminal state, timeout, or configured horizon.
-4. Calculate pattern similarity/progress and human reachability.
-5. Verify forced mate independently.
-6. Use pattern steering only before a verified forced mate; preserve the original line and provenance in all cases.
+The MVP deliberately does not build a candidate pool or call MultiPV:
 
-The first code increment exposes the pure identity and cache port. Persistent/shared storage and provider orchestration are subsequent adapters using the same contract.
+1. Run the existing CSTal ABSURD + Maia and CSTal EXTREME + Maia lines.
+2. Look up compatible PatternAssessment values in the state cache.
+3. Calculate pattern similarity/progress using only a configured prefix.
+4. Select ABSURD or EXTREME without reading the rest of either line.
+5. Evaluate the selected full line after selection using terminal-state facts and an independent forced-mate verifier.
+6. Compare fixed baseline, Pattern treatment, and deterministic control arms with paired metrics.
+
+Only a positive MVP result may justify a later candidate-pool/MultiPV increment.
+
+`PatternMatch`, `TerminalMate`, and `ForcedMateVerification` are separate facts. A `BeautifulForcedCombination` is true only when all three are true. Pattern scoring never establishes forced mate.
+
+The runner emits versioned JSONL records containing the dataset case, provider configurations, both complete lines, prefix selection scores, outcomes, and cache statistics. Fewer than 300 independent cases or unavailable forced-mate verification produce `INCONCLUSIVE`, never a positive claim.

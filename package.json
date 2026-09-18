@@ -21,7 +21,8 @@
     "install:cstal-windows": "node scripts/install-cstal-windows.mjs",
     "verify:cstal-windows": "node scripts/verify-cstal-windows.mjs",
     "verify:style-engines:local": "node scripts/verify-local-style-engines.mjs",
-    "style:api": "tsx src/api/style-lines-http.ts"
+    "style:api": "tsx src/api/style-lines-http.ts",
+    "pattern:experiment": "tsx src/cli/pattern-experiment.ts"
   },
   "dependencies": {
     "chess.js": "^1.4.0"

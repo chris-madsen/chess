@@ -5,6 +5,8 @@ export * from "./chess/value-objects";
 export * from "./chess/moves";
 export * from "./chess/position";
 export * from "./cache/state-cache";
+export * from "./patterns/pattern";
+export * from "./patterns/outcomes";
 export * from "./position-intelligence/facts";
 export * from "./provenance/provenance";
 export * from "./provenance/policy";

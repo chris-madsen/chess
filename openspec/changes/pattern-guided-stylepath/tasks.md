@@ -5,10 +5,13 @@
 - [x] Add Analysis Cache application port.
 - [x] Add bounded in-memory LRU cache adapter.
 - [x] Add contract tests for transposition identity and cache isolation.
-- [ ] Add PatternFamily and PatternAssessment domain ADTs.
-- [ ] Add symbolic PatternProgress and HumanReachability policies.
-- [ ] Add forced-mate verifier and mate-basin precedence.
-- [ ] Add candidate-pool and CSTal × Maia rollout orchestration.
+- [x] Add PatternFamily and PatternAssessment domain ADTs.
+- [x] Add deterministic symbolic PatternProgress policy.
+- [x] Add prefix-only ABSURD versus EXTREME selector.
+- [x] Add dataset schema/ingest and paired experiment report.
+- [x] Add offline/integration experiment CLI without MultiPV.
+- [ ] Add independent forced-mate verifier adapter.
 - [ ] Add suffix memoization and a durable cache adapter.
-- [ ] Add API/CLI pattern facts and cache diagnostics.
-- [ ] Add benchmark and opt-in Windows integration evidence.
+- [ ] Add 300-case licensed benchmark corpus with calibration/evaluation splits.
+- [ ] Add Windows benchmark run and statistical MVP report.
+- [ ] Add API/CLI pattern facts after the experiment passes.

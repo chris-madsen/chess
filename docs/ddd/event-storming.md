@@ -81,3 +81,11 @@ Aggregate: `PatternAssessment`. Value objects: `PatternFamily`, `PatternProgress
 | `LookupAnalysisState`, `StoreAnalysisState`, `ReuseRolloutSuffix` | `AnalysisCacheHit`, `AnalysisCacheMiss`, `PartialCacheReuse`, `RolloutSuffixReused`, `CacheEntryRejected` | Configuration fingerprints and rule/history context are mandatory; cache failure falls back to explicit recomputation | Stale provider settings, concurrent writers, and history-aware Maia semantics |
 
 Aggregate: `CacheEntry`. Value objects: `ZobristPositionKey`, `RuleContext`, `HistorySignature`, `AnalysisCacheKey`.
+
+## Pattern Selection Experiment
+
+| Commands | Events | Policies | Hotspots |
+|---|---|---|---|
+| `RunPatternSelectionCase`, `SelectTrajectoryByPrefix`, `SummarizeExperiment` | `PatternCaseStarted`, `PatternPrefixScored`, `PatternTrajectorySelected`, `PatternCaseEvaluated`, `PatternExperimentReported` | Selector cannot read post-prefix assessments; fewer than 300 cases or unavailable forced-mate verification means `INCONCLUSIVE` | Symbolic scorer and outcome verifier can become circular; dataset licensing and split leakage |
+
+Aggregate: `PatternSelectionExperiment`. Read models: per-case JSONL artifact and paired metric report.

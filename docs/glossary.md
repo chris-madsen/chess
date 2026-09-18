@@ -201,3 +201,11 @@ A versioned, configuration-aware store for reusable position evaluations, Maia r
 ## Forced Mate
 
 An objectively verified mating result. It has precedence over pattern similarity when deciding whether Pattern steering may continue.
+
+## PatternSelectionExperiment
+
+A controlled experiment that compares the existing CSTal ABSURD and CSTal EXTREME plus Maia trajectories. The selector sees only a prefix; baseline, treatment, and deterministic control outcomes are evaluated afterward. It is not a production StylePath mode.
+
+## BeautifulForcedCombination
+
+An outcome where a line has a recognized PatternMatch, reaches TerminalMate, and receives independent `ForcedMateVerification`. Pattern similarity alone is insufficient.

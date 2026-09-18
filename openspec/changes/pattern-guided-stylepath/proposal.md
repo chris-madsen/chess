@@ -2,7 +2,7 @@
 
 ## Summary
 
-Add a Pattern Layer above the existing CSTal and Maia StylePath pipeline. The first increment introduces the domain contract for pattern analysis and a canonical Zobrist/state cache identity so repeated and transposed states can be reused safely.
+Add a Pattern Layer above the existing CSTal and Maia StylePath pipeline. The first experiment tests whether an external selector can improve the rate of recognizable, terminal, and independently verified mating combinations without changing CSTal, Maia, or using MultiPV.
 
 ## Motivation
 
@@ -10,9 +10,12 @@ The current Windows StylePath API produces provenance-bearing CSTal and Maia lin
 
 ## Scope
 
-- Define Pattern Intelligence and Analysis Cache concepts.
+- Define Pattern Intelligence, PatternSelectionExperiment, and Analysis Cache concepts.
 - Define canonical position identity using Zobrist state plus separate rule/history context.
 - Add a cache port and a bounded in-memory adapter.
+- Score six initial pattern families with deterministic symbolic features.
+- Compare existing CSTal ABSURD and CSTal EXTREME trajectories using a prefix-only selector.
+- Produce paired metrics and an explicit SUCCESS/FAILURE/INCONCLUSIVE report.
 - Preserve existing StylePath and HumanPath behavior.
 - Define the later candidate-pool, rollout, suffix-reuse, and forced-mate integration contract.
 
@@ -21,5 +24,7 @@ The current Windows StylePath API produces provenance-bearing CSTal and Maia lin
 - Modifying CSTal source or binaries.
 - Fine-tuning Maia 79M.
 - A Redis/PostgreSQL deployment adapter.
+- MultiPV or a large candidate pool.
+- A positive experimental conclusion before independent forced-mate verification and the required corpus exist.
 - Automatic external platform writes.
 - Claiming a pattern result without structured evidence.

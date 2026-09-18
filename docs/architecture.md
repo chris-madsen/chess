@@ -88,6 +88,10 @@ The external cache uses a deterministic `ZobristPositionKey` for piece placement
 
 Cache access is an application port. The first adapter is bounded in-memory storage; durable local and shared storage must remain replaceable adapters. Cache misses and cache failures never invent moves or provenance and may only trigger explicit recomputation/degraded output.
 
+### PatternSelectionExperiment MVP
+
+The first experiment deliberately does not use MultiPV. It runs the existing CSTal ABSURD + Maia and CSTal EXTREME + Maia trajectories, scores only a configured prefix, selects one trajectory, and evaluates the complete trajectories afterward. Fixed ABSURD baseline, Pattern treatment, and deterministic control arms are reported with paired metrics. The experiment cannot report a positive result until the corpus has at least 300 independent cases and an independent forced-mate verifier is available.
+
 ## Primary data flow
 
 ```text
