@@ -22,7 +22,9 @@ Each line has this shape:
 }
 ```
 
-The MVP Lichess core catalog contains these 19 families: `ANASTASIA`, `ARABIAN`, `BACK_RANK`, `BALESTRA`, `BLIND_SWINE`, `BODEN`, `CORNER`, `DOUBLE_BISHOP`, `DOVETAIL`, `EPAULETTE`, `HOOK`, `KILL_BOX`, `PILLSBURY`, `MORPHYS`, `OPERA`, `SMOTHERED`, `SWALLOWTAIL`, `TRIANGLE`, and `VUKOVIC`. Their generic canonical definitions are owned by the domain catalog; source keys and direct training links are application-boundary metadata.
+The MVP core catalog contains 19 families: `ANASTASIA`, `ARABIAN`, `BACK_RANK`, `BALESTRA`, `BLIND_SWINE`, `BODEN`, `CORNER`, `DOUBLE_BISHOP`, `DOVETAIL`, `EPAULETTE`, `HOOK`, `KILL_BOX`, `PILLSBURY`, `MORPHYS`, `OPERA`, `SMOTHERED`, `SWALLOWTAIL`, `TRIANGLE`, and `VUKOVIC`. The extended catalog adds 15 named families: `DAMIANO`, `GRECO`, `LOLLI`, `LEGAL`, `BLACKBURNE`, `ANDERSSEN`, `MAYET`, `RETI`, `MAX_LANGE`, `SUFFOCATION`, `LAWNMOWER`, `DAVID_GOLIATH`, `TWO_KNIGHTS`, `H_FILE`, and `DIAGONAL_CORRIDOR`. Their generic canonical definitions are owned by the domain catalog; source keys and direct training links are application-boundary metadata.
+
+The separate tactical motif catalog contains 15 mechanisms, including attraction, clearance, deflection, discovered attack/check, double check, interference, pin, sacrifice, skewer, x-ray attack, capturing defender, exposed king, kingside attack, and attacking f2/f7. Motifs are not `PatternFamily` values.
 
 The repository does not include copied `deadly` or puzzle data until its license and redistribution terms are verified. Catalog metadata is not evidence that a family has positive seeds or a completed benchmark corpus; those remain explicit dataset work.
 

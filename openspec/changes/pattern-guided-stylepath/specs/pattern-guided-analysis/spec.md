@@ -24,7 +24,7 @@ Pattern analysis SHALL represent a pattern family and structured evidence rather
 
 ## Requirement: Use the Lichess mate-theme core catalog
 
-The MVP catalog SHALL expose the 19 Lichess mate themes as independent `PatternFamily` values with a canonical key, display name, and aliases. Source keys and direct training URLs SHALL remain application-boundary metadata rather than domain dependencies. The catalog SHALL remain separate from tactical motifs and future extended named families.
+The MVP catalog SHALL expose the 19 Lichess mate themes and 15 extended named mate families as independent `PatternFamily` values with a canonical key, display name, and aliases. Source keys and direct training URLs SHALL remain application-boundary metadata rather than domain dependencies. The catalog SHALL remain separate from the 15 tactical motifs and any future unnamed structural clusters.
 
 ### Scenario: Assess a catalog family
 
@@ -34,12 +34,30 @@ The MVP catalog SHALL expose the 19 Lichess mate themes as independent `PatternF
 - AND the scorer model version identifies the catalog-aware symbolic model
 - AND the assessment SHALL NOT be treated as `TerminalMate` or `ForcedMateVerification`
 
+### Scenario: Extended family assessment
+
+- GIVEN a legal position and any family from the extended named family catalog
+- WHEN Pattern Intelligence evaluates that family
+- THEN it returns the same bounded `PatternAssessment` shape as for the core catalog
+- AND its catalog tier remains `MVP_EXTENDED`
+
 ### Scenario: Dataset family validation
 
 - GIVEN a JSONL dataset entry
 - WHEN its family is parsed
 - THEN the family is accepted only if it is present in the canonical catalog
 - AND the parser SHALL NOT maintain a second independent list of supported family IDs
+
+## Requirement: Keep tactical motifs separate
+
+The MVP SHALL expose the planned tactical motifs as a separate `TacticalMotif` catalog. A tactical motif SHALL NOT be accepted as a `PatternFamilyId` and SHALL NOT be silently converted into a mating-family assessment.
+
+### Scenario: Motif taxonomy lookup
+
+- GIVEN the tactical motif catalog
+- WHEN a caller looks up `SACRIFICE`
+- THEN it receives motif metadata
+- AND no `PatternAssessment` is created without an explicit mating-family target
 
 ## Requirement: Canonicalize reusable state
 

@@ -8,6 +8,8 @@
 - [x] Add PatternFamily and PatternAssessment domain ADTs.
 - [x] Add the 19-family Lichess mate-theme catalog with canonical keys and training links.
 - [x] Extend the deterministic symbolic scorer and dataset validation to all Lichess core families.
+- [x] Add 15 extended named mate families without changing the PatternFamily ADT boundary.
+- [x] Add a separate 15-entry tactical motif catalog without treating motifs as mating families.
 - [x] Add deterministic symbolic PatternProgress policy.
 - [x] Add prefix-only ABSURD versus EXTREME selector.
 - [x] Add dataset schema/ingest and paired experiment report.

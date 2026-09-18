@@ -182,7 +182,7 @@ Plain game text containing SAN moves and move numbers, read from a text file and
 
 A family of geometrically and tactically related combinations or mating structures. It is not a single historical FEN and may tolerate irrelevant background differences.
 
-The MVP Lichess core catalog currently contains 19 independently addressable mate families. Its canonical IDs, source keys, aliases, and training URLs are owned by the domain catalog; extended named mates and tactical motifs are separate future/catalog namespaces.
+The MVP named catalog currently contains 34 independently addressable mate families: 19 core families and 15 extended named families. Generic IDs and aliases are owned by the domain catalog; source keys and training URLs are application-boundary metadata. Tactical motifs are a separate namespace.
 
 ## PatternProgress
 

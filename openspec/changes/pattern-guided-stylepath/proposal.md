@@ -14,7 +14,8 @@ The current Windows StylePath API produces provenance-bearing CSTal and Maia lin
 - Define canonical position identity using Zobrist state plus separate rule/history context.
 - Add a cache port and a bounded in-memory adapter.
 - Score the 19 Lichess mate-theme families with deterministic symbolic features.
-- Keep mate-family taxonomy metadata separate from tactical motifs and future extended families.
+- Add the 15 planned extended named mate families with deterministic symbolic features.
+- Keep mate-family taxonomy metadata separate from the 15 tactical motifs catalog.
 - Compare existing CSTal ABSURD and CSTal EXTREME trajectories using a prefix-only selector.
 - Produce paired metrics and an explicit SUCCESS/FAILURE/INCONCLUSIVE report.
 - Preserve existing StylePath and HumanPath behavior.
