@@ -3,6 +3,7 @@ import type { Side } from "../chess/value-objects";
 import type { PositionFacts } from "../position-intelligence/facts";
 import { extractPatternPositionContext, legacyPatternAnalysisContext, type PatternAnalysisContext } from "./context";
 import { mateGeometryDescriptorFor, scoreMateGeometry } from "./mate-geometry";
+import { patternTrajectoryDescriptorFor, scorePatternTrajectory, type PatternTrajectoryContext } from "./trajectory";
 
 export type PatternFamilyId =
   | "ANASTASIA"
@@ -46,7 +47,28 @@ export type PatternFamilyDefinition = Readonly<{
   displayName: string;
   aliases: readonly string[];
   tier: "MVP_NAMED_CORE" | "MVP_EXTENDED";
+  kind: PatternKind;
 }>;
+
+export type PatternKind = "MATE_GEOMETRY" | "MATING_SEQUENCE" | "HYBRID";
+
+const patternKinds: Readonly<Partial<Record<PatternFamilyId, PatternKind>>> = {
+  LEGAL: "MATING_SEQUENCE",
+  ANDERSSEN: "HYBRID",
+  MAX_LANGE: "HYBRID",
+  DAMIANO: "HYBRID",
+  GRECO: "HYBRID",
+  LOLLI: "HYBRID",
+  BLACKBURNE: "HYBRID",
+  MAYET: "HYBRID",
+  RETI: "HYBRID",
+  SUFFOCATION: "HYBRID",
+  LAWNMOWER: "MATING_SEQUENCE",
+  DAVID_GOLIATH: "HYBRID",
+  TWO_KNIGHTS: "MATING_SEQUENCE",
+  H_FILE: "HYBRID",
+  DIAGONAL_CORRIDOR: "HYBRID"
+};
 
 /**
  * The product taxonomy is deliberately separate from the scorer. Labels and
@@ -95,7 +117,8 @@ export const PATTERN_FAMILY_CATALOG: readonly PatternFamilyDefinition[] = patter
   canonicalKey,
   displayName,
   aliases: [sourceKey, canonicalKey, displayName],
-  tier
+  tier,
+  kind: patternKinds[id as PatternFamilyId] ?? "MATE_GEOMETRY"
 }));
 
 export const PATTERN_FAMILY_IDS: readonly PatternFamilyId[] = PATTERN_FAMILY_CATALOG.map(definition => definition.id);
@@ -118,6 +141,7 @@ export type PatternAssessment = Readonly<{
   similarity: number;
   /** Continuous PatternAffinity; similarity is retained as the stable wire name. */
   affinity?: number;
+  trajectoryAffinity?: number;
   progress: number;
   state: PatternState;
   evidence: readonly PatternEvidence[];
@@ -396,18 +420,27 @@ export const assessPattern = (
   facts: PositionFacts,
   family: PatternFamilyId,
   previousSimilarity = 0,
-  analysis?: PatternAnalysisContext
+  analysis?: PatternAnalysisContext,
+  trajectory?: PatternTrajectoryContext
 ): PatternAssessment => {
   const resolvedAnalysis = analysis ?? legacyPatternAnalysisContext(facts);
   const context = extractPatternPositionContext(position, facts, resolvedAnalysis);
   const descriptor = mateGeometryDescriptorFor(family);
   if (descriptor === undefined) throw new Error(`Missing MateGeometry descriptor for ${family}`);
   const scored = scoreMateGeometry(context, descriptor);
-  const similarity = clamp(scored.similarity);
+  const trajectoryDescriptor = patternTrajectoryDescriptorFor(family);
+  const trajectoryScore = trajectory !== undefined && trajectoryDescriptor !== undefined ? scorePatternTrajectory(trajectory, trajectoryDescriptor) : undefined;
+  const trajectoryKind = trajectoryDescriptor?.kind;
+  const similarity = clamp(trajectoryScore === undefined
+    ? scored.similarity
+    : trajectoryKind === "MATING_SEQUENCE"
+      ? 0.25 * scored.similarity + 0.75 * trajectoryScore.affinity
+      : 0.60 * scored.similarity + 0.40 * trajectoryScore.affinity);
   return {
     tag: "PatternAssessment",
     family,
     similarity,
+    ...(trajectoryScore === undefined ? {} : { trajectoryAffinity: trajectoryScore.affinity }),
     progress: similarity - previousSimilarity,
     state: similarity >= 0.82 ? "mate_basin" : similarity >= 0.65 ? "near" : similarity >= 0.45 ? "forming" : similarity >= 0.25 ? "promising" : "far",
     evidence: scored.evidence,

@@ -5,6 +5,8 @@ import type { StylePathProviders } from "../ports/providers";
 import { generateStylePaths, type StylePathLineResult } from "./style-path";
 import type { PositionSnapshot } from "../../domain/chess/position";
 import type { PatternAssessment, PatternFamilyId } from "../../domain/patterns/pattern";
+import { extractPatternPositionContext, makePatternAnalysisContext } from "../../domain/patterns/context";
+import { patternTrajectoryDescriptorFor, type PatternTrajectoryContext } from "../../domain/patterns/trajectory";
 import { assessPattern, analysisCacheKey, isPatternAssessment, makeCacheEntry, makePatternModelVersion, PATTERN_MATCH_THRESHOLD, PATTERN_MODEL_VERSION } from "../../domain/index";
 import { makePatternLineOutcome, type ForcedMateVerification, type PatternLineOutcome } from "../../domain/patterns/outcomes";
 import type { ScenarioLine } from "../../domain/scenario-lines/scenario-line";
@@ -80,6 +82,10 @@ export const tracePatternLine = (
 ): Result<PatternLineTrace, ReturnType<typeof domainError>> => {
   let current = line.start;
   let previousSimilarity = 0;
+  const analysis = makePatternAnalysisContext(line.start.sideToMove);
+  const trajectoryPositions: PositionSnapshot[] = [line.start];
+  const trajectoryMoves = [] as import("../../domain/chess/moves").LegalMove[];
+  const trajectoryContexts = [] as import("../../domain/patterns/context").PatternPositionContext[];
   const fullAssessments: PatternAssessment[] = [];
   const prefixAssessments: PatternAssessment[] = [];
   for (let plyIndex = 0; plyIndex <= line.plies.length; plyIndex += 1) {
@@ -87,7 +93,10 @@ export const tracePatternLine = (
     if (isErr(facts)) {
       return err(facts.error);
     }
-    const assessment = assessPattern(current, facts.value, family, previousSimilarity);
+    const geometryContext = extractPatternPositionContext(current, facts.value, analysis);
+    trajectoryContexts.push(geometryContext);
+    const trajectory: PatternTrajectoryContext = { attackerSide: analysis.attackerSide, positions: trajectoryPositions, moves: trajectoryMoves, geometryContexts: trajectoryContexts };
+    const assessment = assessPattern(current, facts.value, family, previousSimilarity, analysis, trajectory);
     previousSimilarity = assessment.similarity;
     fullAssessments.push(assessment);
     if (plyIndex <= prefixPlies) {
@@ -102,6 +111,8 @@ export const tracePatternLine = (
       return err(next.error);
     }
     current = next.value;
+    trajectoryMoves.push(ply.move);
+    trajectoryPositions.push(current);
   }
   return ok({ engineKey, line, prefixAssessments, fullAssessments, terminalPosition: current });
 };
@@ -117,6 +128,10 @@ export const tracePatternLineWithCache = async (
 ): Promise<Result<PatternLineTrace, ReturnType<typeof domainError>>> => {
   let current = line.start;
   let previousSimilarity = 0;
+  const analysis = makePatternAnalysisContext(line.start.sideToMove);
+  const trajectoryPositions: PositionSnapshot[] = [line.start];
+  const trajectoryMoves = [] as import("../../domain/chess/moves").LegalMove[];
+  const trajectoryContexts = [] as import("../../domain/patterns/context").PatternPositionContext[];
   let hits = 0;
   let misses = 0;
   const fullAssessments: PatternAssessment[] = [];
@@ -124,6 +139,9 @@ export const tracePatternLineWithCache = async (
   for (let plyIndex = 0; plyIndex <= line.plies.length; plyIndex += 1) {
     const facts = chess.computeFacts(current);
     if (isErr(facts)) return err(facts.error);
+    const geometryContext = extractPatternPositionContext(current, facts.value, analysis);
+    trajectoryContexts.push(geometryContext);
+    const trajectory: PatternTrajectoryContext = { attackerSide: analysis.attackerSide, positions: trajectoryPositions, moves: trajectoryMoves, geometryContexts: trajectoryContexts };
     const key = analysisCacheKey({
       namespace: "PATTERN_ASSESSMENT",
       position: current,
@@ -133,14 +151,17 @@ export const tracePatternLineWithCache = async (
     const cached = await cache.get(key);
     if (isErr(cached)) return err(cached.error);
     let assessment: PatternAssessment;
-    if (cached.value !== undefined && isPatternAssessment(cached.value.value)) {
+    const useCache = patternTrajectoryDescriptorFor(family) === undefined;
+    if (useCache && cached.value !== undefined && isPatternAssessment(cached.value.value)) {
       assessment = { ...cached.value.value, progress: cached.value.value.similarity - previousSimilarity };
       hits += 1;
     } else {
-      assessment = assessPattern(current, facts.value, family, previousSimilarity);
+      assessment = assessPattern(current, facts.value, family, previousSimilarity, analysis, trajectory);
       misses += 1;
-      const stored = await cache.put(makeCacheEntry({ key, schemaVersion: 1, createdAtIso: nowIso, value: assessment }));
-      if (isErr(stored)) return err(stored.error);
+      if (useCache) {
+        const stored = await cache.put(makeCacheEntry({ key, schemaVersion: 1, createdAtIso: nowIso, value: assessment }));
+        if (isErr(stored)) return err(stored.error);
+      }
     }
     previousSimilarity = assessment.similarity;
     fullAssessments.push(assessment);
@@ -150,6 +171,8 @@ export const tracePatternLineWithCache = async (
     const next = chess.applyMove(current, ply.move);
     if (isErr(next)) return err(next.error);
     current = next.value;
+    trajectoryMoves.push(ply.move);
+    trajectoryPositions.push(current);
   }
   return ok({ engineKey, line, prefixAssessments, fullAssessments, terminalPosition: current, cache: { hits, misses } });
 };

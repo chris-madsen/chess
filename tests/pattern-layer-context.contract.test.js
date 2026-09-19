@@ -9,6 +9,7 @@ import {
 import { analysisCacheKey, canonicalizePatternPosition, positionStateKey } from "../src/domain/index.ts";
 import { ALL_MATE_GEOMETRY_DESCRIPTORS } from "../src/domain/patterns/mate-geometry.ts";
 import { PATTERN_FAMILY_IDS } from "../src/domain/patterns/pattern.ts";
+import { PATTERN_TRAJECTORY_DESCRIPTORS, scorePatternTrajectory } from "../src/domain/patterns/trajectory.ts";
 
 const chess = createChessJsRulesAdapter();
 const mustOk = result => {
@@ -80,4 +81,19 @@ test("every catalog family has a family-specific MateGeometry descriptor", () =>
   expect(ALL_MATE_GEOMETRY_DESCRIPTORS).toHaveLength(PATTERN_FAMILY_IDS.length);
   expect(new Set(ALL_MATE_GEOMETRY_DESCRIPTORS.map(descriptor => descriptor.family)).size).toBe(PATTERN_FAMILY_IDS.length);
   expect(ALL_MATE_GEOMETRY_DESCRIPTORS.every(descriptor => descriptor.variants.length > 0 && descriptor.variants.every(variant => variant.roles.length > 0))).toBe(true);
+});
+
+test("trajectory descriptors stay bounded and expose staged sequence identity", () => {
+  expect(PATTERN_TRAJECTORY_DESCRIPTORS).toHaveLength(15);
+  expect(PATTERN_TRAJECTORY_DESCRIPTORS.every(descriptor => descriptor.stages.length > 0)).toBe(true);
+  const context = {
+    attackerSide: "white",
+    positions: [],
+    moves: [],
+    geometryContexts: []
+  };
+  const score = scorePatternTrajectory(context, PATTERN_TRAJECTORY_DESCRIPTORS[0]);
+  expect(score.affinity).toBeGreaterThanOrEqual(0);
+  expect(score.affinity).toBeLessThanOrEqual(1);
+  expect(score.completedStages).toBe(0);
 });
