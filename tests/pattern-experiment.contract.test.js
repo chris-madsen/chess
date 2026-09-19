@@ -22,7 +22,7 @@ test("symbolic PatternAssessment is deterministic and bounded", () => {
   expect(first).toEqual(second);
   expect(first.similarity).toBeGreaterThanOrEqual(0);
   expect(first.similarity).toBeLessThanOrEqual(1);
-  expect(first.modelVersion).toBe("mate-geometry-v1-postmove-attractor");
+  expect(first.modelVersion).toBe("mate-geometry-v2-canonical-role-aware");
   expect(first.evidence.length).toBeGreaterThan(0);
 });
 
@@ -62,6 +62,18 @@ test("canonical pattern state is invariant under color swap with board rotation"
   const firstCanonical = canonicalizePatternPosition(whiteAttacks, mustOk(chess.computeFacts(whiteAttacks)));
   const secondCanonical = canonicalizePatternPosition(blackAttacks, mustOk(chess.computeFacts(blackAttacks)));
   expect(firstCanonical.key).toBe(secondCanonical.key);
+});
+
+test("MateGeometry score is invariant under horizontal king-frame mirror", () => {
+  const first = mustOk(chess.ingestPosition("7k/6R1/5N2/8/8/8/8/K7 w - - 0 1"));
+  const mirrored = mustOk(chess.ingestPosition("k7/1R6/2N5/8/8/8/8/7K w - - 0 1"));
+  const firstFacts = mustOk(chess.computeFacts(first));
+  const mirroredFacts = mustOk(chess.computeFacts(mirrored));
+  for (const family of PATTERN_FAMILY_CATALOG.map(definition => definition.id)) {
+    const left = assessPattern(first, firstFacts, family);
+    const right = assessPattern(mirrored, mirroredFacts, family);
+    expect(Math.abs(left.similarity - right.similarity)).toBeLessThanOrEqual(0.000001);
+  }
 });
 
 test("forced-mate verifier requires an independent proof for a terminal mate", async () => {

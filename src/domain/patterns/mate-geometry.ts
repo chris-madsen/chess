@@ -30,13 +30,11 @@ export type MateGeometryScore = Readonly<{
 }>;
 
 const clamp = (value: number): number => Math.max(0, Math.min(1, value));
-const distance = (first: RelativeSquare, second: RelativeSquare): number => Math.abs(first.file - second.file) + Math.abs(first.rank - second.rank);
-const proximity = (distanceValue: number): number => clamp(1 - distanceValue / 5);
 const squareKey = (square: RelativeSquare): string => `${square.file},${square.rank}`;
 const evidence = (label: string, score: number): PatternEvidence => ({ kind: "KING_CENTRIC", label, score: clamp(score) });
 
 const relativeSquare = (context: PatternPositionContext, square: PatternSquare): RelativeSquare => ({
-  file: square.file - context.targetKing.file,
+  file: (square.file - context.targetKing.file) * (context.targetKing.file > 3 ? -1 : 1),
   rank: context.analysis.defenderSide === "white" ? square.rank - context.targetKing.rank : context.targetKing.rank - square.rank
 });
 
@@ -56,47 +54,73 @@ const regionAffinity = (context: PatternPositionContext, region: KingRegionDescr
   return clamp(1 - Math.abs(context.targetKing.rank - homeRank) / 7);
 };
 
-const roleAffinity = (context: PatternPositionContext, role: MateRole, excludedPieces: ReadonlySet<number> = new Set()): readonly [number, number] => {
-  let best: readonly [number, number] = [0, -1];
-  context.relevantPieces.forEach((piece, index) => {
-    if (excludedPieces.has(index) || piece.side !== context.analysis.attackerSide || !role.allowedPieceTypes.includes(piece.type)) return;
-    const value = Math.max(...role.targetRelativeSquares.map(target => proximity(distance(relativeSquare(context, piece.square), target))));
-    if (value > best[0]) best = [value, index];
-  });
-  return best;
+const pieceReachability = (type: PatternPieceType, from: RelativeSquare, target: RelativeSquare): number => {
+  const file = Math.abs(from.file - target.file);
+  const rank = Math.abs(from.rank - target.rank);
+  const manhattan = file + rank;
+  if (type === "n") return file * rank === 2 ? 1 : clamp(1 / (1 + manhattan));
+  if (type === "b") return file === rank && file > 0 ? 1 / (1 + file) : clamp(0.2 / (1 + manhattan));
+  if (type === "r") return (file === 0 || rank === 0) && manhattan > 0 ? 1 / (1 + manhattan) : clamp(0.2 / (1 + manhattan));
+  if (type === "q") {
+    const line = (file === 0 || rank === 0 || file === rank) && manhattan > 0;
+    return line ? 1 / (1 + Math.max(file, rank)) : clamp(0.2 / (1 + manhattan));
+  }
+  if (type === "p") return rank <= 2 && file <= 1 ? clamp(1 - manhattan / 5) : 0;
+  return clamp(1 - manhattan / 5);
+};
+
+const roleValue = (context: PatternPositionContext, role: MateRole, pieceIndex: number): number => {
+  const piece = context.relevantPieces[pieceIndex];
+  if (piece === undefined || piece.side !== context.analysis.attackerSide || !role.allowedPieceTypes.includes(piece.type)) return 0;
+  const from = relativeSquare(context, piece.square);
+  return Math.max(...role.targetRelativeSquares.map(target => pieceReachability(piece.type, from, target)), 0);
 };
 
 const roleAssignment = (context: PatternPositionContext, roles: readonly MateRole[]): readonly number[] => {
-  const search = (roleIndex: number, used: ReadonlySet<number>, values: readonly number[]): readonly number[] => {
-    if (roleIndex >= roles.length) return values;
-    const [value, pieceIndex] = roleAffinity(context, roles[roleIndex]!, used);
-    return pieceIndex < 0 ? search(roleIndex + 1, used, [...values, value]) : search(roleIndex + 1, new Set([...used, pieceIndex]), [...values, value]);
+  const eligible = context.relevantPieces.map((piece, index) => ({ piece, index })).filter(item => item.piece.side === context.analysis.attackerSide);
+  const search = (roleIndex: number, used: ReadonlySet<number>, values: readonly number[]): Readonly<{ score: number; values: readonly number[] }> => {
+    if (roleIndex >= roles.length) return { score: values.reduce((sum, value) => sum + value, 0), values };
+    const role = roles[roleIndex]!;
+    const skipped = search(roleIndex + 1, used, [...values, 0]);
+    let best = skipped;
+    for (const item of eligible) {
+      if (used.has(item.index) || !role.allowedPieceTypes.includes(item.piece.type)) continue;
+      const next = search(roleIndex + 1, new Set([...used, item.index]), [...values, roleValue(context, role, item.index)]);
+      if (next.score > best.score) best = next;
+    }
+    return best;
   };
-  return search(0, new Set(), []);
+  return search(0, new Set(), []).values;
 };
 
 const coverageAffinity = (context: PatternPositionContext, squares: readonly RelativeSquare[]): number => {
   if (squares.length === 0) return 1;
-  const controlled = new Set(context.escapeSquares
+  const observed = new Set(context.observedSquares.map(square => squareKey(relativeSquare(context, square.square))));
+  const controlled = new Set(context.observedSquares
     .filter(escape => escape.controlledByAttacker || escape.occupiedBy === context.analysis.defenderSide)
     .map(escape => squareKey(relativeSquare(context, escape.square))));
-  return squares.filter(square => controlled.has(squareKey(square))).length / squares.length;
+  const applicable = squares.filter(square => observed.has(squareKey(square)));
+  return applicable.length === 0 ? 1 : applicable.filter(square => controlled.has(squareKey(square))).length / applicable.length;
 };
 
 const blockerAffinity = (context: PatternPositionContext, squares: readonly RelativeSquare[]): number => {
   if (squares.length === 0) return 1;
-  const occupied = new Set(context.escapeSquares
+  const observed = new Set(context.observedSquares.map(square => squareKey(relativeSquare(context, square.square))));
+  const occupied = new Set(context.observedSquares
     .filter(escape => escape.occupiedBy === context.analysis.defenderSide)
     .map(escape => squareKey(relativeSquare(context, escape.square))));
-  return squares.filter(square => occupied.has(squareKey(square))).length / squares.length;
+  const applicable = squares.filter(square => observed.has(squareKey(square)));
+  return applicable.length === 0 ? 1 : applicable.filter(square => occupied.has(squareKey(square))).length / applicable.length;
 };
 
 const contradictionPenalty = (context: PatternPositionContext, squares: readonly RelativeSquare[]): number => {
   if (squares.length === 0) return 0;
-  const occupiedOrControlled = new Set(context.escapeSquares
+  const observed = new Set(context.observedSquares.map(square => squareKey(relativeSquare(context, square.square))));
+  const occupiedOrControlled = new Set(context.observedSquares
     .filter(escape => escape.controlledByAttacker || escape.occupiedBy === context.analysis.attackerSide)
     .map(escape => squareKey(relativeSquare(context, escape.square))));
-  return squares.filter(square => occupiedOrControlled.has(squareKey(square))).length / squares.length;
+  const applicable = squares.filter(square => observed.has(squareKey(square)));
+  return applicable.length === 0 ? 0 : applicable.filter(square => occupiedOrControlled.has(squareKey(square))).length / applicable.length;
 };
 
 export const MATE_GEOMETRY_DESCRIPTORS: readonly MateGeometryDescriptor[] = [

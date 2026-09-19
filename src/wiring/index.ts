@@ -13,6 +13,7 @@ export { parsePatternDataset, ingestPatternDatasetEntry } from "../application/e
 export { pairedDifference95, summarizePatternExperiment } from "../application/experiments/pattern-report";
 export { PATTERN_FAMILY_CATALOG, PATTERN_FAMILY_IDS, STEERABLE_PATTERN_FAMILY_IDS, CATALOG_ONLY_PATTERN_FAMILY_IDS, isPatternFamilyId } from "../domain/patterns/pattern";
 export { makePatternAnalysisContext, extractPatternPositionContext } from "../domain/patterns/context";
+export { patternTriggerThresholdFor, patternTriggerThresholds } from "../domain/patterns/thresholds";
 export { assessPatternContext, patternMatcherFor, retrievePatternFamilies, retrieveSteerablePatternFamilies } from "../domain/patterns/matchers";
 export { recognizePatternCase, summarizePatternRecognition } from "../application/experiments/pattern-recognizer";
 export { evaluatePatternSteeringCandidates, selectPatternSteeringCandidate } from "../application/use-cases/pattern-steering";

@@ -5,6 +5,7 @@ import type { DomainError } from "../../domain/shared/errors";
 import { err, ok, isErr, type Result } from "../../domain/shared/result";
 import type { PatternSteeredTalPathRequest } from "./pattern-steered-tal-path";
 import { generatePatternSteeredTalPath } from "./pattern-steered-tal-path";
+import { patternTriggerThresholdFor } from "../../domain/patterns/thresholds";
 
 export const MAX_PATTERN_TARGETS = 3;
 
@@ -81,7 +82,7 @@ const snapshot = (discovery: ScenarioLine, targets: readonly PatternTargetBranch
 export const generatePatternTargetSession = async (
   request: PatternTargetSessionRequest
 ): Promise<Result<PatternTargetSession, DomainError>> => {
-  const threshold = request.threshold ?? 0.97;
+  const threshold = request.threshold;
   const maxTargets = Math.min(MAX_PATTERN_TARGETS, Math.max(1, request.maxTargets ?? MAX_PATTERN_TARGETS));
   const targets: PatternTargetBranch[] = [];
   let latestDiscovery: ScenarioLine | undefined;
@@ -120,7 +121,7 @@ export const generatePatternTargetSession = async (
     if (discoveryFinished && activeTargets === 0 && pendingTargets.length === 0) resolveAllTargets?.();
   };
   const onTargetAffinity = (event: Parameters<NonNullable<PatternSteeredTalPathRequest["onTargetAffinity"]>>[0]): void => {
-    const registered = registerPatternTarget(targets, event, threshold, Number.MAX_SAFE_INTEGER);
+    const registered = registerPatternTarget(targets, event, threshold ?? patternTriggerThresholdFor(event.targetFamily), Number.MAX_SAFE_INTEGER);
     if (!registered.accepted) return;
     const target = registered.targets.at(-1);
     if (target === undefined) return;

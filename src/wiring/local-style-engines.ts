@@ -198,12 +198,12 @@ const maia3Command = (paths: LocalEnginePaths): Readonly<{ command: string; args
   if (paths.maia3Path !== undefined) {
     return {
       command: paths.maia3Path,
-      args: stripMaiaLaunchRating(paths.maia3Args ?? ["--model", "maia3-79m", "--device", "cpu", "--no-use-amp", "--temperature", "1.0", "--top-p", "1.0", "--use-uci-history"])
+      args: stripMaiaLaunchRating(paths.maia3Args ?? ["--model", "maia3-79m", "--device", "cpu", "--no-use-amp", "--temperature", "0", "--top-p", "1.0", "--use-uci-history"])
     };
   }
   return {
     command: "python",
-    args: stripMaiaLaunchRating(paths.maia3Args ?? ["-m", "maia3.uci", "--model", "maia3-79m", "--device", "cpu", "--no-use-amp", "--temperature", "1.0", "--top-p", "1.0", "--use-uci-history"])
+    args: stripMaiaLaunchRating(paths.maia3Args ?? ["-m", "maia3.uci", "--model", "maia3-79m", "--device", "cpu", "--no-use-amp", "--temperature", "0", "--top-p", "1.0", "--use-uci-history"])
   };
 };
 
@@ -219,9 +219,9 @@ const maia3Config = (paths: LocalEnginePaths, elo = 1900): UciEngineConfig => {
       { name: "Elo", value: elo },
       { name: "SelfElo", value: elo },
       { name: "OppoElo", value: elo },
-      { name: "Temperature", value: 1.0 },
+      { name: "Temperature", value: 0 },
       { name: "TopP", value: 1.0 },
-      { name: "MultiPV", value: 5 }
+      { name: "MultiPV", value: 1 }
     ],
     limit: maiaLimit,
     timeoutMs: maia3TransportTimeoutMs,
@@ -235,9 +235,10 @@ const maia3Config = (paths: LocalEnginePaths, elo = 1900): UciEngineConfig => {
       elo,
       selfElo: elo,
       opponentElo: elo,
-      temperature: 1.0,
+      temperature: 0,
       topP: 1.0,
-      multiPv: 5,
+      multiPv: 1,
+      rankingPolicy: "deterministic-top1",
       useUciHistory: command.args.includes("--use-uci-history") || command.args.includes("--use_uci_history")
     }
   };

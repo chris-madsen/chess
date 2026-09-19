@@ -74,10 +74,12 @@ const maiaResponseFor = async (position: PositionSnapshot, maia: MoveProvider, l
   maia({ position, lineId, ply: 2 })
 );
 
-const isTrustedTalCandidate = (seed: CandidateSeed): boolean => (
-  seed.provenance.source === "LOCAL_STYLE_ENGINE"
-  && ["cstal-absurd", "cstal-extreme"].includes(seed.provenance.provider.name.toLowerCase())
-);
+const provenancesFor = (seed: CandidateSeed): readonly import("../../domain/provenance/provenance").MoveProvenance[] => seed.proposedBy ?? [seed.provenance];
+
+const isTrustedTalCandidate = (seed: CandidateSeed): boolean => provenancesFor(seed).some(provenance => (
+  provenance.source === "LOCAL_STYLE_ENGINE"
+  && ["cstal-absurd", "cstal-extreme"].includes(provenance.provider.name.toLowerCase())
+));
 
 export const selectPatternSteeringCandidate = (
   candidates: readonly PatternSteeringCandidate[]
@@ -162,23 +164,36 @@ export const evaluatePatternSteeringCandidates = async (
   }
   const selected = selectPatternSteeringCandidate(evaluated);
   if (isErr(selected)) return err(selected.error);
+  const evaluatedByMove = new Map(evaluated.map(candidate => [String(candidate.seed.move.uci), candidate]));
   return ok({
     attackerSide: analysis.attackerSide,
     selected: selected.value,
     candidates: evaluated,
     trace: {
       positionHash: String(position.hash),
-      candidates: evaluated.map(candidate => ({
-        uci: String(candidate.seed.move.uci),
-        source: candidate.seed.provenance.source,
-        talAccepted: candidate.tactical.accepted,
-        ...(candidate.tactical.talScore === undefined ? {} : { talScore: candidate.tactical.talScore }),
-        targetFamily: candidate.targetFamily,
-        beforeAffinity: candidate.beforeScore,
-        afterCandidateAffinity: candidate.afterCandidateScore,
-        afterMaiaAffinity: candidate.afterResponseScore,
-        patternDelta: candidate.patternDelta
-      })),
+      candidates: legalSeeds.map(seed => {
+        const candidate = evaluatedByMove.get(String(seed.move.uci));
+        const tacticalAssessment = tacticalByMove.get(String(seed.move.uci))!;
+        return {
+          uci: String(seed.move.uci),
+          source: seed.provenance.source,
+          proposedBy: provenancesFor(seed).map(provenance => provenance.provider.name),
+          talRequired: !isTrustedTalCandidate(seed),
+          talAccepted: tacticalAssessment.accepted,
+          ...(tacticalAssessment.reason === undefined ? {} : { talReason: tacticalAssessment.reason }),
+          ...(tacticalAssessment.talScore === undefined ? {} : { talScore: tacticalAssessment.talScore }),
+          ...(candidate === undefined
+            ? { targetFamily: targetFamily ?? beforeFamilies[0]?.family ?? "ANASTASIA", beforeAffinity: 0, afterCandidateAffinity: 0, afterMaiaAffinity: 0, patternDelta: 0 }
+            : {
+              targetFamily: candidate.targetFamily,
+              beforeAffinity: candidate.beforeScore,
+              afterCandidateAffinity: candidate.afterCandidateScore,
+              afterMaiaAffinity: candidate.afterResponseScore,
+              patternDelta: candidate.patternDelta,
+              ...(candidate.responseMove === undefined ? {} : { maiaReply: String(candidate.responseMove.uci) })
+            })
+        };
+      }),
       selectedUci: String(selected.value.seed.move.uci),
       ...(selected.value.responseMove === undefined ? {} : { maiaReply: String(selected.value.responseMove.uci) })
     }

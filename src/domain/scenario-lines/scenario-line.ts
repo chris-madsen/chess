@@ -12,6 +12,8 @@ export type CandidateSeed = Readonly<{
   tag: "CandidateSeed";
   move: LegalMove;
   provenance: MoveProvenance;
+  /** All providers that proposed this UCI move after candidate-pool dedupe. */
+  proposedBy?: readonly MoveProvenance[];
 }>;
 
 export type ScenarioPly = Readonly<{
@@ -26,13 +28,17 @@ export type ScenarioDecisionTrace = Readonly<{
   candidates: readonly Readonly<{
     uci: string;
     source: string;
+    proposedBy?: readonly string[];
     talAccepted: boolean;
+    talRequired?: boolean;
+    talReason?: string;
     talScore?: Readonly<{ kind: "centipawns" | "mate"; value: number; bound?: "exact" | "lower" | "upper" }>;
     targetFamily: PatternFamilyId;
     beforeAffinity: number;
     afterCandidateAffinity: number;
     afterMaiaAffinity: number;
     patternDelta: number;
+    maiaReply?: string;
   }>[];
   selectedUci: string;
   maiaReply?: string;

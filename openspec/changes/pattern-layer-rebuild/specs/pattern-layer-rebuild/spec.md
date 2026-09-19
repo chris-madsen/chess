@@ -69,6 +69,35 @@ Pattern steering SHALL evaluate exploration candidates (such as Patricia) throug
 
 Production steering SHALL repeat candidate generation, Tal gating, and Pattern family progress on every attacker-side ply. Defender-side plies SHALL be supplied by Maia according to HumanPath semantics. A generic Stockfish continuation SHALL NOT replace the Tal candidate loop.
 
+### Scenario: Maia ranking is repeatable
+
+- GIVEN the same position history, Maia model, Elo, and ranking configuration
+- WHEN the ranking provider is queried repeatedly
+- THEN it SHALL use deterministic top-1 policy settings for candidate ranking
+- AND a stochastic play sample SHALL NOT be used as the sole evidence for attacker candidate selection
+
+## Requirement: Candidate provenance and diagnostics
+
+The canonical candidate pool SHALL merge duplicate UCI moves while retaining every proposing provider provenance. Pattern steering diagnostics SHALL include rejected exploration candidates with their Tal decision, proposing providers, and Maia reply when one was evaluated.
+
+### Scenario: Duplicate proposals retain source identity
+
+- GIVEN Patricia and CSTal propose the same legal UCI move
+- WHEN the candidate pool deduplicates the move
+- THEN the resulting candidate SHALL retain both proposing provenance records
+- AND trusted-CSTal detection SHALL consider every retained proposer
+
+## Requirement: Applicable geometry requirements
+
+MateGeometry coverage and blocker requirements SHALL normalize over applicable on-board squares only. Pattern role assignment SHALL use piece-aware reachability and select the maximum-scoring non-conflicting assignment rather than greedily consuming pieces.
+
+### Scenario: Edge geometry excludes off-board requirements
+
+- GIVEN a target king is on an edge or corner
+- WHEN a descriptor contains relative coverage or blocker requirements
+- THEN off-board relative squares SHALL be excluded from the denominator
+- AND mirrored equivalent positions SHALL receive equivalent geometry scores
+
 ### Scenario: Repeated attacker decisions
 
 - GIVEN a non-terminal position and a bounded horizon

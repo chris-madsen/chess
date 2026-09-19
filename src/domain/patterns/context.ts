@@ -51,6 +51,8 @@ export type PatternPositionContext = Readonly<{
   kingInCorner: boolean;
   kingOnHomeRank: boolean;
   escapeSquares: readonly PatternEscapeSquare[];
+  /** All on-board squares with occupancy and attack-control facts. */
+  observedSquares: readonly PatternEscapeSquare[];
   relevantPieces: readonly PatternRelevantPiece[];
   relations: readonly PatternRelation[];
   canonicalSourceVersion: string;
@@ -164,6 +166,17 @@ export const extractPatternPositionContext = (
       controlledByDefender: controls(board, analysis.defenderSide, square).length > 0
     };
   });
+  const observedSquares = Array.from({ length: 8 }, (_, rank) => Array.from({ length: 8 }, (_, file) => ({ file, rank })))
+    .flat()
+    .map(square => {
+      const occupant = pieceAt(board, square);
+      return {
+        square,
+        ...(occupant === undefined ? {} : { occupiedBy: occupant.side }),
+        controlledByAttacker: controls(board, analysis.attackerSide, square).length > 0,
+        controlledByDefender: controls(board, analysis.defenderSide, square).length > 0
+      };
+    });
   const relevantPieces = relevant(board, analysis, targetKing, escapeSquares);
   const relations: PatternRelation[] = [];
   for (const piece of relevantPieces) {
@@ -188,6 +201,7 @@ export const extractPatternPositionContext = (
     kingInCorner: [0, 7].includes(targetKing.file) && [0, 7].includes(targetKing.rank),
     kingOnHomeRank: targetKing.rank === (analysis.defenderSide === "white" ? 0 : 7),
     escapeSquares,
+    observedSquares,
     relevantPieces,
     relations,
     canonicalSourceVersion: "pattern-context-v1"

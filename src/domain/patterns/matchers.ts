@@ -49,7 +49,7 @@ export const assessPatternContext = (context: PatternPositionContext, family: Pa
     evidence: result.evidence,
     missingConditions: result.missingConditions,
     contradictions: result.contradictions,
-    modelVersion: `${PATTERN_MODEL_VERSION}-mate-geometry-v1`
+    modelVersion: `${PATTERN_MODEL_VERSION}-mate-geometry-v2`
   };
 };
 

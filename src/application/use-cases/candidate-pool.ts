@@ -13,7 +13,8 @@ export type CandidateGeneratorSource = Readonly<{
 
 /**
  * Builds a legal, provenance-preserving candidate pool from existing engines.
- * Providers are queried once per position and duplicate UCI moves are removed.
+ * Providers are queried once per position and duplicate UCI moves are merged
+ * while retaining every provider provenance record.
  */
 export const candidateGeneratorFromProviders = (
   chess: ChessRulesPort,
@@ -32,7 +33,7 @@ export const candidateGeneratorFromProviders = (
     const uci = String(legal.value.uci);
     if (!seen.has(uci)) {
       seen.add(uci);
-      candidates.push({ tag: "CandidateSeed" as const, move: legal.value, provenance: provided.value.provenance });
+      candidates.push({ tag: "CandidateSeed" as const, move: legal.value, provenance: provided.value.provenance, proposedBy: [provided.value.provenance] });
     }
   }
   return ok(candidates);
@@ -43,9 +44,9 @@ export const composeCandidateGenerators = (
   sources: readonly (CandidateGenerator | CandidateGeneratorSource)[]
 ): CandidateGenerator => {
   const composed = async (request: CandidateGeneratorRequest) => {
-    const seen = new Set<string>();
-    const mandatoryCandidates: CandidateSeed[] = [];
-    const explorationCandidates: CandidateSeed[] = [];
+    const byUci = new Map<string, CandidateSeed>();
+    const mandatoryUci = new Set<string>();
+    const order: string[] = [];
     const defaultBudget = Math.max(1, Math.ceil(request.limit / Math.max(1, sources.length)));
     for (const source of sources) {
       const generator = typeof source === "function" ? source : source.generator;
@@ -56,12 +57,22 @@ export const composeCandidateGenerators = (
         const legal = chess.parseLegalMove(request.position, candidate.move.uci);
         if (isErr(legal)) return err(domainError("PROVIDER_ILLEGAL_MOVE", "patternSteering.composedPool", "Composed generator returned an illegal move", { uci: candidate.move.uci, cause: legal.error }));
         const uci = String(legal.value.uci);
-        if (seen.has(uci)) continue;
-        seen.add(uci);
-        (typeof source === "function" || source.mandatory !== true ? explorationCandidates : mandatoryCandidates).push({ tag: "CandidateSeed" as const, move: legal.value, provenance: candidate.provenance });
+        const existing = byUci.get(uci);
+        if (existing !== undefined) {
+          const proposedBy = [...(existing.proposedBy ?? [existing.provenance]), ...(candidate.proposedBy ?? [candidate.provenance])];
+          const unique = proposedBy.filter((provenance, index, all) => all.findIndex(item => item.requestId === provenance.requestId) === index);
+          byUci.set(uci, { ...existing, proposedBy: unique });
+          if (typeof source !== "function" && source.mandatory === true) mandatoryUci.add(uci);
+          continue;
+        }
+        byUci.set(uci, { tag: "CandidateSeed" as const, move: legal.value, provenance: candidate.provenance, proposedBy: candidate.proposedBy ?? [candidate.provenance] });
+        order.push(uci);
+        if (typeof source !== "function" && source.mandatory === true) mandatoryUci.add(uci);
       }
     }
-    return ok([...mandatoryCandidates, ...explorationCandidates].slice(0, request.limit));
+    const mandatory = order.filter(uci => mandatoryUci.has(uci)).map(uci => byUci.get(uci)!).filter(Boolean);
+    const exploration = order.filter(uci => !mandatoryUci.has(uci)).map(uci => byUci.get(uci)!).filter(Boolean);
+    return ok([...mandatory, ...exploration].slice(0, request.limit));
   };
   return Object.assign(composed, { dispose: () => sources.forEach(source => (typeof source === "function" ? source.dispose?.() : source.generator.dispose?.())) });
 };

@@ -167,7 +167,7 @@ export type PatternFeatures = Readonly<{
   isCheckmate: boolean;
 }>;
 
-export const PATTERN_MODEL_VERSION = "mate-geometry-v1-postmove-attractor";
+export const PATTERN_MODEL_VERSION = "mate-geometry-v2-canonical-role-aware";
 export const PATTERN_MATCH_THRESHOLD = 0.65;
 
 const opposite = (side: Side): Side => side === "white" ? "black" : "white";
