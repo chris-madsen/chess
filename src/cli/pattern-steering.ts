@@ -8,7 +8,7 @@ import { isErr } from "../domain/shared/result";
 import { makeScenarioHorizon } from "../domain/chess/value-objects";
 import { createInMemoryAnalysisCache } from "../adapters/cache/in-memory-analysis-cache";
 import { createPatriciaCandidateGenerator, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, fetchRemotePatternSteeringBatch, generatePatternTargetSession, loadLocalEnginePaths, makeRemoteStylePathConfig } from "../wiring/index";
-import { renderPatternDiscoveryStart, renderPatternProgressStatus, renderPatternReference, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "./pattern-steering-render";
+import { renderPatternDiscoveryStart, renderPatternLiveLineStatus, renderPatternProgressStatus, renderPatternReference, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "./pattern-steering-render";
 import { defaultPatternHorizonMoves } from "./pattern-steering-options";
 
 const valueAfter = (args: readonly string[], flag: string): string | undefined => {
@@ -119,7 +119,7 @@ const main = async (): Promise<void> => {
           : renderPatternTargetSession(progress.caseId, progress.session);
         if (renderedLines.get(progress.caseId) !== rendered) {
           renderedLines.set(progress.caseId, rendered);
-          renderLive([...renderedLines.values()].join(""));
+          liveRenderer.status(renderPatternLiveLineStatus(progress.caseId, rendered));
         }
       }
       });

@@ -1,5 +1,5 @@
 import { createChessJsRulesAdapter } from "../src/adapters/chessjs/chess-rules-adapter.ts";
-import { renderPatternDiscoveryStart, renderPatternProgressStatus, renderPatternReference, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "../src/cli/pattern-steering-render.ts";
+import { renderPatternDiscoveryStart, renderPatternLiveLineStatus, renderPatternProgressStatus, renderPatternReference, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "../src/cli/pattern-steering-render.ts";
 
 const chess = createChessJsRulesAdapter();
 
@@ -8,6 +8,13 @@ test("remote progress status is a single ANSI-free line before completion", () =
   expect(rendered).toBe("pattern: raw-game Windows Tal+Maia | 0/1 completed | 12s");
   expect(rendered).not.toContain(String.fromCharCode(27));
   expect(rendered).not.toContain("\n");
+});
+
+test("partial remote line is rendered as one compact ANSI-free status", () => {
+  const rendered = renderPatternLiveLineStatus("raw-game", "## raw-game status Running\n1. c4 Nf6\n\n");
+  expect(rendered).toBe("pattern: raw-game ## raw-game status Running | 1. c4 Nf6");
+  expect(rendered).not.toContain("\n");
+  expect(rendered).not.toContain(String.fromCharCode(27));
 });
 
 test("pattern steering renderer shows the live SAN line from the FEN start", () => {
