@@ -32,8 +32,11 @@ export const renderPatternLiveFrame = (text: string, previousLineCount: number):
 );
 
 export const renderPatternLiveLineStatus = (caseId: string, renderedLine: string): string => {
-  const compact = renderedLine.split("\n").map(line => line.trim()).filter(Boolean).join(" | ");
-  return `pattern: ${caseId} ${compact}`;
+  const lines = renderedLine.split("\n").map(line => line.trim()).filter(Boolean);
+  const header = lines.find(line => line.startsWith("## "))?.replace(/^##\s*/u, "") ?? "Pattern steering";
+  const tail = lines.at(-1);
+  const suffix = tail === undefined || tail === header ? "" : ` | latest: ${tail.length > 72 ? `${tail.slice(0, 69)}...` : tail}`;
+  return `pattern: ${caseId} ${header}${suffix}`;
 };
 
 const rawSanTokens = (rawGame: string): readonly string[] => rawGame

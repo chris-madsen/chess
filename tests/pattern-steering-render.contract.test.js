@@ -17,9 +17,15 @@ test("live frame replaces the previous multiline frame instead of appending it",
 
 test("partial remote line is rendered as one compact ANSI-free status", () => {
   const rendered = renderPatternLiveLineStatus("raw-game", "## raw-game status Running\n1. c4 Nf6\n\n");
-  expect(rendered).toBe("pattern: raw-game ## raw-game status Running | 1. c4 Nf6");
+  expect(rendered).toBe("pattern: raw-game raw-game status Running | latest: 1. c4 Nf6");
   expect(rendered).not.toContain("\n");
   expect(rendered).not.toContain(String.fromCharCode(27));
+});
+
+test("partial remote status never flattens the complete game into one line", () => {
+  const rendered = renderPatternLiveLineStatus("raw-game", "## raw-game Pattern discovery status Incomplete\n1. c4 Nf6 2. Nc3 g6 3. e4 Bg7\n8. d3 Nc6 9. h3 Qc8\n");
+  expect(rendered).toBe("pattern: raw-game raw-game Pattern discovery status Incomplete | latest: 8. d3 Nc6 9. h3 Qc8");
+  expect(rendered.length).toBeLessThan(120);
 });
 
 test("pattern steering renderer shows the live SAN line from the FEN start", () => {
