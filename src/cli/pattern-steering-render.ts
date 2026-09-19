@@ -39,6 +39,10 @@ export const renderPatternLiveLineStatus = (caseId: string, renderedLine: string
   return `pattern: ${caseId} ${header}${suffix}`;
 };
 
+export const renderPatternRemoteFrame = (renderedLines: readonly string[], progress: string): string => (
+  `${renderedLines.join("")}${progress}\n`
+);
+
 const rawSanTokens = (rawGame: string): readonly string[] => rawGame
   .replace(/\{[^}]*\}/g, " ")
   .replace(/;[^\n\r]*/g, " ")

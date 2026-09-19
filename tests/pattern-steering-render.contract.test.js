@@ -1,5 +1,5 @@
 import { createChessJsRulesAdapter } from "../src/adapters/chessjs/chess-rules-adapter.ts";
-import { renderPatternDiscoveryStart, renderPatternLiveFrame, renderPatternLiveLineStatus, renderPatternProgressStatus, renderPatternReference, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "../src/cli/pattern-steering-render.ts";
+import { renderPatternDiscoveryStart, renderPatternLiveFrame, renderPatternLiveLineStatus, renderPatternProgressStatus, renderPatternReference, renderPatternRemoteFrame, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "../src/cli/pattern-steering-render.ts";
 
 const chess = createChessJsRulesAdapter();
 
@@ -26,6 +26,14 @@ test("partial remote status never flattens the complete game into one line", () 
   const rendered = renderPatternLiveLineStatus("raw-game", "## raw-game Pattern discovery status Incomplete\n1. c4 Nf6 2. Nc3 g6 3. e4 Bg7\n8. d3 Nc6 9. h3 Qc8\n");
   expect(rendered).toBe("pattern: raw-game raw-game Pattern discovery status Incomplete | latest: 8. d3 Nc6 9. h3 Qc8");
   expect(rendered.length).toBeLessThan(120);
+});
+
+test("remote live frame keeps the full SAN line above progress", () => {
+  const line = "## raw-game Pattern discovery status Incomplete\n1. c4 Nf6 2. Nc3 g6\n\n";
+  const frame = renderPatternRemoteFrame([line], "pattern: raw-game Windows Tal+Maia | 0/1 completed | 2s");
+  expect(frame).toContain(line);
+  expect(frame).toContain("pattern: raw-game Windows Tal+Maia | 0/1 completed | 2s");
+  expect(frame).not.toContain("latest:");
 });
 
 test("pattern steering renderer shows the live SAN line from the FEN start", () => {

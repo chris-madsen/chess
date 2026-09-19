@@ -8,7 +8,7 @@ import { isErr } from "../domain/shared/result";
 import { makeScenarioHorizon } from "../domain/chess/value-objects";
 import { createInMemoryAnalysisCache } from "../adapters/cache/in-memory-analysis-cache";
 import { createForcedMateVerifier, createPatriciaCandidateGenerator, createUciForcedMateProofProvider, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, fetchRemotePatternSteeringBatch, generatePatternTargetSession, loadLocalEnginePaths, makeRemoteStylePathConfig } from "../wiring/index";
-import { renderPatternDiscoveryStart, renderPatternLiveFrame, renderPatternLiveLineStatus, renderPatternProgressStatus, renderPatternReference, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "./pattern-steering-render";
+import { renderPatternDiscoveryStart, renderPatternLiveFrame, renderPatternProgressStatus, renderPatternReference, renderPatternRemoteFrame, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "./pattern-steering-render";
 import { defaultPatternHorizonMoves } from "./pattern-steering-options";
 
 const valueAfter = (args: readonly string[], flag: string): string | undefined => {
@@ -106,8 +106,10 @@ const main = async (): Promise<void> => {
     const renderLive = (text: string, final = false): void => liveRenderer.render(text, final);
     const startedAt = Date.now();
     let completed = 0;
-    let latestLineStatus: string | undefined;
-    const renderProgress = (): void => liveRenderer.status(latestLineStatus ?? renderPatternProgressStatus(selected[0]?.caseId ?? "pattern", completed, selected.length, Math.floor((Date.now() - startedAt) / 1000)));
+    const renderProgress = (): void => renderLive(renderPatternRemoteFrame(
+      [...renderedLines.values()],
+      renderPatternProgressStatus(selected[0]?.caseId ?? "pattern", completed, selected.length, Math.floor((Date.now() - startedAt) / 1000))
+    ));
     selected.forEach(item => renderedLines.set(item.caseId, renderPatternDiscoveryStart(item.caseId, item.position)));
     renderLive([...renderedLines.values()].join(""));
     renderProgress();
@@ -116,16 +118,15 @@ const main = async (): Promise<void> => {
     try {
       remote = await fetchRemotePatternSteeringBatch(chess, selected.map(item => ({ caseId: item.caseId, position: item.position, ...( "rawGame" in item && item.rawGame !== undefined ? { rawGame: item.rawGame } : {}) })), selected[0]?.horizon ?? cases!.value[0]!.horizon, config.value, concurrency, progress => {
         completed = progress.completed;
-        latestLineStatus = undefined;
       if (progress.caseId !== undefined && progress.line !== undefined) {
         const rendered = progress.session === undefined
           ? renderPatternSteeringLine(progress.caseId, progress.line)
           : renderPatternTargetSession(progress.caseId, progress.session);
         if (renderedLines.get(progress.caseId) !== rendered) {
           renderedLines.set(progress.caseId, rendered);
-          latestLineStatus = renderPatternLiveLineStatus(progress.caseId, rendered);
         }
       }
+      renderProgress();
       });
     } finally {
       clearInterval(progressTimer);
