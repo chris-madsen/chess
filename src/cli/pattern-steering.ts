@@ -43,7 +43,9 @@ const selectSubset = <T extends { caseId: string }>(items: readonly T[], raw: st
 
 const terminalColumns = (): number => {
   const columns = process.stdout.columns;
-  return Number.isInteger(columns) && columns > 0 ? columns : 80;
+  if (Number.isInteger(columns) && columns > 0) return columns;
+  const fromEnv = Number(process.env.COLUMNS);
+  return Number.isInteger(fromEnv) && fromEnv > 0 ? fromEnv : 80;
 };
 
 const renderedLineCount = (text: string): number => {
@@ -59,7 +61,11 @@ const renderUpdateFrame = (text: string, previousLineCount: number): string => (
 const createLiveRenderer = (): { render: (text: string, final?: boolean) => void } => {
   let rendered = false;
   let previousLineCount = 0;
-  const ansi = process.stdout.isTTY === true && process.env.NO_COLOR === undefined;
+  const ansi = process.env.STYLE_PATTERN_ANSI === "1"
+    || (process.env.STYLE_PATTERN_ANSI !== "0"
+      && process.platform === "win32"
+      && process.stdout.isTTY === true
+      && process.env.NO_COLOR === undefined);
   return {
     render: (text, final = false) => {
       if (!ansi) {
