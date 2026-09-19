@@ -11,10 +11,32 @@ import { patternTargetTriggerFor } from "../../domain/patterns/thresholds";
 
 export const MAX_PATTERN_TARGETS = 3;
 
+const lineSignatureFor = (target: Readonly<{ prefixPlies: readonly ScenarioPly[]; line?: ScenarioLine }>): string | undefined => {
+  if (target.line === undefined) return undefined;
+  return [...target.prefixPlies, ...target.line.plies].map(ply => String(ply.move.uci)).join(" ");
+};
+
+export const deduplicatePatternTargets = <T extends Readonly<{ targetFamily: string }>>(targets: readonly T[]): readonly T[] => {
+  const groups = new Map<string, T[]>();
+  const passthrough: T[] = [];
+  for (const target of targets) {
+    const candidate = target as T & { fullLineSignature?: string; line?: Readonly<{ plies: readonly Readonly<{ move?: Readonly<{ uci: string }> }>[] }>; triggerAffinity?: number; alsoMatches?: readonly string[] };
+    const signature = candidate.fullLineSignature ?? (candidate.line === undefined ? undefined : candidate.line.plies.map(ply => ply.move?.uci ?? "").join(" "));
+    if (signature === undefined || signature.length === 0) passthrough.push(target);
+    else groups.set(signature, [...(groups.get(signature) ?? []), target]);
+  }
+  const merged = [...groups.entries()].map(([signature, group]) => {
+    const representative = [...group].sort((first, second) => ((second as typeof first & { triggerAffinity?: number }).triggerAffinity ?? 0) - ((first as typeof second & { triggerAffinity?: number }).triggerAffinity ?? 0) || first.targetFamily.localeCompare(second.targetFamily))[0]!;
+    const alsoMatches = [...new Set(group.flatMap(item => [item.targetFamily, ...(((item as typeof item & { alsoMatches?: readonly string[] }).alsoMatches) ?? [])]).filter(family => family !== representative.targetFamily))].sort();
+    return { ...representative, fullLineSignature: signature, ...(alsoMatches.length === 0 ? {} : { alsoMatches }) };
+  });
+  return [...passthrough, ...merged] as readonly T[];
+};
+
 export const rankPatternTargets = <T extends Readonly<{ targetFamily: string; humanPathMate?: boolean; line?: Readonly<{ status: string; plies: readonly unknown[] }> }>>(
   targets: readonly T[],
   limit = MAX_PATTERN_TARGETS
-): readonly T[] => [...targets]
+): readonly T[] => [...deduplicatePatternTargets(targets)]
   .sort((first, second) => {
     const firstMate = first.humanPathMate === true;
     const secondMate = second.humanPathMate === true;
@@ -37,6 +59,9 @@ export type PatternTargetBranch = Readonly<{
   line?: ScenarioLine;
   forcedMate?: ForcedMateVerification;
   humanPathMate?: boolean;
+  fullLineSignature?: string;
+  fullRootToTerminalPlies?: number;
+  alsoMatches?: readonly PatternFamilyId[];
 }>;
 
 export type PatternTargetSession = Readonly<{
@@ -142,10 +167,12 @@ export const generatePatternTargetSession = async (
             const humanPathMate = terminalPositionResult !== undefined && !isErr(terminalPositionResult)
               ? request.discovery.chess.computeFacts(terminalPositionResult.value)
               : undefined;
+            const fullLineSignature = lineSignatureFor({ prefixPlies: target.prefixPlies, line: result.value });
             targets[index] = {
               ...target,
               line: result.value,
               ...(forcedMate === undefined ? {} : { forcedMate }),
+              ...(fullLineSignature === undefined ? {} : { fullLineSignature, fullRootToTerminalPlies: target.prefixPlies.length + result.value.plies.length }),
               ...(humanPathMate !== undefined && !isErr(humanPathMate) ? { humanPathMate: humanPathMate.value.isCheckmate } : {})
             };
           }

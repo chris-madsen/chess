@@ -14,6 +14,9 @@ export type CandidateSeed = Readonly<{
   provenance: MoveProvenance;
   /** All providers that proposed this UCI move after candidate-pool dedupe. */
   proposedBy?: readonly MoveProvenance[];
+  engineScore?: Readonly<{ kind: "centipawns" | "mate"; value: number; bound?: "exact" | "lower" | "upper" }>;
+  enginePv?: readonly string[];
+  engineRank?: number;
 }>;
 
 export type ScenarioPly = Readonly<{

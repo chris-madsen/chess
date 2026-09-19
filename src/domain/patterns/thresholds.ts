@@ -4,8 +4,8 @@ import { PATTERN_CALIBRATION } from "./pattern-calibration.generated";
 const fallbackThreshold = 0.97;
 const calibrationFor = (family: PatternFamilyId) => PATTERN_CALIBRATION[family];
 
-export const patternTargetTriggerFor = (family: PatternFamilyId): number => calibrationFor(family)?.targetTrigger ?? fallbackThreshold;
-export const patternPresenceThresholdFor = (family: PatternFamilyId): number => calibrationFor(family)?.presenceThreshold ?? fallbackThreshold;
+export const patternTargetTriggerFor = (family: PatternFamilyId): number => calibrationFor(family)?.status === "CALIBRATED" ? calibrationFor(family)?.targetTrigger ?? fallbackThreshold : fallbackThreshold;
+export const patternPresenceThresholdFor = (family: PatternFamilyId): number => calibrationFor(family)?.status === "CALIBRATED" ? calibrationFor(family)?.presenceThreshold ?? fallbackThreshold : fallbackThreshold;
 
 export const calibratedAttractorScore = (rawAffinity: number, family: PatternFamilyId): number => {
   const points = calibrationFor(family)?.points;

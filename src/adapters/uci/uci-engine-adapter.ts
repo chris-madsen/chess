@@ -261,15 +261,17 @@ export const createUciMoveProvider = (
   config: UciEngineConfig
 ): MoveProvider => {
   let sessionPromise: Promise<UciSession> | null = null;
-  let queue: Promise<Result<string, DomainError>> = Promise.resolve(ok(""));
+  let queue: Promise<Result<Readonly<{ move: string; score?: EngineScore; pv?: readonly string[] }>, DomainError>> = Promise.resolve(ok({ move: "" }));
 
   const getSession = async (): Promise<UciSession> => {
     sessionPromise ??= initializeSession(config);
     return sessionPromise;
   };
 
-  const requestBestMove = async (request: ProviderRequest, limit: ProviderSearchLimit): Promise<Result<string, DomainError>> => {
+  const requestBestMove = async (request: ProviderRequest, limit: ProviderSearchLimit): Promise<Result<Readonly<{ move: string; score?: EngineScore; pv?: readonly string[] }>, DomainError>> => {
     let lastLegalPvMove: string | undefined;
+    let score: EngineScore | undefined;
+    let pv: readonly string[] = [];
     try {
       const session = await getSession();
       const timeoutMs = timeoutMsFor(config, limit);
@@ -281,6 +283,10 @@ export const createUciMoveProvider = (
         line => line.startsWith("bestmove "),
         timeoutMs,
         line => {
+          const nextScore = parseUciScore(line);
+          if (nextScore !== undefined) score = nextScore;
+          const nextPv = pvMoves(line);
+          if (nextPv.length > 0) pv = nextPv;
           const candidate = firstPvMove(line);
           if (candidate === undefined) {
             return;
@@ -291,7 +297,8 @@ export const createUciMoveProvider = (
           }
         }
       );
-      return extractBestMove(bestMoveLine, config);
+      const bestMove = extractBestMove(bestMoveLine, config);
+      return isErr(bestMove) ? bestMove : ok({ move: bestMove.value, ...(score === undefined ? {} : { score }), ...(pv.length === 0 ? {} : { pv }) });
     } catch (error) {
       const failedSession = sessionPromise;
       sessionPromise = null;
@@ -302,16 +309,16 @@ export const createUciMoveProvider = (
       }
       const message = error instanceof Error ? error.message : String(error);
       if (config.allowInfoPvBestMoveFallback === true && message.includes("timeout") && lastLegalPvMove !== undefined) {
-        return ok(lastLegalPvMove);
+        return ok({ move: lastLegalPvMove });
       }
-      return providerFailure(config, error);
+      return providerFailure(config, error) as Result<Readonly<{ move: string; score?: EngineScore; pv?: readonly string[] }>, DomainError>;
     }
   };
 
   const dispose = (): void => {
     const currentSession = sessionPromise;
     sessionPromise = null;
-    queue = Promise.resolve(ok(""));
+    queue = Promise.resolve(ok({ move: "" }));
     if (currentSession !== null) {
       void currentSession.then(session => session.stop(), () => undefined);
     }
@@ -324,16 +331,18 @@ export const createUciMoveProvider = (
     if (isErr(bestMoveResult)) {
       return bestMoveResult;
     }
-    const legalMove = chess.parseLegalMove(request.position, bestMoveResult.value);
+    const legalMove = chess.parseLegalMove(request.position, bestMoveResult.value.move);
     if (isErr(legalMove)) {
       return err(domainError("PROVIDER_ILLEGAL_MOVE", `providers.${config.key}.bestmove`, "UCI engine returned an illegal move", {
         engine: config.key,
-        move: bestMoveResult.value,
+        move: bestMoveResult.value.move,
         fen: request.position.fen
       }));
     }
     return ok({
       move: legalMove.value,
+      ...(bestMoveResult.value.score === undefined ? {} : { engineScore: bestMoveResult.value.score }),
+      ...(bestMoveResult.value.pv === undefined ? {} : { enginePv: bestMoveResult.value.pv }),
       provenance: {
         source: config.source,
         provider: config.identity,

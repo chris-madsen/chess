@@ -170,3 +170,17 @@ test("all negative attractor deltas still return the best Tal-safe candidate", (
   ]));
   expect(selected.seed.move.uci).toBe("e2e4");
 });
+
+test("trusted CSTal mate metadata outranks ordinary Pattern affinity and shorter mate wins", () => {
+  const talSeed = (uci, name, mate) => ({
+    ...seedFor(uci, `${name}-${mate}`),
+    engineScore: { kind: "mate", value: mate, bound: "exact" },
+    provenance: { ...seedFor(uci, `${name}-${mate}`).provenance, source: "LOCAL_STYLE_ENGINE", provider: { name, displayName: name } }
+  });
+  const candidate = (uci, name, mate, score) => ({ ...steeringCandidate(uci, score, 0.1), seed: talSeed(uci, name, mate), mateClass: true, mateDistance: mate, calibratedAfterResponseScore: score, calibratedProgress: 0.1 });
+  const selected = mustOk(selectPatternSteeringCandidate([
+    candidate("e2e4", "cstal-absurd", 5, 0.7),
+    candidate("d2d4", "cstal-extreme", 3, 0.6)
+  ]));
+  expect(selected.seed.move.uci).toBe("d2d4");
+});

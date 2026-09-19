@@ -172,7 +172,8 @@ export const renderPatternTargetSession = (caseId: string, session: PatternTarge
       continue;
     }
     const combined = combinedTargetLine(session, target, line);
-    output.push(`## ${caseId} Target ${targetDisplayName(target.targetFamily)} (${target.targetFamily}) status ${line.status}`, formatSanMovetext(combined), "");
+    const aliases = target.alsoMatches === undefined || target.alsoMatches.length === 0 ? "" : ` also matches ${target.alsoMatches.join(", ")}`;
+    output.push(`## ${caseId} Target ${targetDisplayName(target.targetFamily)} (${target.targetFamily})${aliases} status ${line.status}`, formatSanMovetext(combined), "");
   }
   return `${output.join("\n")}\n`;
 };
@@ -186,6 +187,8 @@ export const renderPatternTargetReferences = (caseId: string, session: PatternTa
   }
   for (const target of targets) {
     output.push(`Target ${targetDisplayName(target.targetFamily)} (${target.targetFamily}), trigger affinity ${(target.triggerAffinity * 100).toFixed(1)}%`);
+    if (target.alsoMatches !== undefined && target.alsoMatches.length > 0) output.push(`Also matches: ${target.alsoMatches.join(", ")}`);
+    if (target.fullRootToTerminalPlies !== undefined) output.push(`Length: ${target.fullRootToTerminalPlies} plies`);
     if (target.line === undefined) {
       output.push("status: Incomplete", "reference unavailable because the target branch did not finish", "");
       continue;

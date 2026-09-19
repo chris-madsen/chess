@@ -7,6 +7,8 @@ import type { Result } from "../../domain/shared/result";
 export type ProvidedMove = Readonly<{
   move: LegalMove;
   provenance: MoveProvenance;
+  engineScore?: Readonly<{ kind: "centipawns" | "mate"; value: number; bound?: "exact" | "lower" | "upper" }>;
+  enginePv?: readonly string[];
 }>;
 
 export type ProviderSearchLimit =

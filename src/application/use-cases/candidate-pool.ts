@@ -33,7 +33,7 @@ export const candidateGeneratorFromProviders = (
     const uci = String(legal.value.uci);
     if (!seen.has(uci)) {
       seen.add(uci);
-      candidates.push({ tag: "CandidateSeed" as const, move: legal.value, provenance: provided.value.provenance, proposedBy: [provided.value.provenance] });
+      candidates.push({ tag: "CandidateSeed" as const, move: legal.value, provenance: provided.value.provenance, proposedBy: [provided.value.provenance], ...(provided.value.engineScore === undefined ? {} : { engineScore: provided.value.engineScore }), ...(provided.value.enginePv === undefined ? {} : { enginePv: provided.value.enginePv }) });
     }
   }
   return ok(candidates);
@@ -61,11 +61,11 @@ export const composeCandidateGenerators = (
         if (existing !== undefined) {
           const proposedBy = [...(existing.proposedBy ?? [existing.provenance]), ...(candidate.proposedBy ?? [candidate.provenance])];
           const unique = proposedBy.filter((provenance, index, all) => all.findIndex(item => item.requestId === provenance.requestId) === index);
-          byUci.set(uci, { ...existing, proposedBy: unique });
+        byUci.set(uci, { ...existing, proposedBy: unique, ...(candidate.engineScore === undefined ? {} : { engineScore: candidate.engineScore }), ...(candidate.enginePv === undefined ? {} : { enginePv: candidate.enginePv }) });
           if (typeof source !== "function" && source.mandatory === true) mandatoryUci.add(uci);
           continue;
         }
-        byUci.set(uci, { tag: "CandidateSeed" as const, move: legal.value, provenance: candidate.provenance, proposedBy: candidate.proposedBy ?? [candidate.provenance] });
+        byUci.set(uci, { tag: "CandidateSeed" as const, move: legal.value, provenance: candidate.provenance, proposedBy: candidate.proposedBy ?? [candidate.provenance], ...(candidate.engineScore === undefined ? {} : { engineScore: candidate.engineScore }), ...(candidate.enginePv === undefined ? {} : { enginePv: candidate.enginePv }), ...(candidate.engineRank === undefined ? {} : { engineRank: candidate.engineRank }) });
         order.push(uci);
         if (typeof source !== "function" && source.mandatory === true) mandatoryUci.add(uci);
       }

@@ -1,6 +1,6 @@
 import { createChessJsRulesAdapter } from "../src/adapters/chessjs/chess-rules-adapter.ts";
 import { evaluatePatternSteeringCandidates } from "../src/application/use-cases/pattern-steering.ts";
-import { rankPatternTargets, registerPatternTarget } from "../src/application/use-cases/pattern-target-branching.ts";
+import { deduplicatePatternTargets, rankPatternTargets, registerPatternTarget } from "../src/application/use-cases/pattern-target-branching.ts";
 import { makeRequestId, maiaProvider } from "../src/domain/index.ts";
 
 const chess = createChessJsRulesAdapter();
@@ -74,4 +74,16 @@ test("final target ranking prefers real HumanPath checkmate over generic termina
     { targetFamily: "BACK_RANK", line: { status: "Incomplete", plies: Array(1).fill({}) } }
   ];
   expect(rankPatternTargets(targets).map(target => target.targetFamily)).toEqual(["ARABIAN", "ANASTASIA", "BACK_RANK"]);
+});
+
+test("identical full lines collapse into one target with aliases", () => {
+  const line = { status: "Terminal", plies: [{ move: { uci: "e2e4" } }, { move: { uci: "e7e5" } }] };
+  const unique = deduplicatePatternTargets([
+    { targetFamily: "CORNER", triggerAffinity: 0.97, prefixPlies: [], line },
+    { targetFamily: "KILL_BOX", triggerAffinity: 0.98, prefixPlies: [], line },
+    { targetFamily: "TRIANGLE", triggerAffinity: 0.97, prefixPlies: [], line }
+  ]);
+  expect(unique).toHaveLength(1);
+  expect(unique[0].targetFamily).toBe("KILL_BOX");
+  expect(unique[0].alsoMatches).toEqual(["CORNER", "TRIANGLE"]);
 });

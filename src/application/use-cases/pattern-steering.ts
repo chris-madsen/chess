@@ -36,6 +36,7 @@ export type PatternSteeringCandidate = Readonly<{
   terminalAfterCandidate?: boolean;
   immediateMate?: boolean;
   mateClass?: boolean;
+  mateDistance?: number;
 }>;
 
 export type PatternSteeringDecisionTrace = ScenarioDecisionTrace;
@@ -52,15 +53,24 @@ export type PatternSelectionContext = Readonly<{
   repeatedPosition?: boolean;
   previousTalOrigin?: string;
   previousTargetFamily?: PatternFamilyId;
+  recentPositionHashes?: readonly string[];
 }>;
 
 const scoreFor = (assessments: readonly PatternAssessment[], family: PatternFamilyId): number => assessments.find(assessment => assessment.family === family)?.similarity ?? 0;
 const familyProgress = (before: readonly PatternAssessment[], after: readonly PatternAssessment[], postResponse: readonly PatternAssessment[], requestedFamily?: PatternFamilyId, previousTargetFamily?: PatternFamilyId): Readonly<{ targetFamily: PatternFamilyId; beforeScore: number; afterCandidateScore: number; afterResponseScore: number; delta: number; calibratedBefore: number; calibratedAfter: number }> => {
   if (requestedFamily !== undefined) {
-    const beforeScore = scoreFor(before, requestedFamily);
-    const afterCandidateScore = scoreFor(after, requestedFamily);
-    const afterResponseScore = scoreFor(postResponse, requestedFamily);
-    return { targetFamily: requestedFamily, beforeScore, afterCandidateScore, afterResponseScore, delta: afterResponseScore - beforeScore, calibratedBefore: calibratedAttractorScore(beforeScore, requestedFamily), calibratedAfter: calibratedAttractorScore(afterResponseScore, requestedFamily) };
+    const metric = (family: PatternFamilyId) => {
+      const beforeScore = scoreFor(before, family);
+      const afterCandidateScore = scoreFor(after, family);
+      const afterResponseScore = scoreFor(postResponse, family);
+      return { targetFamily: family, beforeScore, afterCandidateScore, afterResponseScore, delta: afterResponseScore - beforeScore, calibratedBefore: calibratedAttractorScore(beforeScore, family), calibratedAfter: calibratedAttractorScore(afterResponseScore, family) };
+    };
+    const preferred = metric(requestedFamily);
+    const alternative = [...new Set(postResponse.map(item => item.family))]
+      .map(family => metric(family))
+      .sort((first, second) => second.calibratedAfter - first.calibratedAfter || first.targetFamily.localeCompare(second.targetFamily))[0];
+    const chosen = alternative !== undefined && alternative.targetFamily !== requestedFamily && alternative.calibratedAfter >= preferred.calibratedAfter + 0.12 ? alternative : preferred;
+    return chosen;
   }
   const families = [...new Set([...before, ...after, ...postResponse].map(assessment => assessment.family))];
   const ranked = families.map(family => ({ family, beforeScore: scoreFor(before, family), afterCandidateScore: scoreFor(after, family), afterResponseScore: scoreFor(postResponse, family) }))
@@ -104,6 +114,11 @@ const talOriginFor = (seed: CandidateSeed): string | undefined => {
   return names.length === 0 ? undefined : [...new Set(names)].sort().join(",");
 };
 
+const mateScoreFor = (seed: CandidateSeed, tactical: TacticalCandidateAssessment): Readonly<{ isMate: boolean; distance?: number }> => {
+  const score = tactical.talScore ?? seed.engineScore;
+  return score?.kind === "mate" && score.value > 0 ? { isMate: true, distance: score.value } : { isMate: false };
+};
+
 export const selectPatternSteeringCandidate = (
   candidates: readonly PatternSteeringCandidate[],
   context: PatternSelectionContext = {}
@@ -111,6 +126,7 @@ export const selectPatternSteeringCandidate = (
   const order = (first: PatternSteeringCandidate, second: PatternSteeringCandidate): number => (
     Number(second.immediateMate === true) - Number(first.immediateMate === true)
     || Number(second.mateClass === true) - Number(first.mateClass === true)
+    || ((first.mateClass === true && second.mateClass === true) ? (first.mateDistance ?? Number.POSITIVE_INFINITY) - (second.mateDistance ?? Number.POSITIVE_INFINITY) : 0)
     || (second.calibratedAfterResponseScore ?? second.afterResponseScore) - (first.calibratedAfterResponseScore ?? first.afterResponseScore)
     || (second.calibratedProgress ?? second.patternDelta) - (first.calibratedProgress ?? first.patternDelta)
     || String(first.seed.move.uci).localeCompare(String(second.seed.move.uci))
@@ -118,8 +134,11 @@ export const selectPatternSteeringCandidate = (
   const immediate = candidates.filter(candidate => candidate.immediateMate === true);
   const mateClass = candidates.filter(candidate => candidate.mateClass === true);
   const pool = immediate.length > 0 ? immediate : mateClass.length > 0 ? mateClass : candidates;
-  const trusted = pool.filter(candidate => isTrustedTalCandidate(candidate.seed));
-  const external = pool.filter(candidate => !isTrustedTalCandidate(candidate.seed));
+  const recentPositionHashes = context.recentPositionHashes;
+  const nonRepeating = recentPositionHashes === undefined ? pool : pool.filter(candidate => candidate.postResponsePosition === undefined || !recentPositionHashes.includes(String(candidate.postResponsePosition.hash)));
+  const effectivePool = nonRepeating.length > 0 ? nonRepeating : pool;
+  const trusted = effectivePool.filter(candidate => isTrustedTalCandidate(candidate.seed));
+  const external = effectivePool.filter(candidate => !isTrustedTalCandidate(candidate.seed));
   const bestTal = [...trusted].sort(order)[0];
   const bestExternal = [...external].sort(order)[0];
   const stallFallback = (context.stallCount ?? 0) >= 2 || context.repeatedPosition === true;
@@ -130,7 +149,7 @@ export const selectPatternSteeringCandidate = (
       : bestTal;
   const fallback = stallFallback && bestTal !== undefined && immediate.length === 0 && mateClass.length === 0
     ? bestTal
-    : selected ?? [...pool].sort(order)[0];
+    : selected ?? [...effectivePool].sort(order)[0];
   return fallback === undefined ? err(domainError("PROVIDER_UNAVAILABLE", "patternSteering.candidates", "No legal candidate survived Pattern steering evaluation")) : ok(fallback);
 };
 
@@ -178,6 +197,7 @@ export const evaluatePatternSteeringCandidates = async (
   for (const seed of legalSeeds) {
     const tacticalAssessment = tacticalByMove.get(String(seed.move.uci));
     if (tacticalAssessment === undefined) return err(domainError("PROVIDER_MALFORMED_OUTPUT", "patternSteering.tacticalGate", "Tal gate did not assess every legal candidate", { move: String(seed.move.uci) }));
+    const mateScore = mateScoreFor(seed, tacticalAssessment);
     if (!tacticalAssessment.accepted) continue;
     const after = chess.applyMove(position, seed.move);
     if (isErr(after)) return err(after.error);
@@ -187,12 +207,12 @@ export const evaluatePatternSteeringCandidates = async (
     const afterFamilies = await familiesFor(after.value, afterContext, cache);
     if (afterFacts.value.isTerminal) {
       const progress = familyProgress(beforeFamilies, afterFamilies, afterFamilies, targetFamily, selectionContext.previousTargetFamily);
-      evaluated.push({ seed, tactical: tacticalAssessment, afterPosition: after.value, beforeFamilies, afterFamilies, postResponseFamilies: afterFamilies, targetFamily: progress.targetFamily, beforeScore: progress.beforeScore, afterCandidateScore: progress.afterCandidateScore, afterResponseScore: progress.afterResponseScore, patternDelta: progress.delta, calibratedBeforeScore: progress.calibratedBefore, calibratedAfterResponseScore: progress.calibratedAfter, calibratedProgress: progress.calibratedAfter - progress.calibratedBefore, progress: progress.delta, terminalAfterCandidate: true, immediateMate: afterFacts.value.isCheckmate, mateClass: tacticalAssessment.talScore?.kind === "mate" && tacticalAssessment.talScore.value > 0 });
+      evaluated.push({ seed, tactical: tacticalAssessment, afterPosition: after.value, beforeFamilies, afterFamilies, postResponseFamilies: afterFamilies, targetFamily: progress.targetFamily, beforeScore: progress.beforeScore, afterCandidateScore: progress.afterCandidateScore, afterResponseScore: progress.afterResponseScore, patternDelta: progress.delta, calibratedBeforeScore: progress.calibratedBefore, calibratedAfterResponseScore: progress.calibratedAfter, calibratedProgress: progress.calibratedAfter - progress.calibratedBefore, progress: progress.delta, terminalAfterCandidate: true, immediateMate: afterFacts.value.isCheckmate, mateClass: mateScore.isMate, ...(mateScore.distance === undefined ? {} : { mateDistance: mateScore.distance }) });
       continue;
     }
     if (!includeMaiaResponse) {
       const progress = familyProgress(beforeFamilies, afterFamilies, afterFamilies, targetFamily, selectionContext.previousTargetFamily);
-      evaluated.push({ seed, tactical: tacticalAssessment, afterPosition: after.value, beforeFamilies, afterFamilies, postResponseFamilies: afterFamilies, targetFamily: progress.targetFamily, beforeScore: progress.beforeScore, afterCandidateScore: progress.afterCandidateScore, afterResponseScore: progress.afterResponseScore, patternDelta: progress.delta, calibratedBeforeScore: progress.calibratedBefore, calibratedAfterResponseScore: progress.calibratedAfter, calibratedProgress: progress.calibratedAfter - progress.calibratedBefore, progress: progress.delta, mateClass: tacticalAssessment.talScore?.kind === "mate" && tacticalAssessment.talScore.value > 0 });
+      evaluated.push({ seed, tactical: tacticalAssessment, afterPosition: after.value, beforeFamilies, afterFamilies, postResponseFamilies: afterFamilies, targetFamily: progress.targetFamily, beforeScore: progress.beforeScore, afterCandidateScore: progress.afterCandidateScore, afterResponseScore: progress.afterResponseScore, patternDelta: progress.delta, calibratedBeforeScore: progress.calibratedBefore, calibratedAfterResponseScore: progress.calibratedAfter, calibratedProgress: progress.calibratedAfter - progress.calibratedBefore, progress: progress.delta, mateClass: mateScore.isMate, ...(mateScore.distance === undefined ? {} : { mateDistance: mateScore.distance }) });
       continue;
     }
     const response = await maiaResponseFor(after.value, maia, lineId);
@@ -207,7 +227,7 @@ export const evaluatePatternSteeringCandidates = async (
     const postResponseContext = extractPatternPositionContext(postResponse.value, responseFacts.value, analysis);
     const postResponseFamilies = await familiesFor(postResponse.value, postResponseContext, cache);
     const progress = familyProgress(beforeFamilies, afterFamilies, postResponseFamilies, targetFamily, selectionContext.previousTargetFamily);
-    evaluated.push({ seed, tactical: tacticalAssessment, afterPosition: after.value, responseMove: responseMove.value, responseProvenance: response.value.provenance, postResponsePosition: postResponse.value, beforeFamilies, afterFamilies, postResponseFamilies, targetFamily: progress.targetFamily, beforeScore: progress.beforeScore, afterCandidateScore: progress.afterCandidateScore, afterResponseScore: progress.afterResponseScore, patternDelta: progress.delta, calibratedBeforeScore: progress.calibratedBefore, calibratedAfterResponseScore: progress.calibratedAfter, calibratedProgress: progress.calibratedAfter - progress.calibratedBefore, progress: progress.delta, mateClass: tacticalAssessment.talScore?.kind === "mate" && tacticalAssessment.talScore.value > 0 });
+    evaluated.push({ seed, tactical: tacticalAssessment, afterPosition: after.value, responseMove: responseMove.value, responseProvenance: response.value.provenance, postResponsePosition: postResponse.value, beforeFamilies, afterFamilies, postResponseFamilies, targetFamily: progress.targetFamily, beforeScore: progress.beforeScore, afterCandidateScore: progress.afterCandidateScore, afterResponseScore: progress.afterResponseScore, patternDelta: progress.delta, calibratedBeforeScore: progress.calibratedBefore, calibratedAfterResponseScore: progress.calibratedAfter, calibratedProgress: progress.calibratedAfter - progress.calibratedBefore, progress: progress.delta, mateClass: mateScore.isMate, ...(mateScore.distance === undefined ? {} : { mateDistance: mateScore.distance }) });
   }
   const selected = selectPatternSteeringCandidate(evaluated, selectionContext);
   if (isErr(selected)) return err(selected.error);
@@ -232,7 +252,7 @@ export const evaluatePatternSteeringCandidates = async (
           ...(trustedTalOrigin === undefined ? {} : { trustedTalOrigin }),
           candidateClass,
           ...(tacticalAssessment.reason === undefined ? {} : { talReason: tacticalAssessment.reason }),
-          ...(tacticalAssessment.talScore === undefined ? {} : { talScore: tacticalAssessment.talScore }),
+          ...(tacticalAssessment.talScore === undefined && seed.engineScore === undefined ? {} : { talScore: tacticalAssessment.talScore ?? seed.engineScore }),
           ...(candidate === undefined
             ? { targetFamily: targetFamily ?? beforeFamilies[0]?.family ?? "ANASTASIA", beforeAffinity: 0, afterCandidateAffinity: 0, afterMaiaAffinity: 0, patternDelta: 0, calibratedBefore: 0, calibratedAfterMaia: 0, calibratedProgress: 0, selected: false }
             : {

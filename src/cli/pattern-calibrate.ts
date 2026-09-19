@@ -7,8 +7,8 @@ import { retrievePatternFamilies } from "../domain/patterns/matchers";
 import { PATTERN_FAMILY_IDS, type PatternFamilyId } from "../domain/patterns/pattern";
 import { isErr } from "../domain/shared/result";
 
-type Scores = { positive: number[]; hardNegative: number[]; control: number[] };
-type FamilyCalibration = { status: "CALIBRATED" | "UNAVAILABLE"; reason?: string; positiveCount: number; hardNegativeCount: number; controlCount: number; presenceThreshold?: number; targetTrigger?: number; points?: readonly (readonly [number, number])[] };
+type Scores = { positive: number[]; positiveNear: number[]; hardNegative: number[]; control: number[] };
+type FamilyCalibration = { status: "CALIBRATED" | "WEAK_SEPARATION" | "UNAVAILABLE"; reason?: string; positiveCount: number; hardNegativeCount: number; controlCount: number; presenceThreshold?: number; targetTrigger?: number; points?: readonly (readonly [number, number])[] };
 const round = (value: number): number => Number(Math.max(0, Math.min(1, value)).toFixed(4));
 const quantile = (values: readonly number[], fraction: number): number => {
   if (values.length === 0) return 0;
@@ -18,9 +18,10 @@ const quantile = (values: readonly number[], fraction: number): number => {
 const rate = (n: number, d: number): number => d === 0 ? 0 : n / d;
 
 const analysisFor = (chess: ReturnType<typeof createChessJsRulesAdapter>, entry: PatternDatasetEntry): PatternAnalysisContext => {
-  const start = chess.ingestPosition(entry.trajectory?.[0]?.fen ?? entry.fen);
+  const startPly = entry.trajectoryStartPly ?? (entry.trajectory?.some(state => state.ply === 1) === true ? 1 : 0);
+  const start = chess.ingestPosition(entry.trajectory?.find(state => state.ply === startPly)?.fen ?? entry.fen);
   if (isErr(start)) throw new Error(`Invalid calibration start for ${entry.caseId}: ${start.error.message}`);
-  return makePatternAnalysisContext(start.value.sideToMove);
+  return makePatternAnalysisContext(entry.attackerSide ?? start.value.sideToMove);
 };
 const scoreAt = (chess: ReturnType<typeof createChessJsRulesAdapter>, fen: string, family: PatternFamilyId, analysis: PatternAnalysisContext): number => {
   const position = chess.ingestPosition(fen);
@@ -30,9 +31,11 @@ const scoreAt = (chess: ReturnType<typeof createChessJsRulesAdapter>, fen: strin
   const context = extractPatternPositionContext(position.value, facts.value, analysis);
   return retrievePatternFamilies(context, 34).find(item => item.family === family)?.similarity ?? 0;
 };
-const caseScore = (chess: ReturnType<typeof createChessJsRulesAdapter>, entry: PatternDatasetEntry): number => {
+const caseScores = (chess: ReturnType<typeof createChessJsRulesAdapter>, entry: PatternDatasetEntry): readonly number[] => {
   const analysis = analysisFor(chess, entry);
-  return Math.max(...(entry.trajectory?.map(state => state.fen) ?? [entry.fen]).map(fen => scoreAt(chess, fen, entry.family, analysis)));
+  const startPly = entry.trajectoryStartPly ?? (entry.trajectory?.some(state => state.ply === 1) === true ? 1 : 0);
+  const states = entry.trajectory?.filter(state => state.ply >= startPly) ?? [];
+  return states.length === 0 ? [scoreAt(chess, entry.fen, entry.family, analysis)] : states.map(state => scoreAt(chess, state.fen, entry.family, analysis));
 };
 const candidatesFor = (scores: Scores): readonly number[] => [...new Set([0, 1, ...scores.positive, ...scores.hardNegative, ...scores.control])].sort((a, b) => a - b);
 const metrics = (scores: Scores, threshold: number): Readonly<{ precision: number; recall: number; f1: number }> => {
@@ -52,16 +55,24 @@ const presenceFor = (scores: Scores): number => {
 const targetFor = (scores: Scores): number => {
   if (scores.positive.length === 0) return 0;
   const negativeCeiling = Math.max(quantile(scores.hardNegative, 0.95), quantile(scores.control, 0.95));
-  return round(Math.max(quantile(scores.positive, 0.75), negativeCeiling + (negativeCeiling < 1 ? 0.001 : 0)));
+  const basinPositive = scores.positiveNear.length === 0 ? scores.positive : scores.positiveNear;
+  return round(Math.max(quantile(basinPositive, 0.75), negativeCeiling + (negativeCeiling < 1 ? 0.001 : 0)));
 };
 const pointsFor = (scores: Scores): readonly (readonly [number, number])[] => {
   if (scores.positive.length === 0) return [];
   const all = [...new Set([0, 1, ...scores.positive, ...scores.hardNegative, ...scores.control])].sort((a, b) => a - b);
-  return all.map(raw => [round(raw), round(0.2 + 0.8 * rate(scores.positive.filter(value => value <= raw).length, scores.positive.length))] as const);
+  let best = 0.2;
+  return all.map(raw => {
+    const positive = scores.positive.filter(value => value >= raw).length;
+    const negative = [...scores.hardNegative, ...scores.control].filter(value => value >= raw).length;
+    const precision = positive + negative === 0 ? 0 : positive / (positive + negative);
+    best = Math.max(best, 0.2 + 0.8 * precision);
+    return [round(raw), round(best)] as const;
+  });
 };
 const generatedSource = (families: Readonly<Record<string, FamilyCalibration>>): string => {
   const body = JSON.stringify(families, null, 2);
-  return `/* Generated by npm run pattern:calibrate. */\nimport type { PatternFamilyId } from "./pattern";\nexport type PatternCalibration = Readonly<{ status: "CALIBRATED" | "UNAVAILABLE"; reason?: string; positiveCount: number; hardNegativeCount: number; controlCount: number; presenceThreshold?: number; targetTrigger?: number; points?: readonly (readonly [number, number])[] }>;\nexport const PATTERN_CALIBRATION: Readonly<Partial<Record<PatternFamilyId, PatternCalibration>>> = ${body};\n`;
+  return `/* Generated by npm run pattern:calibrate. */\nimport type { PatternFamilyId } from "./pattern";\nexport type PatternCalibration = Readonly<{ status: "CALIBRATED" | "WEAK_SEPARATION" | "UNAVAILABLE"; reason?: string; positiveCount: number; hardNegativeCount: number; controlCount: number; presenceThreshold?: number; targetTrigger?: number; points?: readonly (readonly [number, number])[] }>;\nexport const PATTERN_CALIBRATION: Readonly<Partial<Record<PatternFamilyId, PatternCalibration>>> = ${body};\n`;
 };
 
 const main = (): void => {
@@ -69,7 +80,7 @@ const main = (): void => {
   const outputPath = process.argv[3] ?? "src/domain/patterns/pattern-calibration.json";
   const generatedPath = "src/domain/patterns/pattern-calibration.generated.ts";
   const chess = createChessJsRulesAdapter();
-  const scores = new Map<PatternFamilyId, Scores>(PATTERN_FAMILY_IDS.map(family => [family, { positive: [], hardNegative: [], control: [] }]));
+  const scores = new Map<PatternFamilyId, Scores>(PATTERN_FAMILY_IDS.map(family => [family, { positive: [], positiveNear: [], hardNegative: [], control: [] }]));
   let datasetVersion = "unknown";
   let calibrationCases = 0;
   for (const [index, line] of readFileSync(datasetPath, "utf8").split(/\r?\n/u).map(value => value.trim()).filter(Boolean).entries()) {
@@ -80,14 +91,17 @@ const main = (): void => {
     datasetVersion = entry.datasetVersion;
     calibrationCases += 1;
     const bucket = scores.get(entry.family)!;
-    bucket[entry.exampleKind === "positive" ? "positive" : entry.exampleKind === "hard_negative" ? "hardNegative" : "control"].push(caseScore(chess, entry));
+    const caseScoresValue = caseScores(chess, entry);
+    const maximum = Math.max(...caseScoresValue);
+    bucket[entry.exampleKind === "positive" ? "positive" : entry.exampleKind === "hard_negative" ? "hardNegative" : "control"].push(maximum);
+    if (entry.exampleKind === "positive" && (entry.trajectory?.some(state => state.ply >= (entry.trajectoryStartPly ?? 1) && state.distanceToTerminal <= 4) ?? false)) bucket.positiveNear.push(maximum);
   }
   const families: Record<string, FamilyCalibration> = {};
   for (const family of PATTERN_FAMILY_IDS) {
     const bucket = scores.get(family)!;
     families[family] = bucket.positive.length === 0
       ? { status: "UNAVAILABLE", reason: "no verified calibration fixtures", positiveCount: 0, hardNegativeCount: bucket.hardNegative.length, controlCount: bucket.control.length }
-      : { status: "CALIBRATED", positiveCount: bucket.positive.length, hardNegativeCount: bucket.hardNegative.length, controlCount: bucket.control.length, presenceThreshold: presenceFor(bucket), targetTrigger: targetFor(bucket), points: pointsFor(bucket) };
+      : (() => { const presenceThreshold = presenceFor(bucket); return { status: presenceThreshold === 0 ? "WEAK_SEPARATION" as const : "CALIBRATED" as const, ...(presenceThreshold === 0 ? { reason: "no high-precision operating point" } : {}), positiveCount: bucket.positive.length, hardNegativeCount: bucket.hardNegative.length, controlCount: bucket.control.length, presenceThreshold, targetTrigger: Math.max(presenceThreshold, targetFor(bucket)), points: pointsFor(bucket) }; })();
   }
   const artifact = { modelVersion: "mate-geometry-v2-calibration-v2", datasetVersion, split: "calibration", calibrationCases, method: "stable attacker side; positive/hard-negative/control operating points; monotonic empirical map", families };
   writeFileSync(outputPath, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");

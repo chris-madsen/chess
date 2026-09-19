@@ -76,6 +76,7 @@ export const generatePatternSteeredTalPath = async (
       const decision = await evaluatePatternSteeringCandidates(request.chess, current, request.generator, request.tacticalGate, request.maia, request.lineId, request.candidateLimit ?? 8, hasResponsePly, request.cache, request.targetFamily, {
         stallCount: attackerStallCount,
         repeatedPosition: (positionVisits.get(String(current.hash)) ?? 0) > 1,
+        recentPositionHashes: [...positionVisits.keys()],
         ...(previousTargetFamily === undefined ? {} : { previousTargetFamily })
       });
       if (isErr(decision)) return ok(terminalLine(request, plies, "Incomplete", decision.error));

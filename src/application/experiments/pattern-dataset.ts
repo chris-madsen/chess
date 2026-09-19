@@ -19,6 +19,9 @@ export type PatternDatasetEntry = Readonly<{
   expected?: PatternGroundTruth;
   sourceCaseId?: string;
   perturbation?: Readonly<{ type: string; square: string; piece: string }>;
+  /** Explicit attacker identity; inferred from trajectory ply 1 for legacy Lichess rows. */
+  attackerSide?: "white" | "black";
+  trajectoryStartPly?: number;
 }>;
 
 export type PatternTrajectoryState = Readonly<{
@@ -44,6 +47,7 @@ export const ingestPatternDatasetEntry = (raw: unknown, path = "dataset.entry"):
   if (raw.split !== "calibration" && raw.split !== "evaluation") return err(domainError("INVALID_RAW_GAME", `${path}.split`, "split must be calibration or evaluation"));
   if (raw.exampleKind !== "positive" && raw.exampleKind !== "hard_negative" && raw.exampleKind !== "control") return err(domainError("INVALID_RAW_GAME", `${path}.exampleKind`, "exampleKind must be positive, hard_negative, or control"));
   if (typeof raw.fen !== "string" || raw.fen.length === 0) return err(domainError("INVALID_FEN", `${path}.fen`, "fen is required"));
+  if (raw.attackerSide !== undefined && raw.attackerSide !== "white" && raw.attackerSide !== "black") return err(domainError("INVALID_RAW_GAME", `${path}.attackerSide`, "attackerSide must be white or black"));
   if (typeof raw.family !== "string" || !isPatternFamilyId(raw.family)) return err(domainError("INVALID_RAW_GAME", `${path}.family`, "unsupported PatternFamily"));
   if (typeof raw.sourcePositionHash !== "string" || raw.sourcePositionHash.length === 0) return err(domainError("INVALID_RAW_GAME", `${path}.sourcePositionHash`, "sourcePositionHash is required"));
   if (!isRecord(source) || typeof source.kind !== "string" || typeof source.reference !== "string") return err(domainError("INVALID_RAW_GAME", `${path}.source`, "source.kind and source.reference are required"));
@@ -58,6 +62,12 @@ export const ingestPatternDatasetEntry = (raw: unknown, path = "dataset.entry"):
   if (terminalFamily !== undefined && (typeof terminalFamily !== "string" || !isPatternFamilyId(terminalFamily))) return err(domainError("INVALID_RAW_GAME", `${path}.expected.terminalFamily`, "unsupported terminal family"));
   const perturbation = raw.perturbation;
   if (perturbation !== undefined && (!isRecord(perturbation) || typeof perturbation.type !== "string" || typeof perturbation.square !== "string" || typeof perturbation.piece !== "string")) return err(domainError("INVALID_RAW_GAME", `${path}.perturbation`, "perturbation must contain type, square, and piece"));
+  const trajectory = Array.isArray(raw.trajectory) ? raw.trajectory.map(state => {
+    const record = state as Record<string, unknown>;
+    return { ply: record.ply as number, fen: record.fen as string, distanceToTerminal: record.distanceToTerminal as number };
+  }) : undefined;
+  const trajectoryStartPly = typeof raw.trajectoryStartPly === "number" ? raw.trajectoryStartPly : trajectory?.some(state => state.ply === 1) === true ? 1 : 0;
+  const inferredSide = typeof raw.attackerSide === "string" ? raw.attackerSide : undefined;
   return ok({
     caseId: raw.caseId,
     datasetVersion: raw.datasetVersion,
@@ -72,12 +82,7 @@ export const ingestPatternDatasetEntry = (raw: unknown, path = "dataset.entry"):
       ...(typeof source.license === "string" ? { license: source.license } : {})
     },
     ...(normalizedSolutionMoves === undefined ? {} : { solutionMoves: normalizedSolutionMoves as string[] }),
-    ...(Array.isArray(raw.trajectory) ? {
-      trajectory: raw.trajectory.map(state => {
-        const record = state as Record<string, unknown>;
-        return { ply: record.ply as number, fen: record.fen as string, distanceToTerminal: record.distanceToTerminal as number };
-      })
-    } : {}),
+    ...(trajectory === undefined ? {} : { trajectory }),
     ...(expectedRecord ? {
       expected: {
         ...(typeof expectedRecord.terminalMate === "boolean" ? { terminalMate: expectedRecord.terminalMate } : {}),
@@ -86,7 +91,9 @@ export const ingestPatternDatasetEntry = (raw: unknown, path = "dataset.entry"):
       }
     } : {}),
     ...(typeof raw.sourceCaseId === "string" ? { sourceCaseId: raw.sourceCaseId } : {}),
-    ...(isRecord(perturbation) ? { perturbation: { type: perturbation.type as string, square: perturbation.square as string, piece: perturbation.piece as string } } : {})
+    ...(isRecord(perturbation) ? { perturbation: { type: perturbation.type as string, square: perturbation.square as string, piece: perturbation.piece as string } } : {}),
+    ...(inferredSide === undefined ? {} : { attackerSide: inferredSide as "white" | "black" }),
+    trajectoryStartPly
   });
 };
 

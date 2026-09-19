@@ -37,7 +37,7 @@ type RemotePly = Readonly<{
 type RemoteLine = Readonly<{ engineKey: string; label: string; status: string; start?: unknown; targetFamily?: unknown; styleDepth?: number; plies: readonly RemotePly[]; decisionTraces?: NonNullable<ScenarioLine["decisionTraces"]>; error?: DomainError }>;
 type RemoteJobSnapshot = Readonly<{ jobId: string; status: string; lines: readonly RemoteLine[] }>;
 type RemoteSteeringLine = Readonly<{ status: string; start?: unknown; horizon?: unknown; targetFamily?: unknown; plies: readonly RemotePly[]; decisionTraces?: NonNullable<ScenarioLine["decisionTraces"]>; error?: DomainError }>;
-type RemoteSteeringTarget = Readonly<{ targetFamily: string; triggerPly: number; triggerAffinity: number; position?: unknown; prefixPlies: readonly RemotePly[]; line?: RemoteSteeringLine; forcedMate?: ForcedMateVerification }>;
+type RemoteSteeringTarget = Readonly<{ targetFamily: string; triggerPly: number; triggerAffinity: number; position?: unknown; prefixPlies: readonly RemotePly[]; line?: RemoteSteeringLine; forcedMate?: ForcedMateVerification; humanPathMate?: boolean; fullLineSignature?: string; fullRootToTerminalPlies?: number; alsoMatches?: readonly string[] }>;
 type RemoteSteeringSession = Readonly<{ discovery: RemoteSteeringLine; targets: readonly RemoteSteeringTarget[] }>;
 type RemoteBatchResult = Readonly<{ caseId: string; status: string; snapshot?: RemoteJobSnapshot; steeringLine?: RemoteSteeringLine; steeringSession?: RemoteSteeringSession; error?: DomainError }>;
 type RemoteBatchSnapshot = Readonly<{ batchId: string; status: string; completed?: number; results: readonly RemoteBatchResult[] }>;
@@ -164,7 +164,7 @@ const makeRemoteLine = (chess: ChessRulesPort, start: PositionSnapshot, horizon:
   return ok({ engineKey: remote.engineKey, line, ...(remote.styleDepth === undefined ? {} : { styleDepth: remote.styleDepth }) });
 };
 
-const makeRemoteSteeringSession = (chess: ChessRulesPort, start: PositionSnapshot, horizon: ScenarioHorizon, remote: RemoteSteeringSession, config: RemoteStylePathConfig): Result<Readonly<{ discovery: ScenarioLine; targets: readonly Readonly<{ targetFamily: PatternFamilyId; triggerPly: number; triggerAffinity: number; position: PositionSnapshot; prefixPlies: readonly import("../../domain/scenario-lines/scenario-line").ScenarioPly[]; line?: ScenarioLine; forcedMate?: ForcedMateVerification }>[] }>, DomainError> => {
+const makeRemoteSteeringSession = (chess: ChessRulesPort, start: PositionSnapshot, horizon: ScenarioHorizon, remote: RemoteSteeringSession, config: RemoteStylePathConfig): Result<Readonly<{ discovery: ScenarioLine; targets: readonly Readonly<{ targetFamily: PatternFamilyId; triggerPly: number; triggerAffinity: number; position: PositionSnapshot; prefixPlies: readonly import("../../domain/scenario-lines/scenario-line").ScenarioPly[]; line?: ScenarioLine; forcedMate?: ForcedMateVerification; humanPathMate?: boolean; fullLineSignature?: string; fullRootToTerminalPlies?: number; alsoMatches?: readonly PatternFamilyId[] }>[] }>, DomainError> => {
   const discovery = makeRemoteLine(chess, start, horizon, { engineKey: "pattern-discovery", label: "PatternSteeredTalPath", status: remote.discovery.status, plies: remote.discovery.plies, ...(remote.discovery.decisionTraces === undefined ? {} : { decisionTraces: remote.discovery.decisionTraces }), ...(remote.discovery.error === undefined ? {} : { error: remote.discovery.error }) }, config, "HumanPath");
   if (isErr(discovery)) return err(discovery.error);
   const targets = [];
@@ -180,7 +180,9 @@ const makeRemoteSteeringSession = (chess: ChessRulesPort, start: PositionSnapsho
       if (isErr(parsed)) return err(parsed.error);
       line = parsed.value.line;
     }
-    targets.push({ targetFamily: target.targetFamily, triggerPly: target.triggerPly, triggerAffinity: target.triggerAffinity, position: branchStart.value, prefixPlies: prefix.value, ...(line === undefined ? {} : { line }), ...(target.forcedMate === undefined ? {} : { forcedMate: target.forcedMate }) });
+    const alsoMatches = target.alsoMatches?.filter(isPatternFamilyId);
+    const fullLineSignature = target.fullLineSignature ?? (line === undefined ? undefined : [...prefix.value, ...line.plies].map(ply => String(ply.move.uci)).join(" "));
+    targets.push({ targetFamily: target.targetFamily, triggerPly: target.triggerPly, triggerAffinity: target.triggerAffinity, position: branchStart.value, prefixPlies: prefix.value, ...(line === undefined ? {} : { line }), ...(target.forcedMate === undefined ? {} : { forcedMate: target.forcedMate }), ...(target.humanPathMate === undefined ? {} : { humanPathMate: target.humanPathMate }), ...(fullLineSignature === undefined ? {} : { fullLineSignature }), ...(target.fullRootToTerminalPlies === undefined && line === undefined ? {} : { fullRootToTerminalPlies: target.fullRootToTerminalPlies ?? prefix.value.length + (line?.plies.length ?? 0) }), ...(alsoMatches === undefined ? {} : { alsoMatches }) });
   }
   return ok({ discovery: discovery.value.line, targets: rankPatternTargets(targets) });
 };
