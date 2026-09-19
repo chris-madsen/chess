@@ -1,6 +1,6 @@
 import { createChessJsRulesAdapter } from "../src/adapters/chessjs/chess-rules-adapter.ts";
 import { evaluatePatternSteeringCandidates } from "../src/application/use-cases/pattern-steering.ts";
-import { registerPatternTarget } from "../src/application/use-cases/pattern-target-branching.ts";
+import { rankPatternTargets, registerPatternTarget } from "../src/application/use-cases/pattern-target-branching.ts";
 import { makeRequestId, maiaProvider } from "../src/domain/index.ts";
 
 const chess = createChessJsRulesAdapter();
@@ -54,4 +54,15 @@ test("target registration only accepts threshold hits, deduplicates, and caps at
   }
   expect(targets.map(target => target.targetFamily)).toEqual(["BALESTRA", "EPAULETTE", "MORPHYS"]);
   expect(registerPatternTarget(targets, event("MORPHYS")).accepted).toBe(false);
+});
+
+test("final target ranking keeps the three shortest terminal continuations", () => {
+  const targets = [
+    { targetFamily: "ANASTASIA", line: { status: "Terminal", plies: Array(18).fill({}) } },
+    { targetFamily: "ARABIAN", line: { status: "Terminal", plies: Array(12).fill({}) } },
+    { targetFamily: "BACK_RANK", line: { status: "Terminal", plies: Array(15).fill({}) } },
+    { targetFamily: "BODEN", line: { status: "Terminal", plies: Array(6).fill({}) } },
+    { targetFamily: "SMOTHERED", line: { status: "Incomplete", plies: Array(2).fill({}) } }
+  ];
+  expect(rankPatternTargets(targets).map(target => target.targetFamily)).toEqual(["BODEN", "ARABIAN", "BACK_RANK"]);
 });

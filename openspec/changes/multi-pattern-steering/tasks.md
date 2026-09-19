@@ -3,3 +3,11 @@
 - [x] Carry the target through the remote batch request and Windows worker.
 - [x] Add contract tests for fixed target selection, line isolation, and threshold rendering.
 - [x] Run lint, typecheck, and contract tests.
+- [x] Discover every unique threshold-hit family and evaluate branches with a maximum of three concurrent workers.
+- [x] Rank completed target branches by total root-to-terminal length and retain the three shortest.
+- [x] Keep per-target failures as incomplete diagnostics without failing unrelated target branches.
+- [x] Replace the first five generic family scorers with continuous king-relative MateGeometry descriptors.
+- [x] Convert all 19 steerable and 15 catalog-only families to distinct MateGeometry descriptors.
+- [x] Remove production core-policy/fallback matcher dispatch; missing descriptors fail fast.
+- [x] Use distinct-piece role assignment and king-relative coverage for every family.
+- [x] Validate descriptor coverage for all 34 catalog families in contract tests.

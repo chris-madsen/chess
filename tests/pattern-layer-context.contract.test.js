@@ -7,6 +7,8 @@ import {
   createChessJsRulesAdapter
 } from "../src/wiring/index.ts";
 import { analysisCacheKey, canonicalizePatternPosition, positionStateKey } from "../src/domain/index.ts";
+import { ALL_MATE_GEOMETRY_DESCRIPTORS } from "../src/domain/patterns/mate-geometry.ts";
+import { PATTERN_FAMILY_IDS } from "../src/domain/patterns/pattern.ts";
 
 const chess = createChessJsRulesAdapter();
 const mustOk = result => {
@@ -72,4 +74,10 @@ test("runtime retrieval ranks families without a supplied target family", () => 
   expect(candidates).toHaveLength(5);
   expect(candidates.every(candidate => candidate.family.length > 0)).toBe(true);
   expect(candidates.every(candidate => candidate.similarity >= 0 && candidate.similarity <= 1)).toBe(true);
+});
+
+test("every catalog family has a family-specific MateGeometry descriptor", () => {
+  expect(ALL_MATE_GEOMETRY_DESCRIPTORS).toHaveLength(PATTERN_FAMILY_IDS.length);
+  expect(new Set(ALL_MATE_GEOMETRY_DESCRIPTORS.map(descriptor => descriptor.family)).size).toBe(PATTERN_FAMILY_IDS.length);
+  expect(ALL_MATE_GEOMETRY_DESCRIPTORS.every(descriptor => descriptor.variants.length > 0 && descriptor.variants.every(variant => variant.roles.length > 0))).toBe(true);
 });

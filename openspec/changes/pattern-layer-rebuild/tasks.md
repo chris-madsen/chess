@@ -19,6 +19,6 @@
 - [x] Add iterative PatternSteeredTalPath with Tal attacker plies and Maia defender plies.
 - [x] Separate legacy post-hoc CLI/scorer from production steering CLI.
 - [x] Add opt-in remote steering batch mode without changing live StylePath semantics.
-- [x] Replace production hard-zero prefilters with continuous steerable-family affinity and post-Maia-first selection.
+- [x] Replace production hard-zero retrieval prefilters with continuous steerable-family affinity and post-Maia-first selection.
 - [x] Verify UCI searchmoves root/PV consistency and apply relative Tal safety policy with best-candidate fallback.
 - [x] Reserve CSTal candidates, dispose steering providers, handle terminal candidates, and persist decision traces.

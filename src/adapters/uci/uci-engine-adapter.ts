@@ -534,7 +534,8 @@ export const createUciTacticalGate = (
         return { ...result, accepted: result.accepted && mateClassOk && lossOk, ...(result.accepted && (!mateClassOk || !lossOk) ? { reason: "TAL_RELATIVE_SAFETY_VETO" } : {}) };
       });
       if (relative.length > 0 && !relative.some(result => result.accepted)) {
-        const fallback = [...relative].sort((first, second) => (second.talScore?.value ?? Number.NEGATIVE_INFINITY) - (first.talScore?.value ?? Number.NEGATIVE_INFINITY))[0];
+        const exact = relative.filter(result => result.talScore?.bound === "exact");
+        const fallback = [...exact].sort((first, second) => (second.talScore?.value ?? Number.NEGATIVE_INFINITY) - (first.talScore?.value ?? Number.NEGATIVE_INFINITY))[0];
         if (fallback !== undefined) return ok(relative.map(result => result.seed.move.uci === fallback.seed.move.uci ? { ...result, accepted: true, reason: "TAL_BEST_CANDIDATE_FALLBACK" } : result));
       }
       return ok(relative);
@@ -637,7 +638,8 @@ export const createUciPostMoveTacticalGate = (
         return { ...result, accepted: result.accepted && mateClassOk && lossOk, ...(result.accepted && (!mateClassOk || !lossOk) ? { reason: "TAL_RELATIVE_SAFETY_VETO" } : {}) };
       });
       if (relative.length > 0 && !relative.some(result => result.accepted)) {
-        const fallback = [...relative].sort((first, second) => compareEngineScoresForAttacker(second.talScore ?? { kind: "mate", value: -999 }, first.talScore ?? { kind: "mate", value: -999 }))[0];
+        const exact = relative.filter(result => result.talScore?.bound === "exact");
+        const fallback = [...exact].sort((first, second) => compareEngineScoresForAttacker(second.talScore!, first.talScore!))[0];
         if (fallback !== undefined) return ok(relative.map(result => result.seed.move.uci === fallback.seed.move.uci ? { ...result, accepted: true, reason: "TAL_BEST_CANDIDATE_FALLBACK" } : result));
       }
       return ok(relative);

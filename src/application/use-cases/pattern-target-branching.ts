@@ -54,7 +54,7 @@ export const registerPatternTarget = (
   threshold = 0.97,
   maxTargets = MAX_PATTERN_TARGETS
 ): Readonly<{ accepted: boolean; targets: readonly PatternTargetBranch[] }> => {
-  const limit = Math.min(MAX_PATTERN_TARGETS, Math.max(1, maxTargets));
+  const limit = Math.max(1, maxTargets);
   if (event.affinity < threshold || targets.some(target => target.targetFamily === event.targetFamily) || targets.length >= limit) return { accepted: false, targets };
   return {
     accepted: true,
@@ -85,29 +85,49 @@ export const generatePatternTargetSession = async (
   const maxTargets = Math.min(MAX_PATTERN_TARGETS, Math.max(1, request.maxTargets ?? MAX_PATTERN_TARGETS));
   const targets: PatternTargetBranch[] = [];
   let latestDiscovery: ScenarioLine | undefined;
-  const targetPromises: Promise<void>[] = [];
+  const pendingTargets: PatternTargetBranch[] = [];
+  let activeTargets = 0;
+  let discoveryFinished = false;
+  let resolveAllTargets: (() => void) | undefined;
+  const allTargetsFinished = new Promise<void>(resolve => { resolveAllTargets = resolve; });
   const emit = (): void => {
     if (latestDiscovery !== undefined) request.onProgress?.(snapshot(latestDiscovery, targets));
   };
+  const pumpTargets = (): void => {
+    while (activeTargets < MAX_PATTERN_TARGETS && pendingTargets.length > 0) {
+      const target = pendingTargets.shift();
+      if (target === undefined) break;
+      activeTargets += 1;
+      const remainingHorizonPlies = Math.max(1, Number(request.discovery.horizon) - target.prefixPlies.length);
+      void Promise.resolve().then(() => request.runTarget({ target, remainingHorizonPlies }, line => {
+        const index = targets.findIndex(item => item.targetFamily === target.targetFamily);
+        if (index >= 0) targets[index] = { ...target, line };
+        emit();
+      })).then(result => {
+        const index = targets.findIndex(item => item.targetFamily === target.targetFamily);
+        if (index >= 0) {
+          targets[index] = isErr(result)
+            ? { ...target, line: { tag: "ScenarioLine", mode: "HumanPath", label: "PatternSteeredTalPath", start: target.position, horizon: request.discovery.horizon, plies: [], status: "Incomplete", targetFamily: target.targetFamily, error: result.error } }
+            : { ...target, line: result.value };
+        }
+      }).catch(() => undefined).finally(() => {
+        activeTargets -= 1;
+        emit();
+        pumpTargets();
+        if (discoveryFinished && activeTargets === 0 && pendingTargets.length === 0) resolveAllTargets?.();
+      });
+    }
+    if (discoveryFinished && activeTargets === 0 && pendingTargets.length === 0) resolveAllTargets?.();
+  };
   const onTargetAffinity = (event: Parameters<NonNullable<PatternSteeredTalPathRequest["onTargetAffinity"]>>[0]): void => {
-    const registered = registerPatternTarget(targets, event, threshold, maxTargets);
+    const registered = registerPatternTarget(targets, event, threshold, Number.MAX_SAFE_INTEGER);
     if (!registered.accepted) return;
     const target = registered.targets.at(-1);
     if (target === undefined) return;
     targets.push(target);
+    pendingTargets.push(target);
     emit();
-    const remainingHorizonPlies = Math.max(1, Number(request.discovery.horizon) - event.prefixPlies.length);
-    const run = request.runTarget({ target, remainingHorizonPlies }, line => {
-      const index = targets.findIndex(item => item.targetFamily === target.targetFamily);
-      if (index >= 0) targets[index] = { ...target, line };
-      emit();
-    }).then(result => {
-      const index = targets.findIndex(item => item.targetFamily === target.targetFamily);
-      if (index >= 0 && !isErr(result)) targets[index] = { ...target, line: result.value };
-      emit();
-      if (isErr(result)) throw new Error(`${result.error.code}: ${result.error.message}`);
-    });
-    targetPromises.push(run);
+    pumpTargets();
   };
   const discoveryRequest: PatternSteeredTalPathRequest = {
     ...request.discovery,
@@ -121,11 +141,9 @@ export const generatePatternTargetSession = async (
   const discovery = await generatePatternSteeredTalPath(discoveryRequest);
   if (isErr(discovery)) return err(discovery.error);
   latestDiscovery = discovery.value;
+  discoveryFinished = true;
   emit();
-  try {
-    await Promise.all(targetPromises);
-  } catch (error) {
-    return err({ code: "PROVIDER_UNAVAILABLE", path: "patternTargetBranching.target", message: error instanceof Error ? error.message : String(error) });
-  }
+  pumpTargets();
+  await allTargetsFinished;
   return ok(snapshot(discovery.value, rankPatternTargets(targets, maxTargets)));
 };

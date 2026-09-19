@@ -1,7 +1,8 @@
 import type { PositionSnapshot } from "../chess/position";
 import type { Side } from "../chess/value-objects";
 import type { PositionFacts } from "../position-intelligence/facts";
-import { legacyPatternAnalysisContext, type PatternAnalysisContext } from "./context";
+import { extractPatternPositionContext, legacyPatternAnalysisContext, type PatternAnalysisContext } from "./context";
+import { mateGeometryDescriptorFor, scoreMateGeometry } from "./mate-geometry";
 
 export type PatternFamilyId =
   | "ANASTASIA"
@@ -142,7 +143,7 @@ export type PatternFeatures = Readonly<{
   isCheckmate: boolean;
 }>;
 
-export const PATTERN_MODEL_VERSION = "symbolic-v4-postmove-attractor";
+export const PATTERN_MODEL_VERSION = "mate-geometry-v1-postmove-attractor";
 export const PATTERN_MATCH_THRESHOLD = 0.65;
 
 const opposite = (side: Side): Side => side === "white" ? "black" : "white";
@@ -236,7 +237,7 @@ const clamp = (value: number): number => Math.max(0, Math.min(1, value));
 const evidence = (kind: PatternEvidence["kind"], label: string, score: number): PatternEvidence => ({ kind, label, score: clamp(score) });
 const normalized = (value: number, maximum: number): number => clamp(value / maximum);
 
-const scoreFamily = (family: PatternFamilyId, features: PatternFeatures): Readonly<{ score: number; evidence: readonly PatternEvidence[] }> => {
+const _legacyScoreFamily = (family: PatternFamilyId, features: PatternFeatures): Readonly<{ score: number; evidence: readonly PatternEvidence[] }> => {
   const edge = features.targetKingOnEdge ? 1 : 0;
   const corner = features.targetKingInCorner ? 1 : 0;
   const blockers = normalized(features.adjacentFriendlyBlockers, 5);
@@ -386,7 +387,7 @@ const scoreFamily = (family: PatternFamilyId, features: PatternFeatures): Readon
   return scores[family];
 };
 
-const stateFor = (similarity: number): PatternState => (
+const _legacyStateFor = (similarity: number): PatternState => (
   similarity >= 0.8 ? "mate_basin" : similarity >= 0.65 ? "near" : similarity >= 0.45 ? "forming" : similarity >= 0.25 ? "promising" : "far"
 );
 
@@ -397,15 +398,18 @@ export const assessPattern = (
   previousSimilarity = 0,
   analysis?: PatternAnalysisContext
 ): PatternAssessment => {
-  const features = extractPatternFeatures(position, facts, analysis);
-  const scored = scoreFamily(family, features);
-  const similarity = clamp(scored.score);
+  const resolvedAnalysis = analysis ?? legacyPatternAnalysisContext(facts);
+  const context = extractPatternPositionContext(position, facts, resolvedAnalysis);
+  const descriptor = mateGeometryDescriptorFor(family);
+  if (descriptor === undefined) throw new Error(`Missing MateGeometry descriptor for ${family}`);
+  const scored = scoreMateGeometry(context, descriptor);
+  const similarity = clamp(scored.similarity);
   return {
     tag: "PatternAssessment",
     family,
     similarity,
     progress: similarity - previousSimilarity,
-    state: stateFor(similarity),
+    state: similarity >= 0.82 ? "mate_basin" : similarity >= 0.65 ? "near" : similarity >= 0.45 ? "forming" : similarity >= 0.25 ? "promising" : "far",
     evidence: scored.evidence,
     modelVersion: PATTERN_MODEL_VERSION
   };

@@ -22,7 +22,7 @@ test("symbolic PatternAssessment is deterministic and bounded", () => {
   expect(first).toEqual(second);
   expect(first.similarity).toBeGreaterThanOrEqual(0);
   expect(first.similarity).toBeLessThanOrEqual(1);
-  expect(first.modelVersion).toBe("symbolic-v4-postmove-attractor");
+  expect(first.modelVersion).toBe("mate-geometry-v1-postmove-attractor");
   expect(first.evidence.length).toBeGreaterThan(0);
 });
 
