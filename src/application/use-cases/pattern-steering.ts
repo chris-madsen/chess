@@ -74,6 +74,11 @@ const maiaResponseFor = async (position: PositionSnapshot, maia: MoveProvider, l
   maia({ position, lineId, ply: 2 })
 );
 
+const isTrustedTalCandidate = (seed: CandidateSeed): boolean => (
+  seed.provenance.source === "LOCAL_STYLE_ENGINE"
+  && ["cstal-absurd", "cstal-extreme"].includes(seed.provenance.provider.name.toLowerCase())
+);
+
 export const selectPatternSteeringCandidate = (
   candidates: readonly PatternSteeringCandidate[]
 ): Result<PatternSteeringCandidate, DomainError> => {
@@ -107,9 +112,17 @@ export const evaluatePatternSteeringCandidates = async (
     if (seed.provenance === undefined || seed.provenance.inputPositionHash !== position.hash) return err(domainError("MISSING_PROVENANCE", "patternSteering.candidate.provenance", "Candidate provenance must refer to the input position"));
     legalSeeds.push({ ...seed, move: legal.value });
   }
-  const tactical = tacticalGate === undefined
-    ? ok<readonly TacticalCandidateAssessment[]>(legalSeeds.map(seed => ({ seed, accepted: true, reason: "TAL_GATE_DISABLED" })))
-    : await tacticalGate({ position, attackerSide: analysis.attackerSide, candidates: legalSeeds, lineId });
+  const trustedTal = legalSeeds.filter(isTrustedTalCandidate);
+  const externalCandidates = legalSeeds.filter(seed => !isTrustedTalCandidate(seed));
+  const trustedAssessments = trustedTal.map(seed => ({ seed, accepted: true, reason: "TRUSTED_TAL_CANDIDATE" }));
+  const externalAssessment = externalCandidates.length === 0
+    ? ok<readonly TacticalCandidateAssessment[]>([])
+    : tacticalGate === undefined
+      ? ok<readonly TacticalCandidateAssessment[]>(externalCandidates.map(seed => ({ seed, accepted: true, reason: "TAL_GATE_DISABLED" })))
+      : await tacticalGate({ position, attackerSide: analysis.attackerSide, candidates: externalCandidates, lineId });
+  const tactical = isErr(externalAssessment)
+    ? externalAssessment
+    : ok<readonly TacticalCandidateAssessment[]>([...trustedAssessments, ...externalAssessment.value]);
   if (isErr(tactical)) return err(tactical.error);
   const tacticalByMove = new Map(tactical.value.map(assessment => [String(assessment.seed.move.uci), assessment]));
   const evaluated: PatternSteeringCandidate[] = [];

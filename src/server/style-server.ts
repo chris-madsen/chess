@@ -16,7 +16,7 @@ import type { ScenarioPly, ScenarioLineStatus } from "../domain/scenario-lines/s
 import type { MoveSource } from "../domain/provenance/provenance";
 import type { DomainError } from "../domain/shared/errors";
 import { isErr, type Result } from "../domain/shared/result";
-import { createPatriciaCandidateGenerator, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, loadLocalEnginePaths, type WindowsCstalOpponent } from "../wiring/local-style-engines";
+import { createPatriciaCandidateGenerator, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, loadLocalEnginePaths, type WindowsCstalOpponent } from "../wiring/local-style-engines";
 import { generatePatternSteeredTalPath } from "../application/use-cases/pattern-steered-tal-path";
 import { generatePatternTargetSession } from "../application/use-cases/pattern-target-branching";
 import { createInMemoryAnalysisCache } from "../adapters/cache/in-memory-analysis-cache";
@@ -731,11 +731,14 @@ export const createStyleLineJobServer = (
       const providers = createWindowsCstalStylePathProviders(chess, paths, options);
       const patricia = paths.patriciaPath === undefined ? undefined : createPatriciaCandidateGenerator(chess, paths, 8);
       const generator = createWindowsCstalPatternCandidateGenerator(chess, paths, options, 8, patricia);
+      const tacticalGate = createWindowsCstalTacticalGate(chess, paths, options);
       return {
         generator,
+        tacticalGate,
         maia: providers.maia,
         dispose: () => {
           generator.dispose?.();
+          tacticalGate.dispose?.();
           providers.styleEngines.forEach(engine => engine.provideMove.dispose?.());
           providers.maia.dispose?.();
         }

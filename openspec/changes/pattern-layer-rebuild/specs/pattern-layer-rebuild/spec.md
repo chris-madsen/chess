@@ -48,15 +48,22 @@ The authenticated batch API SHALL execute independent cases with bounded concurr
 
 ## Requirement: Tal tactical gate
 
-Pattern steering SHALL evaluate candidate moves through a CSTal/Tal tactical gate before Pattern ranking. A rejected candidate SHALL NOT be selected even when its PatternProgress is higher than an accepted candidate's progress.
+Pattern steering SHALL evaluate exploration candidates (such as Patricia) through a CSTal/Tal tactical gate before Pattern ranking. Candidates originating from the trusted CSTal style engines ABSURD and EXTREME SHALL remain selectable without being vetoed by that gate. A rejected exploration candidate SHALL NOT be selected even when its PatternProgress is higher than an accepted candidate's progress.
 
 ### Scenario: Tal veto wins over Pattern similarity
 
-- GIVEN candidate A has higher PatternProgress but is rejected by the Tal gate
+- GIVEN exploration candidate A has higher PatternProgress but is rejected by the Tal gate
 - AND candidate B is accepted by the Tal gate
 - WHEN the steering decision is made
 - THEN candidate B SHALL be the only selectable result
 - AND PatternAssessment SHALL NOT declare candidate A unsafe or safe by itself
+
+### Scenario: Trusted CSTal ideas bypass self-veto
+
+- GIVEN a candidate originates from CSTal ABSURD or CSTal EXTREME
+- WHEN the steering decision is made
+- THEN the candidate SHALL not be submitted to the Tal gate
+- AND the candidate SHALL remain selectable for Maia response and Pattern ranking
 
 ## Requirement: Iterative Tal-Maia steering
 

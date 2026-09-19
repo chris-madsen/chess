@@ -30,6 +30,37 @@ test("candidate pool deduplicates legal provider moves and keeps provenance", as
   expect(result.every(candidate => candidate.provenance.inputPositionHash === start.hash)).toBe(true);
 });
 
+test("Tal gate filters Patricia but never vetoes trusted CSTal candidates", async () => {
+  const cstal = provider("e2e4", "LOCAL_STYLE_ENGINE", { name: "cstal-absurd", displayName: "CSTal ABSURD" });
+  const patricia = provider("d2d4", "LOCAL_STYLE_ENGINE", { name: "patricia", displayName: "Patricia" });
+  const generator = async request => {
+    const absurd = await cstal(request);
+    const broad = await patricia(request);
+    if (absurd.tag === "Err") return absurd;
+    if (broad.tag === "Err") return broad;
+    return { tag: "Ok", value: [absurd.value, broad.value] };
+  };
+  const seenByGate = [];
+  const rejectExternal = async request => {
+    seenByGate.push(...request.candidates);
+    return { tag: "Ok", value: request.candidates.map(seed => ({ seed, accepted: false, reason: "REJECTED_BY_TAL_GATE" })) };
+  };
+  const maia = provider("e7e5", "MAIA", maiaProvider("test"));
+  const decision = mustOk(await evaluatePatternSteeringCandidates(
+    chess,
+    start,
+    generator,
+    rejectExternal,
+    maia,
+    "source-aware-gate",
+    2
+  ));
+
+  expect(seenByGate.map(seed => seed.provenance.provider.name)).toEqual(["patricia"]);
+  expect(decision.selected.seed.provenance.provider.name).toBe("cstal-absurd");
+  expect(decision.trace.candidates.some(candidate => candidate.uci === "d2d4")).toBe(false);
+});
+
 test("composed candidate pool takes Patricia-style roots before style-engine roots", async () => {
   const make = (uci, name) => async request => {
     const move = chess.parseLegalMove(request.position, uci);
