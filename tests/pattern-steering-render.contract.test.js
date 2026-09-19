@@ -1,5 +1,5 @@
 import { createChessJsRulesAdapter } from "../src/adapters/chessjs/chess-rules-adapter.ts";
-import { renderPatternDiscoveryStart, renderPatternLiveLineStatus, renderPatternProgressStatus, renderPatternReference, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "../src/cli/pattern-steering-render.ts";
+import { renderPatternDiscoveryStart, renderPatternLiveFrame, renderPatternLiveLineStatus, renderPatternProgressStatus, renderPatternReference, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "../src/cli/pattern-steering-render.ts";
 
 const chess = createChessJsRulesAdapter();
 
@@ -8,6 +8,11 @@ test("remote progress status is a single ANSI-free line before completion", () =
   expect(rendered).toBe("pattern: raw-game Windows Tal+Maia | 0/1 completed | 12s");
   expect(rendered).not.toContain(String.fromCharCode(27));
   expect(rendered).not.toContain("\n");
+});
+
+test("live frame replaces the previous multiline frame instead of appending it", () => {
+  const escape = String.fromCharCode(27);
+  expect(renderPatternLiveFrame("next\n", 4)).toBe(`${escape}[4F${escape}[Jnext\n`);
 });
 
 test("partial remote line is rendered as one compact ANSI-free status", () => {

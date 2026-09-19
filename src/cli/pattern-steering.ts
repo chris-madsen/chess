@@ -8,7 +8,7 @@ import { isErr } from "../domain/shared/result";
 import { makeScenarioHorizon } from "../domain/chess/value-objects";
 import { createInMemoryAnalysisCache } from "../adapters/cache/in-memory-analysis-cache";
 import { createPatriciaCandidateGenerator, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, fetchRemotePatternSteeringBatch, generatePatternTargetSession, loadLocalEnginePaths, makeRemoteStylePathConfig } from "../wiring/index";
-import { renderPatternDiscoveryStart, renderPatternLiveLineStatus, renderPatternProgressStatus, renderPatternReference, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "./pattern-steering-render";
+import { renderPatternDiscoveryStart, renderPatternLiveFrame, renderPatternLiveLineStatus, renderPatternProgressStatus, renderPatternReference, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "./pattern-steering-render";
 import { defaultPatternHorizonMoves } from "./pattern-steering-options";
 
 const valueAfter = (args: readonly string[], flag: string): string | undefined => {
@@ -41,27 +41,30 @@ const selectSubset = <T extends { caseId: string }>(items: readonly T[], raw: st
   return [...items].sort((a, b) => a.caseId.localeCompare(b.caseId)).slice(0, limit);
 };
 
+const terminalColumns = (): number => {
+  const columns = process.stdout.columns;
+  if (Number.isInteger(columns) && columns > 0) return columns;
+  const fromEnv = Number(process.env.COLUMNS);
+  return Number.isInteger(fromEnv) && fromEnv > 0 ? fromEnv : 80;
+};
+
+const renderedLineCount = (text: string): number => {
+  const normalized = text.endsWith("\n") ? text.slice(0, -1) : text;
+  if (normalized.length === 0) return 0;
+  return normalized.split("\n").reduce((count, line) => count + Math.max(1, Math.ceil(line.length / terminalColumns())), 0);
+};
+
 const createLiveRenderer = (): { render: (text: string, final?: boolean) => void; status: (text: string) => void } => {
-  let rendered = false;
-  let statusLength = 0;
-  const clearStatus = (): void => {
-    if (statusLength > 0) {
-      process.stdout.write(`\r${" ".repeat(statusLength)}\r`);
-      statusLength = 0;
-    }
+  let previousLineCount = 0;
+  const frame = (text: string): void => {
+    process.stdout.write(renderPatternLiveFrame(text, previousLineCount));
+    previousLineCount = renderedLineCount(text);
   };
   return {
-    render: (text, final = false) => {
-      if (!rendered || final) {
-        clearStatus();
-        process.stdout.write(text);
-      }
-      rendered = true;
-    },
+    render: text => frame(text),
     status: text => {
       const compact = text.replace(/\s+/gu, " ").trim();
-      process.stdout.write(`\r${compact}${" ".repeat(Math.max(0, statusLength - compact.length))}`);
-      statusLength = compact.length;
+      frame(`${compact}\n`);
     }
   };
 };

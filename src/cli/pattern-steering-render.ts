@@ -27,6 +27,10 @@ export const renderPatternProgressStatus = (caseId: string, completed: number, t
   `pattern: ${caseId} Windows Tal+Maia | ${Math.max(0, completed)}/${Math.max(1, total)} completed | ${Math.max(0, elapsedSeconds)}s`
 );
 
+export const renderPatternLiveFrame = (text: string, previousLineCount: number): string => (
+  previousLineCount <= 0 ? text : `${String.fromCharCode(27)}[${previousLineCount}F${String.fromCharCode(27)}[J${text}`
+);
+
 export const renderPatternLiveLineStatus = (caseId: string, renderedLine: string): string => {
   const compact = renderedLine.split("\n").map(line => line.trim()).filter(Boolean).join(" | ");
   return `pattern: ${caseId} ${compact}`;
