@@ -41,40 +41,11 @@ const selectSubset = <T extends { caseId: string }>(items: readonly T[], raw: st
   return [...items].sort((a, b) => a.caseId.localeCompare(b.caseId)).slice(0, limit);
 };
 
-const terminalColumns = (): number => {
-  const columns = process.stdout.columns;
-  if (Number.isInteger(columns) && columns > 0) return columns;
-  const fromEnv = Number(process.env.COLUMNS);
-  return Number.isInteger(fromEnv) && fromEnv > 0 ? fromEnv : 80;
-};
-
-const renderedLineCount = (text: string): number => {
-  const normalized = text.endsWith("\n") ? text.slice(0, -1) : text;
-  if (normalized.length === 0) return 0;
-  return normalized.split("\n").reduce((count, line) => count + Math.max(1, Math.ceil(line.length / terminalColumns())), 0);
-};
-
-const renderUpdateFrame = (text: string, previousLineCount: number): string => (
-  previousLineCount <= 0 ? text : `\x1b[${previousLineCount}F\x1b[J${text}`
-);
-
 const createLiveRenderer = (): { render: (text: string, final?: boolean) => void } => {
   let rendered = false;
-  let previousLineCount = 0;
-  const ansi = process.env.STYLE_PATTERN_ANSI === "1"
-    || (process.env.STYLE_PATTERN_ANSI !== "0"
-      && process.platform === "win32"
-      && process.stdout.isTTY === true
-      && process.env.NO_COLOR === undefined);
   return {
     render: (text, final = false) => {
-      if (!ansi) {
-        if (!rendered || final) process.stdout.write(text);
-        rendered = true;
-        return;
-      }
-      process.stdout.write(renderUpdateFrame(text, previousLineCount));
-      previousLineCount = renderedLineCount(text);
+      if (!rendered || final) process.stdout.write(text);
       rendered = true;
     }
   };
