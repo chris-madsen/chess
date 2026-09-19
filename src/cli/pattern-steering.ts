@@ -106,7 +106,8 @@ const main = async (): Promise<void> => {
     const renderLive = (text: string, final = false): void => liveRenderer.render(text, final);
     const startedAt = Date.now();
     let completed = 0;
-    const renderProgress = (): void => liveRenderer.status(renderPatternProgressStatus(selected[0]?.caseId ?? "pattern", completed, selected.length, Math.floor((Date.now() - startedAt) / 1000)));
+    let latestLineStatus: string | undefined;
+    const renderProgress = (): void => liveRenderer.status(latestLineStatus ?? renderPatternProgressStatus(selected[0]?.caseId ?? "pattern", completed, selected.length, Math.floor((Date.now() - startedAt) / 1000)));
     selected.forEach(item => renderedLines.set(item.caseId, renderPatternDiscoveryStart(item.caseId, item.position)));
     renderLive([...renderedLines.values()].join(""));
     renderProgress();
@@ -115,14 +116,14 @@ const main = async (): Promise<void> => {
     try {
       remote = await fetchRemotePatternSteeringBatch(chess, selected.map(item => ({ caseId: item.caseId, position: item.position, ...( "rawGame" in item && item.rawGame !== undefined ? { rawGame: item.rawGame } : {}) })), selected[0]?.horizon ?? cases!.value[0]!.horizon, config.value, concurrency, progress => {
         completed = progress.completed;
-        renderProgress();
+        latestLineStatus = undefined;
       if (progress.caseId !== undefined && progress.line !== undefined) {
         const rendered = progress.session === undefined
           ? renderPatternSteeringLine(progress.caseId, progress.line)
           : renderPatternTargetSession(progress.caseId, progress.session);
         if (renderedLines.get(progress.caseId) !== rendered) {
           renderedLines.set(progress.caseId, rendered);
-          liveRenderer.status(renderPatternLiveLineStatus(progress.caseId, rendered));
+          latestLineStatus = renderPatternLiveLineStatus(progress.caseId, rendered);
         }
       }
       });
