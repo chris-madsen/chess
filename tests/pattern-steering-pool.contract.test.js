@@ -30,6 +30,21 @@ test("candidate pool deduplicates legal provider moves and keeps provenance", as
   expect(result.every(candidate => candidate.provenance.inputPositionHash === start.hash)).toBe(true);
 });
 
+test("duplicate UCI moves merge Patricia and CSTal provenance", async () => {
+  const make = (name, uci) => async request => {
+    const move = chess.parseLegalMove(request.position, uci);
+    if (move.tag === "Err") return move;
+    const provenance = { source: "LOCAL_STYLE_ENGINE", provider: { name, displayName: name }, status: "ENGINE_GENERATED", requestId: makeRequestId(`${name}-${request.lineId}`), inputPositionHash: request.position.hash, configuration: {} };
+    return { tag: "Ok", value: [{ tag: "CandidateSeed", move: move.value, provenance }] };
+  };
+  const result = mustOk(await composeCandidateGenerators(chess, [
+    { generator: make("patricia", "e2e4"), budget: 1 },
+    { generator: make("cstal-absurd", "e2e4"), budget: 1, mandatory: true }
+  ])({ position: start, lineId: "merge", limit: 2 }));
+  expect(result).toHaveLength(1);
+  expect(result[0].proposedBy.map(provenance => provenance.provider.name)).toEqual(["patricia", "cstal-absurd"]);
+});
+
 test("Tal gate filters Patricia but never vetoes trusted CSTal candidates", async () => {
   const cstal = provider("e2e4", "LOCAL_STYLE_ENGINE", { name: "cstal-absurd", displayName: "CSTal ABSURD" });
   const patricia = provider("d2d4", "LOCAL_STYLE_ENGINE", { name: "patricia", displayName: "Patricia" });
@@ -58,7 +73,7 @@ test("Tal gate filters Patricia but never vetoes trusted CSTal candidates", asyn
 
   expect(seenByGate.map(seed => seed.provenance.provider.name)).toEqual(["patricia"]);
   expect(decision.selected.seed.provenance.provider.name).toBe("cstal-absurd");
-  expect(decision.trace.candidates.some(candidate => candidate.uci === "d2d4")).toBe(false);
+  expect(decision.trace.candidates.find(candidate => candidate.uci === "d2d4").talAccepted).toBe(false);
 });
 
 test("composed candidate pool takes Patricia-style roots before style-engine roots", async () => {
