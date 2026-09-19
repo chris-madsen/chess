@@ -7,7 +7,7 @@ import { generatePatternSteeredTalPath } from "../application/use-cases/pattern-
 import { isErr } from "../domain/shared/result";
 import { makeScenarioHorizon } from "../domain/chess/value-objects";
 import { createInMemoryAnalysisCache } from "../adapters/cache/in-memory-analysis-cache";
-import { createPatriciaCandidateGenerator, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, fetchRemotePatternSteeringBatch, generatePatternTargetSession, loadLocalEnginePaths, makeRemoteStylePathConfig } from "../wiring/index";
+import { createForcedMateVerifier, createPatriciaCandidateGenerator, createUciForcedMateProofProvider, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, fetchRemotePatternSteeringBatch, generatePatternTargetSession, loadLocalEnginePaths, makeRemoteStylePathConfig } from "../wiring/index";
 import { renderPatternDiscoveryStart, renderPatternLiveFrame, renderPatternLiveLineStatus, renderPatternProgressStatus, renderPatternReference, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "./pattern-steering-render";
 import { defaultPatternHorizonMoves } from "./pattern-steering-options";
 
@@ -152,6 +152,13 @@ const main = async (): Promise<void> => {
         return { providers, generator, tacticalGate };
       };
       const discoveryProviders = createSteering();
+      const forcedMateVerifier = paths.stockfish19Path === undefined ? undefined : createForcedMateVerifier(chess, createUciForcedMateProofProvider({
+        key: "stockfish19-pattern-target-proof",
+        command: paths.stockfish19Path,
+        options: [{ name: "Threads", value: 2 }, { name: "Hash", value: 1024 }],
+        mateMoves: 20,
+        timeoutMs: 300_000
+      }));
       const liveRenderer = createLiveRenderer();
       const renderLive = (text: string, final = false): void => liveRenderer.render(text, final);
       renderLive(renderPatternDiscoveryStart(item.caseId, item.position));
@@ -167,6 +174,7 @@ const main = async (): Promise<void> => {
               return { tag: "Err" as const, error: { code: "PROVIDER_UNAVAILABLE" as const, path: `patternTarget.${item.caseId}.${target.targetFamily}`, message: error instanceof Error ? error.message : String(error) } };
             }
           },
+          ...(forcedMateVerifier === undefined ? {} : { verifyForcedMate: forcedMateVerifier }),
           onProgress: current => renderLive(renderPatternTargetSession(item.caseId, current))
         });
         if (isErr(session)) throw new Error(`${item.caseId}: ${session.error.code}: ${session.error.message}`);

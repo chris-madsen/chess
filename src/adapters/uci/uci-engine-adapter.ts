@@ -427,6 +427,7 @@ export const createUciCandidateGenerator = (
 };
 
 export type UciTacticalGatePolicy = Readonly<{
+  mode?: "ENSURE_ONE_SURVIVOR" | "EXTERNAL_ADMISSION";
   minCentipawns?: number;
   allowedLossCentipawns: number;
   preserveMateClass?: boolean;
@@ -533,7 +534,7 @@ export const createUciTacticalGate = (
         const lossOk = best.kind === "centipawns" && scoreValue.kind === "centipawns" ? best.value - scoreValue.value <= policy.allowedLossCentipawns : true;
         return { ...result, accepted: result.accepted && mateClassOk && lossOk, ...(result.accepted && (!mateClassOk || !lossOk) ? { reason: "TAL_RELATIVE_SAFETY_VETO" } : {}) };
       });
-      if (relative.length > 0 && !relative.some(result => result.accepted)) {
+      if (policy.mode !== "EXTERNAL_ADMISSION" && relative.length > 0 && !relative.some(result => result.accepted)) {
         const exact = relative.filter(result => result.talScore?.bound === "exact");
         const fallback = [...exact].sort((first, second) => (second.talScore?.value ?? Number.NEGATIVE_INFINITY) - (first.talScore?.value ?? Number.NEGATIVE_INFINITY))[0];
         if (fallback !== undefined) return ok(relative.map(result => result.seed.move.uci === fallback.seed.move.uci ? { ...result, accepted: true, reason: "TAL_BEST_CANDIDATE_FALLBACK" } : result));
@@ -637,7 +638,7 @@ export const createUciPostMoveTacticalGate = (
         const lossOk = best.kind === "centipawns" && score.kind === "centipawns" ? best.value - score.value <= policy.allowedLossCentipawns : true;
         return { ...result, accepted: result.accepted && mateClassOk && lossOk, ...(result.accepted && (!mateClassOk || !lossOk) ? { reason: "TAL_RELATIVE_SAFETY_VETO" } : {}) };
       });
-      if (relative.length > 0 && !relative.some(result => result.accepted)) {
+      if (policy.mode !== "EXTERNAL_ADMISSION" && relative.length > 0 && !relative.some(result => result.accepted)) {
         const exact = relative.filter(result => result.talScore?.bound === "exact");
         const fallback = [...exact].sort((first, second) => compareEngineScoresForAttacker(second.talScore!, first.talScore!))[0];
         if (fallback !== undefined) return ok(relative.map(result => result.seed.move.uci === fallback.seed.move.uci ? { ...result, accepted: true, reason: "TAL_BEST_CANDIDATE_FALLBACK" } : result));

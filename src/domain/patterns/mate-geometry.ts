@@ -58,6 +58,7 @@ const pieceReachability = (type: PatternPieceType, from: RelativeSquare, target:
   const file = Math.abs(from.file - target.file);
   const rank = Math.abs(from.rank - target.rank);
   const manhattan = file + rank;
+  if (file === 0 && rank === 0) return 1;
   if (type === "n") return file * rank === 2 ? 1 : clamp(1 / (1 + manhattan));
   if (type === "b") return file === rank && file > 0 ? 1 / (1 + file) : clamp(0.2 / (1 + manhattan));
   if (type === "r") return (file === 0 || rank === 0) && manhattan > 0 ? 1 / (1 + manhattan) : clamp(0.2 / (1 + manhattan));
@@ -78,19 +79,29 @@ const roleValue = (context: PatternPositionContext, role: MateRole, pieceIndex: 
 
 const roleAssignment = (context: PatternPositionContext, roles: readonly MateRole[]): readonly number[] => {
   const eligible = context.relevantPieces.map((piece, index) => ({ piece, index })).filter(item => item.piece.side === context.analysis.attackerSide);
-  const search = (roleIndex: number, used: ReadonlySet<number>, values: readonly number[]): Readonly<{ score: number; values: readonly number[] }> => {
-    if (roleIndex >= roles.length) return { score: values.reduce((sum, value) => sum + value, 0), values };
+  const quality = (values: readonly number[]): readonly [number, number, number] => {
+    const critical = values.filter((_, index) => roles[index]?.criticality === "critical");
+    const supporting = values.filter((_, index) => roles[index]?.criticality === "supporting");
+    return [Math.min(...critical, 0), Math.min(...supporting, 1), values.reduce((sum, value) => sum + value, 0)];
+  };
+  const better = (left: readonly number[], right: readonly number[]): boolean => {
+    const a = quality(left);
+    const b = quality(right);
+    return a[0] > b[0] || (a[0] === b[0] && (a[1] > b[1] || (a[1] === b[1] && a[2] > b[2])));
+  };
+  const search = (roleIndex: number, used: ReadonlySet<number>, values: readonly number[]): readonly number[] => {
+    if (roleIndex >= roles.length) return values;
     const role = roles[roleIndex]!;
     const skipped = search(roleIndex + 1, used, [...values, 0]);
     let best = skipped;
     for (const item of eligible) {
       if (used.has(item.index) || !role.allowedPieceTypes.includes(item.piece.type)) continue;
       const next = search(roleIndex + 1, new Set([...used, item.index]), [...values, roleValue(context, role, item.index)]);
-      if (next.score > best.score) best = next;
+      if (better(next, best)) best = next;
     }
     return best;
   };
-  return search(0, new Set(), []).values;
+  return search(0, new Set(), []);
 };
 
 const coverageAffinity = (context: PatternPositionContext, squares: readonly RelativeSquare[]): number => {

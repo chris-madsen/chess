@@ -323,7 +323,7 @@ export const createWindowsCstalTacticalGate = (
   chess: ChessRulesPort,
   paths = loadLocalEnginePaths(),
   options: WindowsCstalOptions = {},
-  policy: UciTacticalGatePolicy = { minCentipawns: -150, allowedLossCentipawns: 100, preserveMateClass: true }
+  policy: UciTacticalGatePolicy = { mode: "EXTERNAL_ADMISSION", minCentipawns: -150, allowedLossCentipawns: 100, preserveMateClass: true }
 ) => {
   const config = styleConfig("cstal-absurd", "CSTal ABSURD tactical gate", requirePath(paths, "cstalAbsurdPath"), "2.07-cst-absurd", cstalStyleDepth, styleEngineTimeoutMs, cstalThreads);
   return createUciPostMoveTacticalGate(chess, {

@@ -190,6 +190,7 @@ export const renderPatternTargetReferences = (caseId: string, session: PatternTa
       continue;
     }
     output.push(renderPatternReference(target.line, new Map([[target.targetFamily, target.triggerAffinity]])));
+    output.push(`Forced-mate verification: ${target.forcedMate?.status ?? "UNAVAILABLE"}${target.forcedMate?.reason === undefined ? "" : ` (${target.forcedMate.reason})`}`, "");
   }
   output.push("########", "");
   return output.join("\n");

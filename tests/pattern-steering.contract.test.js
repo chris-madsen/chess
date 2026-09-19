@@ -155,6 +155,14 @@ test("steering primary policy prefers final affinity over raw delta", () => {
   expect(selected.seed.move.uci).toBe("e2e4");
 });
 
+test("steering compares calibrated attractor scores across families", () => {
+  const selected = mustOk(selectPatternSteeringCandidate([
+    { ...steeringCandidate("e2e4", 0.80, 0.10), targetFamily: "SMOTHERED", calibratedAfterResponseScore: 0.84, calibratedProgress: 0.20 },
+    { ...steeringCandidate("d2d4", 0.60, 0.20), targetFamily: "MORPHYS", calibratedAfterResponseScore: 0.92, calibratedProgress: 0.15 }
+  ]));
+  expect(selected.seed.move.uci).toBe("d2d4");
+});
+
 test("all negative attractor deltas still return the best Tal-safe candidate", () => {
   const selected = mustOk(selectPatternSteeringCandidate([
     steeringCandidate("e2e4", 0.18, -0.04),

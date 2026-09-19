@@ -1,0 +1,213 @@
+{
+  "modelVersion": "mate-geometry-v2-calibration-v1",
+  "datasetVersion": "lichess-puzzle-mvp-2026-09-controlled",
+  "split": "calibration",
+  "calibrationCases": 228,
+  "method": "per-family maximum positive trajectory score with 5% calibration margin",
+  "families": {
+    "ANASTASIA": {
+      "presenceThreshold": 0.641,
+      "targetTrigger": 0.855,
+      "positiveCount": 8,
+      "hardNegativeCount": 4
+    },
+    "ARABIAN": {
+      "presenceThreshold": 0.617,
+      "targetTrigger": 0.823,
+      "positiveCount": 8,
+      "hardNegativeCount": 4
+    },
+    "BACK_RANK": {
+      "presenceThreshold": 0.244,
+      "targetTrigger": 0.325,
+      "positiveCount": 8,
+      "hardNegativeCount": 4
+    },
+    "BALESTRA": {
+      "presenceThreshold": 0.332,
+      "targetTrigger": 0.442,
+      "positiveCount": 8,
+      "hardNegativeCount": 4
+    },
+    "BLIND_SWINE": {
+      "presenceThreshold": 0.346,
+      "targetTrigger": 0.461,
+      "positiveCount": 8,
+      "hardNegativeCount": 4
+    },
+    "BODEN": {
+      "presenceThreshold": 0.081,
+      "targetTrigger": 0.108,
+      "positiveCount": 8,
+      "hardNegativeCount": 4
+    },
+    "CORNER": {
+      "presenceThreshold": 0.374,
+      "targetTrigger": 0.499,
+      "positiveCount": 8,
+      "hardNegativeCount": 4
+    },
+    "DOUBLE_BISHOP": {
+      "presenceThreshold": 0.122,
+      "targetTrigger": 0.163,
+      "positiveCount": 8,
+      "hardNegativeCount": 4
+    },
+    "DOVETAIL": {
+      "presenceThreshold": 0.194,
+      "targetTrigger": 0.259,
+      "positiveCount": 8,
+      "hardNegativeCount": 4
+    },
+    "EPAULETTE": {
+      "presenceThreshold": 0.332,
+      "targetTrigger": 0.442,
+      "positiveCount": 8,
+      "hardNegativeCount": 4
+    },
+    "HOOK": {
+      "presenceThreshold": 0.232,
+      "targetTrigger": 0.309,
+      "positiveCount": 8,
+      "hardNegativeCount": 4
+    },
+    "KILL_BOX": {
+      "presenceThreshold": 0.289,
+      "targetTrigger": 0.385,
+      "positiveCount": 8,
+      "hardNegativeCount": 4
+    },
+    "PILLSBURY": {
+      "presenceThreshold": 0.289,
+      "targetTrigger": 0.385,
+      "positiveCount": 8,
+      "hardNegativeCount": 4
+    },
+    "MORPHYS": {
+      "presenceThreshold": 0.332,
+      "targetTrigger": 0.442,
+      "positiveCount": 8,
+      "hardNegativeCount": 4
+    },
+    "OPERA": {
+      "presenceThreshold": 0.268,
+      "targetTrigger": 0.358,
+      "positiveCount": 8,
+      "hardNegativeCount": 4
+    },
+    "SMOTHERED": {
+      "presenceThreshold": 0.712,
+      "targetTrigger": 0.95,
+      "positiveCount": 8,
+      "hardNegativeCount": 4
+    },
+    "SWALLOWTAIL": {
+      "presenceThreshold": 0.352,
+      "targetTrigger": 0.47,
+      "positiveCount": 8,
+      "hardNegativeCount": 4
+    },
+    "TRIANGLE": {
+      "presenceThreshold": 0.297,
+      "targetTrigger": 0.396,
+      "positiveCount": 8,
+      "hardNegativeCount": 4
+    },
+    "VUKOVIC": {
+      "presenceThreshold": 0.374,
+      "targetTrigger": 0.499,
+      "positiveCount": 8,
+      "hardNegativeCount": 4
+    },
+    "DAMIANO": {
+      "presenceThreshold": 0.038,
+      "targetTrigger": 0.05,
+      "positiveCount": 0,
+      "hardNegativeCount": 0
+    },
+    "GRECO": {
+      "presenceThreshold": 0.038,
+      "targetTrigger": 0.05,
+      "positiveCount": 0,
+      "hardNegativeCount": 0
+    },
+    "LOLLI": {
+      "presenceThreshold": 0.038,
+      "targetTrigger": 0.05,
+      "positiveCount": 0,
+      "hardNegativeCount": 0
+    },
+    "LEGAL": {
+      "presenceThreshold": 0.038,
+      "targetTrigger": 0.05,
+      "positiveCount": 0,
+      "hardNegativeCount": 0
+    },
+    "BLACKBURNE": {
+      "presenceThreshold": 0.038,
+      "targetTrigger": 0.05,
+      "positiveCount": 0,
+      "hardNegativeCount": 0
+    },
+    "ANDERSSEN": {
+      "presenceThreshold": 0.038,
+      "targetTrigger": 0.05,
+      "positiveCount": 0,
+      "hardNegativeCount": 0
+    },
+    "MAYET": {
+      "presenceThreshold": 0.038,
+      "targetTrigger": 0.05,
+      "positiveCount": 0,
+      "hardNegativeCount": 0
+    },
+    "RETI": {
+      "presenceThreshold": 0.038,
+      "targetTrigger": 0.05,
+      "positiveCount": 0,
+      "hardNegativeCount": 0
+    },
+    "MAX_LANGE": {
+      "presenceThreshold": 0.038,
+      "targetTrigger": 0.05,
+      "positiveCount": 0,
+      "hardNegativeCount": 0
+    },
+    "SUFFOCATION": {
+      "presenceThreshold": 0.038,
+      "targetTrigger": 0.05,
+      "positiveCount": 0,
+      "hardNegativeCount": 0
+    },
+    "LAWNMOWER": {
+      "presenceThreshold": 0.038,
+      "targetTrigger": 0.05,
+      "positiveCount": 0,
+      "hardNegativeCount": 0
+    },
+    "DAVID_GOLIATH": {
+      "presenceThreshold": 0.038,
+      "targetTrigger": 0.05,
+      "positiveCount": 0,
+      "hardNegativeCount": 0
+    },
+    "TWO_KNIGHTS": {
+      "presenceThreshold": 0.038,
+      "targetTrigger": 0.05,
+      "positiveCount": 0,
+      "hardNegativeCount": 0
+    },
+    "H_FILE": {
+      "presenceThreshold": 0.038,
+      "targetTrigger": 0.05,
+      "positiveCount": 0,
+      "hardNegativeCount": 0
+    },
+    "DIAGONAL_CORRIDOR": {
+      "presenceThreshold": 0.038,
+      "targetTrigger": 0.05,
+      "positiveCount": 0,
+      "hardNegativeCount": 0
+    }
+  }
+}

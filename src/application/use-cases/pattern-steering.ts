@@ -11,6 +11,7 @@ import { err, isErr, ok, type Result } from "../../domain/shared/result";
 import type { AnalysisCachePort } from "../ports/analysis-cache";
 import { analysisCacheKey, makeCacheEntry } from "../../domain/cache/state-cache";
 import { PATTERN_MODEL_VERSION } from "../../domain/patterns/pattern";
+import { calibratedAttractorScore } from "../../domain/patterns/thresholds";
 import type { ProvidedMove } from "../ports/providers";
 
 export type PatternSteeringCandidate = Readonly<{
@@ -28,6 +29,9 @@ export type PatternSteeringCandidate = Readonly<{
   afterCandidateScore: number;
   afterResponseScore: number;
   patternDelta: number;
+  calibratedBeforeScore: number;
+  calibratedAfterResponseScore: number;
+  calibratedProgress: number;
   progress: number;
   terminalAfterCandidate?: boolean;
 }>;
@@ -43,18 +47,21 @@ export type PatternSteeringDecision = Readonly<{
 
 const topScore = (assessments: readonly PatternAssessment[]): number => assessments[0]?.similarity ?? 0;
 const scoreFor = (assessments: readonly PatternAssessment[], family: PatternFamilyId): number => assessments.find(assessment => assessment.family === family)?.similarity ?? 0;
-const familyProgress = (before: readonly PatternAssessment[], after: readonly PatternAssessment[], postResponse: readonly PatternAssessment[], requestedFamily?: PatternFamilyId): Readonly<{ targetFamily: PatternFamilyId; beforeScore: number; afterCandidateScore: number; afterResponseScore: number; delta: number }> => {
+const familyProgress = (before: readonly PatternAssessment[], after: readonly PatternAssessment[], postResponse: readonly PatternAssessment[], requestedFamily?: PatternFamilyId): Readonly<{ targetFamily: PatternFamilyId; beforeScore: number; afterCandidateScore: number; afterResponseScore: number; delta: number; calibratedBefore: number; calibratedAfter: number }> => {
   if (requestedFamily !== undefined) {
     const beforeScore = scoreFor(before, requestedFamily);
     const afterCandidateScore = scoreFor(after, requestedFamily);
     const afterResponseScore = scoreFor(postResponse, requestedFamily);
-    return { targetFamily: requestedFamily, beforeScore, afterCandidateScore, afterResponseScore, delta: afterResponseScore - beforeScore };
+    return { targetFamily: requestedFamily, beforeScore, afterCandidateScore, afterResponseScore, delta: afterResponseScore - beforeScore, calibratedBefore: calibratedAttractorScore(beforeScore, requestedFamily), calibratedAfter: calibratedAttractorScore(afterResponseScore, requestedFamily) };
   }
   const families = [...new Set([...before, ...after, ...postResponse].map(assessment => assessment.family))];
   const best = families.map(family => ({ family, beforeScore: scoreFor(before, family), afterCandidateScore: scoreFor(after, family), afterResponseScore: scoreFor(postResponse, family) }))
     .map(candidate => ({ targetFamily: candidate.family, beforeScore: candidate.beforeScore, afterCandidateScore: candidate.afterCandidateScore, afterResponseScore: candidate.afterResponseScore, delta: candidate.afterResponseScore - candidate.beforeScore }))
-    .sort((first, second) => second.afterResponseScore - first.afterResponseScore || second.delta - first.delta || String(first.targetFamily).localeCompare(String(second.targetFamily)))[0];
-  return best ?? { targetFamily: "ANASTASIA", beforeScore: 0, afterCandidateScore: 0, afterResponseScore: 0, delta: 0 };
+    .map(candidate => ({ ...candidate, calibratedBefore: calibratedAttractorScore(candidate.beforeScore, candidate.targetFamily), calibratedAfter: calibratedAttractorScore(candidate.afterResponseScore, candidate.targetFamily) }))
+    .sort((first, second) => second.calibratedAfter - first.calibratedAfter || (second.calibratedAfter - second.calibratedBefore) - (first.calibratedAfter - first.calibratedBefore) || String(first.targetFamily).localeCompare(String(second.targetFamily)))[0];
+  return best === undefined
+    ? { targetFamily: "ANASTASIA", beforeScore: 0, afterCandidateScore: 0, afterResponseScore: 0, delta: 0, calibratedBefore: 0, calibratedAfter: 0 }
+    : { targetFamily: best.targetFamily, beforeScore: best.beforeScore, afterCandidateScore: best.afterCandidateScore, afterResponseScore: best.afterResponseScore, delta: best.delta, calibratedBefore: best.calibratedBefore, calibratedAfter: best.calibratedAfter };
 };
 
 const familiesFor = async (position: PositionSnapshot, context: import("../../domain/patterns/context").PatternPositionContext, cache?: AnalysisCachePort): Promise<readonly PatternAssessment[]> => {
@@ -84,7 +91,7 @@ const isTrustedTalCandidate = (seed: CandidateSeed): boolean => provenancesFor(s
 export const selectPatternSteeringCandidate = (
   candidates: readonly PatternSteeringCandidate[]
 ): Result<PatternSteeringCandidate, DomainError> => {
-  const selected = [...candidates].sort((first, second) => second.afterResponseScore - first.afterResponseScore || second.patternDelta - first.patternDelta || topScore(second.postResponseFamilies) - topScore(first.postResponseFamilies) || String(first.seed.move.uci).localeCompare(String(second.seed.move.uci)))[0];
+  const selected = [...candidates].sort((first, second) => (second.calibratedAfterResponseScore ?? second.afterResponseScore) - (first.calibratedAfterResponseScore ?? first.afterResponseScore) || (second.calibratedProgress ?? second.patternDelta) - (first.calibratedProgress ?? first.patternDelta) || topScore(second.postResponseFamilies) - topScore(first.postResponseFamilies) || String(first.seed.move.uci).localeCompare(String(second.seed.move.uci)))[0];
   return selected === undefined ? err(domainError("PROVIDER_UNAVAILABLE", "patternSteering.candidates", "No legal candidate survived Pattern steering evaluation")) : ok(selected);
 };
 
@@ -140,12 +147,12 @@ export const evaluatePatternSteeringCandidates = async (
     const afterFamilies = await familiesFor(after.value, afterContext, cache);
     if (afterFacts.value.isTerminal) {
       const progress = familyProgress(beforeFamilies, afterFamilies, afterFamilies, targetFamily);
-      evaluated.push({ seed, tactical: tacticalAssessment, afterPosition: after.value, beforeFamilies, afterFamilies, postResponseFamilies: afterFamilies, targetFamily: progress.targetFamily, beforeScore: progress.beforeScore, afterCandidateScore: progress.afterCandidateScore, afterResponseScore: progress.afterResponseScore, patternDelta: progress.delta, progress: progress.delta, terminalAfterCandidate: true });
+      evaluated.push({ seed, tactical: tacticalAssessment, afterPosition: after.value, beforeFamilies, afterFamilies, postResponseFamilies: afterFamilies, targetFamily: progress.targetFamily, beforeScore: progress.beforeScore, afterCandidateScore: progress.afterCandidateScore, afterResponseScore: progress.afterResponseScore, patternDelta: progress.delta, calibratedBeforeScore: progress.calibratedBefore, calibratedAfterResponseScore: progress.calibratedAfter, calibratedProgress: progress.calibratedAfter - progress.calibratedBefore, progress: progress.delta, terminalAfterCandidate: true });
       continue;
     }
     if (!includeMaiaResponse) {
       const progress = familyProgress(beforeFamilies, afterFamilies, afterFamilies, targetFamily);
-      evaluated.push({ seed, tactical: tacticalAssessment, afterPosition: after.value, beforeFamilies, afterFamilies, postResponseFamilies: afterFamilies, targetFamily: progress.targetFamily, beforeScore: progress.beforeScore, afterCandidateScore: progress.afterCandidateScore, afterResponseScore: progress.afterResponseScore, patternDelta: progress.delta, progress: progress.delta });
+      evaluated.push({ seed, tactical: tacticalAssessment, afterPosition: after.value, beforeFamilies, afterFamilies, postResponseFamilies: afterFamilies, targetFamily: progress.targetFamily, beforeScore: progress.beforeScore, afterCandidateScore: progress.afterCandidateScore, afterResponseScore: progress.afterResponseScore, patternDelta: progress.delta, calibratedBeforeScore: progress.calibratedBefore, calibratedAfterResponseScore: progress.calibratedAfter, calibratedProgress: progress.calibratedAfter - progress.calibratedBefore, progress: progress.delta });
       continue;
     }
     const response = await maiaResponseFor(after.value, maia, lineId);
@@ -160,7 +167,7 @@ export const evaluatePatternSteeringCandidates = async (
     const postResponseContext = extractPatternPositionContext(postResponse.value, responseFacts.value, analysis);
     const postResponseFamilies = await familiesFor(postResponse.value, postResponseContext, cache);
     const progress = familyProgress(beforeFamilies, afterFamilies, postResponseFamilies, targetFamily);
-    evaluated.push({ seed, tactical: tacticalAssessment, afterPosition: after.value, responseMove: responseMove.value, responseProvenance: response.value.provenance, postResponsePosition: postResponse.value, beforeFamilies, afterFamilies, postResponseFamilies, targetFamily: progress.targetFamily, beforeScore: progress.beforeScore, afterCandidateScore: progress.afterCandidateScore, afterResponseScore: progress.afterResponseScore, patternDelta: progress.delta, progress: progress.delta });
+    evaluated.push({ seed, tactical: tacticalAssessment, afterPosition: after.value, responseMove: responseMove.value, responseProvenance: response.value.provenance, postResponsePosition: postResponse.value, beforeFamilies, afterFamilies, postResponseFamilies, targetFamily: progress.targetFamily, beforeScore: progress.beforeScore, afterCandidateScore: progress.afterCandidateScore, afterResponseScore: progress.afterResponseScore, patternDelta: progress.delta, calibratedBeforeScore: progress.calibratedBefore, calibratedAfterResponseScore: progress.calibratedAfter, calibratedProgress: progress.calibratedAfter - progress.calibratedBefore, progress: progress.delta });
   }
   const selected = selectPatternSteeringCandidate(evaluated);
   if (isErr(selected)) return err(selected.error);
@@ -183,13 +190,17 @@ export const evaluatePatternSteeringCandidates = async (
           ...(tacticalAssessment.reason === undefined ? {} : { talReason: tacticalAssessment.reason }),
           ...(tacticalAssessment.talScore === undefined ? {} : { talScore: tacticalAssessment.talScore }),
           ...(candidate === undefined
-            ? { targetFamily: targetFamily ?? beforeFamilies[0]?.family ?? "ANASTASIA", beforeAffinity: 0, afterCandidateAffinity: 0, afterMaiaAffinity: 0, patternDelta: 0 }
+            ? { targetFamily: targetFamily ?? beforeFamilies[0]?.family ?? "ANASTASIA", beforeAffinity: 0, afterCandidateAffinity: 0, afterMaiaAffinity: 0, patternDelta: 0, calibratedBefore: 0, calibratedAfterMaia: 0, calibratedProgress: 0, selected: false }
             : {
               targetFamily: candidate.targetFamily,
               beforeAffinity: candidate.beforeScore,
               afterCandidateAffinity: candidate.afterCandidateScore,
               afterMaiaAffinity: candidate.afterResponseScore,
               patternDelta: candidate.patternDelta,
+              calibratedBefore: candidate.calibratedBeforeScore,
+              calibratedAfterMaia: candidate.calibratedAfterResponseScore,
+              calibratedProgress: candidate.calibratedProgress,
+              selected: String(candidate.seed.move.uci) === String(selected.value.seed.move.uci),
               ...(candidate.responseMove === undefined ? {} : { maiaReply: String(candidate.responseMove.uci) })
             })
         };

@@ -859,7 +859,7 @@ export const createStyleLineJobServer = (
           if (session.tag === "Err") {
             setBatchResult(batch, item.caseId, { caseId: item.caseId, status: "error", error: session.error });
           } else {
-            setBatchResult(batch, item.caseId, { caseId: item.caseId, status: session.value.discovery.status === "Incomplete" || session.value.targets.some(target => target.line?.status === "Incomplete") ? "error" : "complete", steeringSession: session.value, steeringLine: session.value.discovery });
+            setBatchResult(batch, item.caseId, { caseId: item.caseId, status: session.value.discovery.status === "Incomplete" ? "error" : "complete", steeringSession: session.value, steeringLine: session.value.discovery });
           }
           batch.completed += 1;
           emitBatch(batch, "progress");

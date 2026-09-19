@@ -92,6 +92,42 @@ test("post-move Tal gate evaluates the position after the candidate without sear
   }
 });
 
+test("external admission does not force a rejected Patricia survivor", async () => {
+  const chess = createChessJsRulesAdapter();
+  const position = chess.ingestPosition("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+  const move = chess.parseLegalMove(position.value, "e2e4");
+  const seed = makeCandidateSeed(move.value, {
+    source: "PATRICIA",
+    provider: localStyleEngineProvider("patricia-test", "Patricia test", "test"),
+    status: "ENGINE_GENERATED",
+    requestId: makeRequestId("external-admission-test"),
+    inputPositionHash: position.value.hash,
+    configuration: {}
+  });
+  const script = "process.stdin.setEncoding('utf8'); process.stdin.on('data', data => { for (const line of data.split(/\\r?\\n/u)) { if (line === 'uci') process.stdout.write('uciok\\n'); else if (line === 'isready') process.stdout.write('readyok\\n'); else if (line.startsWith('go ')) process.stdout.write('info depth 1 score cp 500 pv e7e5\\nbestmove e7e5\\n'); } });";
+  const gate = createUciPostMoveTacticalGate(chess, {
+    key: "cstal-test",
+    command: process.execPath,
+    args: ["-e", script],
+    identity: localStyleEngineProvider("cstal-test", "CSTal test", "test"),
+    source: "LOCAL_STYLE_ENGINE",
+    options: [],
+    limit: { tag: "Depth", depth: 1 },
+    timeoutMs: 2_000,
+    configuration: {},
+    searchMovesCapability: "UNSUPPORTED",
+    scorePerspective: "SIDE_TO_MOVE"
+  }, { mode: "EXTERNAL_ADMISSION", allowedLossCentipawns: 100, minCentipawns: -150 });
+  try {
+    const result = await gate({ position: position.value, attackerSide: "white", candidates: [seed.value], lineId: "external-admission-test" });
+    expect(result.tag).toBe("Ok");
+    expect(result.value[0].accepted).toBe(false);
+    expect(result.value[0].reason).not.toBe("TAL_BEST_CANDIDATE_FALLBACK");
+  } finally {
+    gate.dispose?.();
+  }
+});
+
 test("attacker score normalization and mate ordering are explicit", () => {
   expect(normalizeScoreToAttacker({ kind: "centipawns", value: -120, bound: "exact" }, "SIDE_TO_MOVE", "black", "white")).toMatchObject({ kind: "centipawns", value: 120 });
   expect(normalizeScoreToAttacker({ kind: "mate", value: -2, bound: "exact" }, "SIDE_TO_MOVE", "black", "white")).toMatchObject({ kind: "mate", value: 2 });

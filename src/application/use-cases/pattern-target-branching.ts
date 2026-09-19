@@ -3,9 +3,11 @@ import type { ScenarioLine, ScenarioPly } from "../../domain/scenario-lines/scen
 import type { PositionSnapshot } from "../../domain/chess/position";
 import type { DomainError } from "../../domain/shared/errors";
 import { err, ok, isErr, type Result } from "../../domain/shared/result";
+import type { ForcedMateVerifier } from "../ports/forced-mate";
+import type { ForcedMateVerification } from "../../domain/patterns/outcomes";
 import type { PatternSteeredTalPathRequest } from "./pattern-steered-tal-path";
 import { generatePatternSteeredTalPath } from "./pattern-steered-tal-path";
-import { patternTriggerThresholdFor } from "../../domain/patterns/thresholds";
+import { patternTargetTriggerFor } from "../../domain/patterns/thresholds";
 
 export const MAX_PATTERN_TARGETS = 3;
 
@@ -30,6 +32,7 @@ export type PatternTargetBranch = Readonly<{
   position: PositionSnapshot;
   prefixPlies: readonly ScenarioPly[];
   line?: ScenarioLine;
+  forcedMate?: ForcedMateVerification;
 }>;
 
 export type PatternTargetSession = Readonly<{
@@ -74,6 +77,7 @@ export type PatternTargetSessionRequest = Readonly<{
   runTarget: (request: PatternTargetBranchRequest, onProgress: (line: ScenarioLine) => void) => Promise<Result<ScenarioLine, DomainError>>;
   threshold?: number;
   maxTargets?: number;
+  verifyForcedMate?: ForcedMateVerifier;
   onProgress?: (session: PatternTargetSession) => void;
 }>;
 
@@ -104,12 +108,29 @@ export const generatePatternTargetSession = async (
         const index = targets.findIndex(item => item.targetFamily === target.targetFamily);
         if (index >= 0) targets[index] = { ...target, line };
         emit();
-      })).then(result => {
+      })).then(async result => {
         const index = targets.findIndex(item => item.targetFamily === target.targetFamily);
         if (index >= 0) {
-          targets[index] = isErr(result)
-            ? { ...target, line: { tag: "ScenarioLine", mode: "HumanPath", label: "PatternSteeredTalPath", start: target.position, horizon: request.discovery.horizon, plies: [], status: "Incomplete", targetFamily: target.targetFamily, error: result.error } }
-            : { ...target, line: result.value };
+          if (isErr(result)) {
+            targets[index] = { ...target, line: { tag: "ScenarioLine", mode: "HumanPath", label: "PatternSteeredTalPath", start: target.position, horizon: request.discovery.horizon, plies: [], status: "Incomplete", targetFamily: target.targetFamily, error: result.error } };
+          } else {
+            let forcedMate: ForcedMateVerification | undefined;
+            if (request.verifyForcedMate !== undefined) {
+              let terminalPosition = target.position;
+              let positionError: DomainError | undefined;
+              for (const ply of result.value.plies) {
+                const next = request.discovery.chess.applyMove(terminalPosition, ply.move);
+                if (isErr(next)) { positionError = next.error; break; }
+                terminalPosition = next.value;
+              }
+              if (positionError !== undefined) forcedMate = { status: "UNAVAILABLE", reason: positionError.message };
+              else {
+                const proof = await request.verifyForcedMate({ start: target.position, line: result.value, terminalPosition });
+                forcedMate = isErr(proof) ? { status: "UNAVAILABLE", reason: proof.error.message } : proof.value;
+              }
+            }
+            targets[index] = { ...target, line: result.value, ...(forcedMate === undefined ? {} : { forcedMate }) };
+          }
         }
       }).catch(() => undefined).finally(() => {
         activeTargets -= 1;
@@ -121,7 +142,7 @@ export const generatePatternTargetSession = async (
     if (discoveryFinished && activeTargets === 0 && pendingTargets.length === 0) resolveAllTargets?.();
   };
   const onTargetAffinity = (event: Parameters<NonNullable<PatternSteeredTalPathRequest["onTargetAffinity"]>>[0]): void => {
-    const registered = registerPatternTarget(targets, event, threshold ?? patternTriggerThresholdFor(event.targetFamily), Number.MAX_SAFE_INTEGER);
+    const registered = registerPatternTarget(targets, event, threshold ?? patternTargetTriggerFor(event.targetFamily), Number.MAX_SAFE_INTEGER);
     if (!registered.accepted) return;
     const target = registered.targets.at(-1);
     if (target === undefined) return;

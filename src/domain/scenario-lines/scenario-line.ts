@@ -38,6 +38,10 @@ export type ScenarioDecisionTrace = Readonly<{
     afterCandidateAffinity: number;
     afterMaiaAffinity: number;
     patternDelta: number;
+    calibratedBefore: number;
+    calibratedAfterMaia: number;
+    calibratedProgress: number;
+    selected?: boolean;
     maiaReply?: string;
   }>[];
   selectedUci: string;
