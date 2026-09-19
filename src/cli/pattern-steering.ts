@@ -8,7 +8,7 @@ import { isErr } from "../domain/shared/result";
 import { makeScenarioHorizon } from "../domain/chess/value-objects";
 import { createInMemoryAnalysisCache } from "../adapters/cache/in-memory-analysis-cache";
 import { createPatriciaCandidateGenerator, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, fetchRemotePatternSteeringBatch, generatePatternTargetSession, loadLocalEnginePaths, makeRemoteStylePathConfig } from "../wiring/index";
-import { renderPatternDiscoveryStart, renderPatternReference, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "./pattern-steering-render";
+import { renderPatternDiscoveryStart, renderPatternProgressStatus, renderPatternReference, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "./pattern-steering-render";
 import { defaultPatternHorizonMoves } from "./pattern-steering-options";
 
 const valueAfter = (args: readonly string[], flag: string): string | undefined => {
@@ -41,12 +41,27 @@ const selectSubset = <T extends { caseId: string }>(items: readonly T[], raw: st
   return [...items].sort((a, b) => a.caseId.localeCompare(b.caseId)).slice(0, limit);
 };
 
-const createLiveRenderer = (): { render: (text: string, final?: boolean) => void } => {
+const createLiveRenderer = (): { render: (text: string, final?: boolean) => void; status: (text: string) => void } => {
   let rendered = false;
+  let statusLength = 0;
+  const clearStatus = (): void => {
+    if (statusLength > 0) {
+      process.stdout.write(`\r${" ".repeat(statusLength)}\r`);
+      statusLength = 0;
+    }
+  };
   return {
     render: (text, final = false) => {
-      if (!rendered || final) process.stdout.write(text);
+      if (!rendered || final) {
+        clearStatus();
+        process.stdout.write(text);
+      }
       rendered = true;
+    },
+    status: text => {
+      const compact = text.replace(/\s+/gu, " ").trim();
+      process.stdout.write(`\r${compact}${" ".repeat(Math.max(0, statusLength - compact.length))}`);
+      statusLength = compact.length;
     }
   };
 };
@@ -86,9 +101,18 @@ const main = async (): Promise<void> => {
     const renderedLines = new Map<string, string>();
     const liveRenderer = createLiveRenderer();
     const renderLive = (text: string, final = false): void => liveRenderer.render(text, final);
+    const startedAt = Date.now();
+    let completed = 0;
+    const renderProgress = (): void => liveRenderer.status(renderPatternProgressStatus(selected[0]?.caseId ?? "pattern", completed, selected.length, Math.floor((Date.now() - startedAt) / 1000)));
     selected.forEach(item => renderedLines.set(item.caseId, renderPatternDiscoveryStart(item.caseId, item.position)));
     renderLive([...renderedLines.values()].join(""));
-    const remote = await fetchRemotePatternSteeringBatch(chess, selected.map(item => ({ caseId: item.caseId, position: item.position, ...("rawGame" in item && item.rawGame !== undefined ? { rawGame: item.rawGame } : {}) })), selected[0]?.horizon ?? cases!.value[0]!.horizon, config.value, concurrency, progress => {
+    renderProgress();
+    const progressTimer = setInterval(renderProgress, 2_000);
+    let remote;
+    try {
+      remote = await fetchRemotePatternSteeringBatch(chess, selected.map(item => ({ caseId: item.caseId, position: item.position, ...( "rawGame" in item && item.rawGame !== undefined ? { rawGame: item.rawGame } : {}) })), selected[0]?.horizon ?? cases!.value[0]!.horizon, config.value, concurrency, progress => {
+        completed = progress.completed;
+        renderProgress();
       if (progress.caseId !== undefined && progress.line !== undefined) {
         const rendered = progress.session === undefined
           ? renderPatternSteeringLine(progress.caseId, progress.line)
@@ -98,7 +122,10 @@ const main = async (): Promise<void> => {
           renderLive([...renderedLines.values()].join(""));
         }
       }
-    });
+      });
+    } finally {
+      clearInterval(progressTimer);
+    }
     if (isErr(remote)) throw new Error(`${remote.error.code}: ${remote.error.message}`);
     selected.forEach(item => {
       const line = remote.value[item.caseId];

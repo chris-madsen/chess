@@ -23,6 +23,10 @@ const wrapMovetext = (text: string, width = 72): string => {
   return lines.join("\n");
 };
 
+export const renderPatternProgressStatus = (caseId: string, completed: number, total: number, elapsedSeconds: number): string => (
+  `pattern: ${caseId} Windows Tal+Maia | ${Math.max(0, completed)}/${Math.max(1, total)} completed | ${Math.max(0, elapsedSeconds)}s`
+);
+
 const rawSanTokens = (rawGame: string): readonly string[] => rawGame
   .replace(/\{[^}]*\}/g, " ")
   .replace(/;[^\n\r]*/g, " ")

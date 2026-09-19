@@ -1,7 +1,14 @@
 import { createChessJsRulesAdapter } from "../src/adapters/chessjs/chess-rules-adapter.ts";
-import { renderPatternDiscoveryStart, renderPatternReference, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "../src/cli/pattern-steering-render.ts";
+import { renderPatternDiscoveryStart, renderPatternProgressStatus, renderPatternReference, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "../src/cli/pattern-steering-render.ts";
 
 const chess = createChessJsRulesAdapter();
+
+test("remote progress status is a single ANSI-free line before completion", () => {
+  const rendered = renderPatternProgressStatus("raw-game", 0, 1, 12);
+  expect(rendered).toBe("pattern: raw-game Windows Tal+Maia | 0/1 completed | 12s");
+  expect(rendered).not.toContain(String.fromCharCode(27));
+  expect(rendered).not.toContain("\n");
+});
 
 test("pattern steering renderer shows the live SAN line from the FEN start", () => {
   const position = chess.ingestPosition("4r3/1k6/pp3r2/1b2P2p/3R1p2/P1R2P2/1P4PP/6K1 w - - 0 35");
