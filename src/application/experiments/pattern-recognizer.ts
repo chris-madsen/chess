@@ -2,6 +2,7 @@ import type { ChessRulesPort } from "../ports/chess-rules";
 import type { PatternExperimentCase } from "../use-cases/pattern-experiment";
 import { extractPatternPositionContext, makePatternAnalysisContext } from "../../domain/patterns/context";
 import { retrievePatternFamilies } from "../../domain/patterns/matchers";
+import { calibratedAttractorScore } from "../../domain/patterns/thresholds";
 import type { PatternAssessment } from "../../domain/patterns/pattern";
 import { err, isErr, ok, type Result } from "../../domain/shared/result";
 import { domainError, type DomainError } from "../../domain/shared/errors";
@@ -23,6 +24,7 @@ export type PatternTrajectoryPoint = Readonly<{
   ply: number;
   distanceToTerminal: number;
   similarity: number;
+  calibratedSimilarity: number;
   state: PatternAssessment["state"];
 }>;
 
@@ -73,7 +75,7 @@ const trajectoryFor = (chess: ChessRulesPort, experimentCase: PatternExperimentC
       if (isErr(facts)) return undefined;
       const context = extractPatternPositionContext(position.value, facts.value, analysis);
       const assessment = retrievePatternFamilies(context, 34).find(candidate => candidate.family === experimentCase.family);
-      return assessment === undefined ? undefined : { ply: state.ply, distanceToTerminal: state.distanceToTerminal, similarity: assessment.similarity, state: assessment.state };
+      return assessment === undefined ? undefined : { ply: state.ply, distanceToTerminal: state.distanceToTerminal, similarity: assessment.similarity, calibratedSimilarity: calibratedAttractorScore(assessment.similarity, experimentCase.family), state: assessment.state };
     })
     .filter((point): point is PatternTrajectoryPoint => point !== undefined);
 };
@@ -86,7 +88,9 @@ export const recognizePatternCase = (
   const facts = chess.computeFacts(experimentCase.position);
   if (isErr(facts)) return err(facts.error);
   const context = extractPatternPositionContext(experimentCase.position, facts.value, makePatternAnalysisContext(experimentCase.position.sideToMove));
-  const candidates = retrievePatternFamilies(context, limit);
+  const candidates = [...retrievePatternFamilies(context, 34)]
+    .sort((first, second) => calibratedAttractorScore(second.similarity, second.family) - calibratedAttractorScore(first.similarity, first.family) || first.family.localeCompare(second.family))
+    .slice(0, limit);
   const target = candidates.find(candidate => candidate.family === experimentCase.family)
     ?? retrievePatternFamilies(context, 34).find(candidate => candidate.family === experimentCase.family);
   if (target === undefined) return err(domainError("PROVIDER_UNAVAILABLE", "patternRecognizer.target", "Target family assessment was not produced"));
@@ -111,9 +115,10 @@ const rate = (numerator: number, denominator: number): number => denominator ===
 const familyMetric = (results: readonly PatternRecognitionCaseResult[], family: string, threshold: number): RecognitionMetric => {
   const positives = results.filter(result => result.exampleKind === "positive" && result.family === family);
   const negatives = results.filter(result => result.exampleKind === "hard_negative" && result.family === family);
-  const truePositives = positives.filter(result => result.target.similarity >= threshold).length;
+  const scoreFor = (result: PatternRecognitionCaseResult): number => calibratedAttractorScore(result.target.similarity, result.family);
+  const truePositives = positives.filter(result => scoreFor(result) >= threshold).length;
   const falseNegatives = positives.length - truePositives;
-  const falsePositives = negatives.filter(result => result.target.similarity >= threshold).length;
+  const falsePositives = negatives.filter(result => scoreFor(result) >= threshold).length;
   const precision = rate(truePositives, truePositives + falsePositives);
   const recall = rate(truePositives, truePositives + falseNegatives);
   return { truePositives, falsePositives, falseNegatives, precision, recall, f1: precision + recall === 0 ? 0 : (2 * precision * recall) / (precision + recall), total: positives.length + negatives.length };
@@ -154,7 +159,7 @@ const median = (values: readonly number[]): number => {
 const proximity = (results: readonly PatternRecognitionCaseResult[]): ProximityMetrics => {
   const points = results.flatMap(result => result.trajectory ?? []);
   const groups = new Map<number, number[]>();
-  points.forEach(point => groups.set(point.distanceToTerminal, [...(groups.get(point.distanceToTerminal) ?? []), point.similarity]));
+  points.forEach(point => groups.set(point.distanceToTerminal, [...(groups.get(point.distanceToTerminal) ?? []), point.calibratedSimilarity ?? point.similarity]));
   const distances = [...groups.keys()].sort((a, b) => a - b);
   const means = Object.fromEntries(distances.map(distance => {
     const values = groups.get(distance) ?? [];
@@ -162,17 +167,17 @@ const proximity = (results: readonly PatternRecognitionCaseResult[]): ProximityM
   }));
   const medians = Object.fromEntries(distances.map(distance => [String(distance), median(groups.get(distance) ?? [])]));
   const trajectories = results.map(result => [...(result.trajectory ?? [])].sort((a, b) => b.distanceToTerminal - a.distanceToTerminal || a.ply - b.ply));
-  const monotonePairs = trajectories.flatMap(trajectory => trajectory.slice(1).map((point, index) => point.similarity >= (trajectory[index]?.similarity ?? 0))).filter(Boolean).length;
+  const monotonePairs = trajectories.flatMap(trajectory => trajectory.slice(1).map((point, index) => (point.calibratedSimilarity ?? point.similarity) >= (trajectory[index]?.calibratedSimilarity ?? trajectory[index]?.similarity ?? 0))).filter(Boolean).length;
   const monotoneTotal = trajectories.reduce((sum, trajectory) => sum + Math.max(0, trajectory.length - 1), 0);
   const deltas = results.flatMap(result => {
     const trajectory = [...(result.trajectory ?? [])].sort((a, b) => a.ply - b.ply);
-    return trajectory.slice(1).map((point, index) => point.similarity - (trajectory[index]?.similarity ?? 0));
+    return trajectory.slice(1).map((point, index) => (point.calibratedSimilarity ?? point.similarity) - (trajectory[index]?.calibratedSimilarity ?? trajectory[index]?.similarity ?? 0));
   });
   return {
     sampleCount: points.length,
     meanSimilarityByDistance: means,
     medianSimilarityByDistance: medians,
-    spearmanCorrelation: spearman(points.map(point => -point.distanceToTerminal), points.map(point => point.similarity)),
+    spearmanCorrelation: spearman(points.map(point => -point.distanceToTerminal), points.map(point => point.calibratedSimilarity ?? point.similarity)),
     monotonicityRate: monotoneTotal === 0 ? 0 : monotonePairs / monotoneTotal,
     scoreDeltaPerPly: deltas.length === 0 ? 0 : deltas.reduce((sum, value) => sum + value, 0) / deltas.length
   };
@@ -196,32 +201,16 @@ const summarizeSplit = (results: readonly PatternRecognitionCaseResult[], thresh
   const controls = results.filter(result => result.exampleKind === "control");
   const top1Accuracy = rate(positives.filter(result => result.top1Family === result.family).length, positives.length);
   const topKRecall = rate(positives.filter(result => result.topKHit).length, positives.length);
-  const hardNegativeRejectionRate = rate(hardNegatives.filter(result => result.target.similarity < threshold).length, hardNegatives.length);
-  const controlFalsePositiveRate = rate(controls.filter(result => result.target.similarity >= threshold).length, controls.length);
+  const scoreFor = (result: PatternRecognitionCaseResult): number => calibratedAttractorScore(result.target.similarity, result.family);
+  const hardNegativeRejectionRate = rate(hardNegatives.filter(result => scoreFor(result) < threshold).length, hardNegatives.length);
+  const controlFalsePositiveRate = rate(controls.filter(result => scoreFor(result) >= threshold).length, controls.length);
   const families = [...new Set(results.map(result => result.family))].sort();
   return { total: results.length, top1Accuracy, topKRecall, hardNegativeRejectionRate, controlFalsePositiveRate, familyMetrics: Object.fromEntries(families.map(family => [family, familyMetric(results, family, threshold)])), confusionMatrix: confusionMatrix(results), proximity: proximity(results) };
 };
 
-const calibratedThreshold = (results: readonly PatternRecognitionCaseResult[]): number => {
-  const calibration = results.filter(result => result.split === "calibration" && result.exampleKind !== "control");
-  const thresholds = [...new Set([0.65, ...calibration.map(result => result.target.similarity)])].sort((a, b) => a - b);
-  let best = 0.65;
-  let bestF1 = -1;
-  thresholds.forEach(threshold => {
-    const positives = calibration.filter(result => result.exampleKind === "positive");
-    const negatives = calibration.filter(result => result.exampleKind === "hard_negative");
-    const tp = positives.filter(result => result.target.similarity >= threshold).length;
-    const fp = negatives.filter(result => result.target.similarity >= threshold).length;
-    const fn = positives.length - tp;
-    const precision = rate(tp, tp + fp);
-    const recall = rate(tp, tp + fn);
-    const f1 = precision + recall === 0 ? 0 : (2 * precision * recall) / (precision + recall);
-    if (f1 > bestF1) { bestF1 = f1; best = threshold; }
-  });
-  return best;
-};
+const calibratedThreshold = 0.5;
 
 export const summarizePatternRecognition = (datasetVersion: string, results: readonly PatternRecognitionCaseResult[]): PatternRecognitionReport => {
-  const threshold = calibratedThreshold(results);
+  const threshold = calibratedThreshold;
   return { datasetVersion, total: results.length, calibrationThreshold: threshold, bySplit: { calibration: summarizeSplit(results.filter(result => result.split === "calibration"), threshold), evaluation: summarizeSplit(results.filter(result => result.split === "evaluation"), threshold) } };
 };

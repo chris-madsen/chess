@@ -11,11 +11,14 @@ import { patternTargetTriggerFor } from "../../domain/patterns/thresholds";
 
 export const MAX_PATTERN_TARGETS = 3;
 
-export const rankPatternTargets = <T extends Readonly<{ targetFamily: string; line?: Readonly<{ status: string; plies: readonly unknown[] }> }>>(
+export const rankPatternTargets = <T extends Readonly<{ targetFamily: string; humanPathMate?: boolean; line?: Readonly<{ status: string; plies: readonly unknown[] }> }>>(
   targets: readonly T[],
   limit = MAX_PATTERN_TARGETS
 ): readonly T[] => [...targets]
   .sort((first, second) => {
+    const firstMate = first.humanPathMate === true;
+    const secondMate = second.humanPathMate === true;
+    if (firstMate !== secondMate) return firstMate ? -1 : 1;
     const firstTerminal = first.line?.status === "Terminal";
     const secondTerminal = second.line?.status === "Terminal";
     if (firstTerminal !== secondTerminal) return firstTerminal ? -1 : 1;
@@ -33,6 +36,7 @@ export type PatternTargetBranch = Readonly<{
   prefixPlies: readonly ScenarioPly[];
   line?: ScenarioLine;
   forcedMate?: ForcedMateVerification;
+  humanPathMate?: boolean;
 }>;
 
 export type PatternTargetSession = Readonly<{
@@ -129,7 +133,21 @@ export const generatePatternTargetSession = async (
                 forcedMate = isErr(proof) ? { status: "UNAVAILABLE", reason: proof.error.message } : proof.value;
               }
             }
-            targets[index] = { ...target, line: result.value, ...(forcedMate === undefined ? {} : { forcedMate }) };
+            const terminalPositionResult = result.value.status === "Terminal"
+              ? result.value.plies.reduce((current, ply) => {
+                if (isErr(current)) return current;
+                return request.discovery.chess.applyMove(current.value, ply.move);
+              }, ok(target.position) as Result<PositionSnapshot, DomainError>)
+              : undefined;
+            const humanPathMate = terminalPositionResult !== undefined && !isErr(terminalPositionResult)
+              ? request.discovery.chess.computeFacts(terminalPositionResult.value)
+              : undefined;
+            targets[index] = {
+              ...target,
+              line: result.value,
+              ...(forcedMate === undefined ? {} : { forcedMate }),
+              ...(humanPathMate !== undefined && !isErr(humanPathMate) ? { humanPathMate: humanPathMate.value.isCheckmate } : {})
+            };
           }
         }
       }).catch(() => undefined).finally(() => {

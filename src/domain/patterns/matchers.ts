@@ -2,6 +2,7 @@ import type { PatternFamilyId, PatternAssessment, PatternEvidence, PatternState 
 import { PATTERN_FAMILY_IDS, PATTERN_MODEL_VERSION, STEERABLE_PATTERN_FAMILY_IDS } from "./pattern";
 import { piecesOf, type PatternPositionContext } from "./context";
 import { mateGeometryDescriptorFor, scoreMateGeometry } from "./mate-geometry";
+import { calibratedAttractorScore } from "./thresholds";
 
 export type PatternMatcherResult = Readonly<{
   similarity: number;
@@ -17,7 +18,12 @@ export type PatternMatcher = Readonly<{
   classifyState: (result: PatternMatcherResult) => PatternState;
 }>;
 
-const stateFor = (result: PatternMatcherResult): PatternState => result.similarity >= 0.82 ? "mate_basin" : result.similarity >= 0.65 ? "near" : result.similarity >= 0.45 ? "forming" : result.similarity >= 0.25 ? "promising" : "far";
+const stateFor = (result: PatternMatcherResult, family: PatternFamilyId): PatternState => {
+  const score = calibratedAttractorScore(result.similarity, family);
+  // Calibration ranks candidates on a common scale, while the raw geometry
+  // still prevents a soft, non-terminal shape from being labelled as a mate.
+  return score >= 0.85 && result.similarity >= 0.65 ? "mate_basin" : score >= 0.65 && result.similarity >= 0.5 ? "near" : score >= 0.45 && result.similarity >= 0.5 ? "forming" : score >= 0.25 ? "promising" : "far";
+};
 
 const matcherForDescriptor = (family: PatternFamilyId): PatternMatcher => {
   const descriptor = mateGeometryDescriptorFor(family);
@@ -26,7 +32,7 @@ const matcherForDescriptor = (family: PatternFamilyId): PatternMatcher => {
     family,
     retrievalHint: context => descriptor.variants.some(variant => variant.roles.some(role => piecesOf(context, context.analysis.attackerSide).some(piece => role.allowedPieceTypes.includes(piece.type)))),
     score: context => scoreMateGeometry(context, descriptor),
-    classifyState: stateFor
+    classifyState: result => stateFor(result, family)
   };
 };
 

@@ -82,7 +82,7 @@ const roleAssignment = (context: PatternPositionContext, roles: readonly MateRol
   const quality = (values: readonly number[]): readonly [number, number, number] => {
     const critical = values.filter((_, index) => roles[index]?.criticality === "critical");
     const supporting = values.filter((_, index) => roles[index]?.criticality === "supporting");
-    return [Math.min(...critical, 0), Math.min(...supporting, 1), values.reduce((sum, value) => sum + value, 0)];
+    return [critical.length === 0 ? 0 : Math.min(...critical), supporting.length === 0 ? 1 : Math.min(...supporting), values.reduce((sum, value) => sum + value, 0)];
   };
   const better = (left: readonly number[], right: readonly number[]): boolean => {
     const a = quality(left);

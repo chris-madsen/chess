@@ -1,213 +1,1212 @@
 {
-  "modelVersion": "mate-geometry-v2-calibration-v1",
+  "modelVersion": "mate-geometry-v2-calibration-v2",
   "datasetVersion": "lichess-puzzle-mvp-2026-09-controlled",
   "split": "calibration",
-  "calibrationCases": 228,
-  "method": "per-family maximum positive trajectory score with 5% calibration margin",
+  "calibrationCases": 236,
+  "method": "stable attacker side; positive/hard-negative/control operating points; monotonic empirical map",
   "families": {
     "ANASTASIA": {
-      "presenceThreshold": 0.641,
-      "targetTrigger": 0.855,
+      "status": "CALIBRATED",
       "positiveCount": 8,
-      "hardNegativeCount": 4
+      "hardNegativeCount": 4,
+      "controlCount": 8,
+      "presenceThreshold": 0.3422,
+      "targetTrigger": 0.375,
+      "points": [
+        [
+          0,
+          0.2
+        ],
+        [
+          0.06,
+          0.2
+        ],
+        [
+          0.07,
+          0.2
+        ],
+        [
+          0.088,
+          0.2
+        ],
+        [
+          0.09,
+          0.2
+        ],
+        [
+          0.1,
+          0.3
+        ],
+        [
+          0.11,
+          0.4
+        ],
+        [
+          0.1116,
+          0.5
+        ],
+        [
+          0.118,
+          0.5
+        ],
+        [
+          0.12,
+          0.5
+        ],
+        [
+          0.1233,
+          0.5
+        ],
+        [
+          0.13,
+          0.5
+        ],
+        [
+          0.15,
+          0.6
+        ],
+        [
+          0.216,
+          0.6
+        ],
+        [
+          0.3422,
+          0.7
+        ],
+        [
+          0.375,
+          0.8
+        ],
+        [
+          0.65,
+          0.9
+        ],
+        [
+          0.8,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ]
     },
     "ARABIAN": {
-      "presenceThreshold": 0.617,
-      "targetTrigger": 0.823,
+      "status": "CALIBRATED",
       "positiveCount": 8,
-      "hardNegativeCount": 4
+      "hardNegativeCount": 4,
+      "controlCount": 0,
+      "presenceThreshold": 0,
+      "targetTrigger": 0.381,
+      "points": [
+        [
+          0,
+          0.2
+        ],
+        [
+          0.05,
+          0.3
+        ],
+        [
+          0.0513,
+          0.4
+        ],
+        [
+          0.0647,
+          0.5
+        ],
+        [
+          0.0653,
+          0.6
+        ],
+        [
+          0.072,
+          0.7
+        ],
+        [
+          0.0833,
+          0.8
+        ],
+        [
+          0.0913,
+          0.9
+        ],
+        [
+          0.38,
+          0.9
+        ],
+        [
+          0.389,
+          1
+        ],
+        [
+          0.445,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ]
     },
     "BACK_RANK": {
-      "presenceThreshold": 0.244,
-      "targetTrigger": 0.325,
+      "status": "CALIBRATED",
       "positiveCount": 8,
-      "hardNegativeCount": 4
+      "hardNegativeCount": 4,
+      "controlCount": 0,
+      "presenceThreshold": 0.198,
+      "targetTrigger": 0.234,
+      "points": [
+        [
+          0,
+          0.2
+        ],
+        [
+          0.1,
+          0.3
+        ],
+        [
+          0.11,
+          0.4
+        ],
+        [
+          0.12,
+          0.4
+        ],
+        [
+          0.1562,
+          0.5
+        ],
+        [
+          0.1894,
+          0.5
+        ],
+        [
+          0.198,
+          0.6
+        ],
+        [
+          0.2141,
+          0.7
+        ],
+        [
+          0.234,
+          0.8
+        ],
+        [
+          0.2983,
+          0.9
+        ],
+        [
+          0.3422,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ]
     },
     "BALESTRA": {
-      "presenceThreshold": 0.332,
-      "targetTrigger": 0.442,
+      "status": "CALIBRATED",
       "positiveCount": 8,
-      "hardNegativeCount": 4
+      "hardNegativeCount": 4,
+      "controlCount": 0,
+      "presenceThreshold": 0.1446,
+      "targetTrigger": 0.1446,
+      "points": [
+        [
+          0,
+          0.2
+        ],
+        [
+          0.11,
+          0.5
+        ],
+        [
+          0.12,
+          0.6
+        ],
+        [
+          0.1299,
+          0.6
+        ],
+        [
+          0.13,
+          0.7
+        ],
+        [
+          0.1446,
+          0.8
+        ],
+        [
+          0.175,
+          0.9
+        ],
+        [
+          0.408,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ]
     },
     "BLIND_SWINE": {
-      "presenceThreshold": 0.346,
-      "targetTrigger": 0.461,
+      "status": "CALIBRATED",
       "positiveCount": 8,
-      "hardNegativeCount": 4
+      "hardNegativeCount": 4,
+      "controlCount": 0,
+      "presenceThreshold": 0.1694,
+      "targetTrigger": 0.108,
+      "points": [
+        [
+          0,
+          0.2
+        ],
+        [
+          0.0776,
+          0.3
+        ],
+        [
+          0.0833,
+          0.3
+        ],
+        [
+          0.0843,
+          0.4
+        ],
+        [
+          0.0967,
+          0.5
+        ],
+        [
+          0.097,
+          0.6
+        ],
+        [
+          0.0978,
+          0.7
+        ],
+        [
+          0.098,
+          0.8
+        ],
+        [
+          0.1067,
+          0.9
+        ],
+        [
+          0.107,
+          0.9
+        ],
+        [
+          0.1127,
+          0.9
+        ],
+        [
+          0.1694,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ]
     },
     "BODEN": {
-      "presenceThreshold": 0.081,
-      "targetTrigger": 0.108,
+      "status": "CALIBRATED",
       "positiveCount": 8,
-      "hardNegativeCount": 4
+      "hardNegativeCount": 4,
+      "controlCount": 0,
+      "presenceThreshold": 0,
+      "targetTrigger": 0.111,
+      "points": [
+        [
+          0,
+          0.2
+        ],
+        [
+          0.07,
+          0.5
+        ],
+        [
+          0.0713,
+          0.6
+        ],
+        [
+          0.074,
+          0.6
+        ],
+        [
+          0.09,
+          0.7
+        ],
+        [
+          0.11,
+          1
+        ],
+        [
+          0.112,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ]
     },
     "CORNER": {
-      "presenceThreshold": 0.374,
-      "targetTrigger": 0.499,
+      "status": "CALIBRATED",
       "positiveCount": 8,
-      "hardNegativeCount": 4
+      "hardNegativeCount": 4,
+      "controlCount": 0,
+      "presenceThreshold": 0.1033,
+      "targetTrigger": 0.2727,
+      "points": [
+        [
+          0,
+          0.2
+        ],
+        [
+          0.0567,
+          0.2
+        ],
+        [
+          0.1033,
+          0.3
+        ],
+        [
+          0.1433,
+          0.4
+        ],
+        [
+          0.18,
+          0.5
+        ],
+        [
+          0.1861,
+          0.6
+        ],
+        [
+          0.1972,
+          0.6
+        ],
+        [
+          0.2333,
+          0.7
+        ],
+        [
+          0.2644,
+          0.8
+        ],
+        [
+          0.2676,
+          0.9
+        ],
+        [
+          0.2717,
+          0.9
+        ],
+        [
+          0.28,
+          1
+        ],
+        [
+          0.325,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ]
     },
     "DOUBLE_BISHOP": {
-      "presenceThreshold": 0.122,
-      "targetTrigger": 0.163,
+      "status": "CALIBRATED",
       "positiveCount": 8,
-      "hardNegativeCount": 4
+      "hardNegativeCount": 4,
+      "controlCount": 0,
+      "presenceThreshold": 0,
+      "targetTrigger": 0.151,
+      "points": [
+        [
+          0,
+          0.2
+        ],
+        [
+          0.11,
+          0.7
+        ],
+        [
+          0.15,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ]
     },
     "DOVETAIL": {
-      "presenceThreshold": 0.194,
-      "targetTrigger": 0.259,
+      "status": "CALIBRATED",
       "positiveCount": 8,
-      "hardNegativeCount": 4
+      "hardNegativeCount": 4,
+      "controlCount": 0,
+      "presenceThreshold": 0.205,
+      "targetTrigger": 0.1284,
+      "points": [
+        [
+          0,
+          0.2
+        ],
+        [
+          0.0633,
+          0.3
+        ],
+        [
+          0.0667,
+          0.4
+        ],
+        [
+          0.08,
+          0.5
+        ],
+        [
+          0.0867,
+          0.5
+        ],
+        [
+          0.09,
+          0.6
+        ],
+        [
+          0.0944,
+          0.6
+        ],
+        [
+          0.12,
+          0.6
+        ],
+        [
+          0.1206,
+          0.7
+        ],
+        [
+          0.1284,
+          0.8
+        ],
+        [
+          0.1717,
+          0.9
+        ],
+        [
+          0.1758,
+          0.9
+        ],
+        [
+          0.205,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ]
     },
     "EPAULETTE": {
-      "presenceThreshold": 0.332,
-      "targetTrigger": 0.442,
+      "status": "CALIBRATED",
       "positiveCount": 8,
-      "hardNegativeCount": 4
+      "hardNegativeCount": 4,
+      "controlCount": 0,
+      "presenceThreshold": 0,
+      "targetTrigger": 0.376,
+      "points": [
+        [
+          0,
+          0.2
+        ],
+        [
+          0.06,
+          0.3
+        ],
+        [
+          0.0926,
+          0.4
+        ],
+        [
+          0.11,
+          0.5
+        ],
+        [
+          0.111,
+          0.6
+        ],
+        [
+          0.13,
+          0.7
+        ],
+        [
+          0.135,
+          0.8
+        ],
+        [
+          0.147,
+          0.9
+        ],
+        [
+          0.159,
+          0.9
+        ],
+        [
+          0.3189,
+          1
+        ],
+        [
+          0.375,
+          1
+        ],
+        [
+          0.465,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ]
     },
     "HOOK": {
-      "presenceThreshold": 0.232,
-      "targetTrigger": 0.309,
+      "status": "CALIBRATED",
       "positiveCount": 8,
-      "hardNegativeCount": 4
+      "hardNegativeCount": 4,
+      "controlCount": 0,
+      "presenceThreshold": 0.226,
+      "targetTrigger": 0.1544,
+      "points": [
+        [
+          0,
+          0.2
+        ],
+        [
+          0.0833,
+          0.3
+        ],
+        [
+          0.09,
+          0.3
+        ],
+        [
+          0.0951,
+          0.4
+        ],
+        [
+          0.1067,
+          0.4
+        ],
+        [
+          0.108,
+          0.5
+        ],
+        [
+          0.1139,
+          0.5
+        ],
+        [
+          0.1233,
+          0.6
+        ],
+        [
+          0.127,
+          0.7
+        ],
+        [
+          0.1544,
+          0.8
+        ],
+        [
+          0.1631,
+          0.8
+        ],
+        [
+          0.226,
+          0.9
+        ],
+        [
+          0.255,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ]
     },
     "KILL_BOX": {
-      "presenceThreshold": 0.289,
-      "targetTrigger": 0.385,
+      "status": "CALIBRATED",
       "positiveCount": 8,
-      "hardNegativeCount": 4
+      "hardNegativeCount": 4,
+      "controlCount": 0,
+      "presenceThreshold": 0.405,
+      "targetTrigger": 0.316,
+      "points": [
+        [
+          0,
+          0.2
+        ],
+        [
+          0.0833,
+          0.5
+        ],
+        [
+          0.0911,
+          0.5
+        ],
+        [
+          0.1067,
+          0.6
+        ],
+        [
+          0.1369,
+          0.7
+        ],
+        [
+          0.1472,
+          0.8
+        ],
+        [
+          0.1528,
+          0.9
+        ],
+        [
+          0.205,
+          0.9
+        ],
+        [
+          0.315,
+          0.9
+        ],
+        [
+          0.365,
+          0.9
+        ],
+        [
+          0.405,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ]
     },
     "PILLSBURY": {
-      "presenceThreshold": 0.289,
-      "targetTrigger": 0.385,
+      "status": "CALIBRATED",
       "positiveCount": 8,
-      "hardNegativeCount": 4
+      "hardNegativeCount": 4,
+      "controlCount": 0,
+      "presenceThreshold": 0.405,
+      "targetTrigger": 0.1234,
+      "points": [
+        [
+          0,
+          0.2
+        ],
+        [
+          0.07,
+          0.3
+        ],
+        [
+          0.0913,
+          0.4
+        ],
+        [
+          0.1054,
+          0.5
+        ],
+        [
+          0.11,
+          0.7
+        ],
+        [
+          0.112,
+          0.8
+        ],
+        [
+          0.119,
+          0.9
+        ],
+        [
+          0.1224,
+          0.9
+        ],
+        [
+          0.1266,
+          0.9
+        ],
+        [
+          0.405,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ]
     },
     "MORPHYS": {
-      "presenceThreshold": 0.332,
-      "targetTrigger": 0.442,
+      "status": "CALIBRATED",
       "positiveCount": 8,
-      "hardNegativeCount": 4
+      "hardNegativeCount": 4,
+      "controlCount": 0,
+      "presenceThreshold": 0,
+      "targetTrigger": 0.246,
+      "points": [
+        [
+          0,
+          0.2
+        ],
+        [
+          0.042,
+          0.3
+        ],
+        [
+          0.1167,
+          0.4
+        ],
+        [
+          0.1191,
+          0.5
+        ],
+        [
+          0.1299,
+          0.6
+        ],
+        [
+          0.1344,
+          0.7
+        ],
+        [
+          0.143,
+          0.8
+        ],
+        [
+          0.193,
+          0.8
+        ],
+        [
+          0.2069,
+          0.9
+        ],
+        [
+          0.245,
+          1
+        ],
+        [
+          0.405,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ]
     },
     "OPERA": {
-      "presenceThreshold": 0.268,
-      "targetTrigger": 0.358,
+      "status": "CALIBRATED",
       "positiveCount": 8,
-      "hardNegativeCount": 4
+      "hardNegativeCount": 4,
+      "controlCount": 0,
+      "presenceThreshold": 0,
+      "targetTrigger": 0.1549,
+      "points": [
+        [
+          0,
+          0.2
+        ],
+        [
+          0.06,
+          0.3
+        ],
+        [
+          0.07,
+          0.4
+        ],
+        [
+          0.075,
+          0.5
+        ],
+        [
+          0.0833,
+          0.6
+        ],
+        [
+          0.098,
+          0.6
+        ],
+        [
+          0.1,
+          0.7
+        ],
+        [
+          0.111,
+          0.7
+        ],
+        [
+          0.1233,
+          0.8
+        ],
+        [
+          0.1539,
+          0.8
+        ],
+        [
+          0.1917,
+          0.9
+        ],
+        [
+          0.255,
+          1
+        ],
+        [
+          0.377,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ]
     },
     "SMOTHERED": {
-      "presenceThreshold": 0.712,
-      "targetTrigger": 0.95,
+      "status": "CALIBRATED",
       "positiveCount": 8,
-      "hardNegativeCount": 4
+      "hardNegativeCount": 4,
+      "controlCount": 0,
+      "presenceThreshold": 0,
+      "targetTrigger": 1,
+      "points": [
+        [
+          0,
+          0.2
+        ],
+        [
+          0.12,
+          0.3
+        ],
+        [
+          0.13,
+          0.7
+        ],
+        [
+          0.1367,
+          0.8
+        ],
+        [
+          0.3578,
+          0.9
+        ],
+        [
+          0.9,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ]
     },
     "SWALLOWTAIL": {
-      "presenceThreshold": 0.352,
-      "targetTrigger": 0.47,
+      "status": "CALIBRATED",
       "positiveCount": 8,
-      "hardNegativeCount": 4
+      "hardNegativeCount": 4,
+      "controlCount": 0,
+      "presenceThreshold": 0,
+      "targetTrigger": 0.1114,
+      "points": [
+        [
+          0,
+          0.2
+        ],
+        [
+          0.0833,
+          0.3
+        ],
+        [
+          0.09,
+          0.5
+        ],
+        [
+          0.098,
+          0.5
+        ],
+        [
+          0.1039,
+          0.5
+        ],
+        [
+          0.11,
+          0.6
+        ],
+        [
+          0.1114,
+          0.7
+        ],
+        [
+          0.1114,
+          0.8
+        ],
+        [
+          0.1341,
+          0.9
+        ],
+        [
+          0.161,
+          1
+        ],
+        [
+          0.495,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ]
     },
     "TRIANGLE": {
-      "presenceThreshold": 0.297,
-      "targetTrigger": 0.396,
+      "status": "CALIBRATED",
       "positiveCount": 8,
-      "hardNegativeCount": 4
+      "hardNegativeCount": 4,
+      "controlCount": 0,
+      "presenceThreshold": 0.08,
+      "targetTrigger": 0.256,
+      "points": [
+        [
+          0,
+          0.2
+        ],
+        [
+          0.0729,
+          0.2
+        ],
+        [
+          0.08,
+          0.3
+        ],
+        [
+          0.0833,
+          0.4
+        ],
+        [
+          0.086,
+          0.5
+        ],
+        [
+          0.09,
+          0.6
+        ],
+        [
+          0.0963,
+          0.7
+        ],
+        [
+          0.1422,
+          0.8
+        ],
+        [
+          0.1639,
+          0.8
+        ],
+        [
+          0.192,
+          0.9
+        ],
+        [
+          0.2489,
+          1
+        ],
+        [
+          0.255,
+          1
+        ],
+        [
+          0.365,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ]
     },
     "VUKOVIC": {
-      "presenceThreshold": 0.374,
-      "targetTrigger": 0.499,
+      "status": "CALIBRATED",
       "positiveCount": 8,
-      "hardNegativeCount": 4
+      "hardNegativeCount": 4,
+      "controlCount": 0,
+      "presenceThreshold": 0,
+      "targetTrigger": 0.184,
+      "points": [
+        [
+          0,
+          0.2
+        ],
+        [
+          0.06,
+          0.3
+        ],
+        [
+          0.07,
+          0.4
+        ],
+        [
+          0.0833,
+          0.6
+        ],
+        [
+          0.0913,
+          0.7
+        ],
+        [
+          0.1267,
+          0.7
+        ],
+        [
+          0.1367,
+          0.7
+        ],
+        [
+          0.1369,
+          0.8
+        ],
+        [
+          0.183,
+          0.8
+        ],
+        [
+          0.2644,
+          0.9
+        ],
+        [
+          0.405,
+          1
+        ],
+        [
+          0.485,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ]
     },
     "DAMIANO": {
-      "presenceThreshold": 0.038,
-      "targetTrigger": 0.05,
+      "status": "UNAVAILABLE",
+      "reason": "no verified calibration fixtures",
       "positiveCount": 0,
-      "hardNegativeCount": 0
+      "hardNegativeCount": 0,
+      "controlCount": 0
     },
     "GRECO": {
-      "presenceThreshold": 0.038,
-      "targetTrigger": 0.05,
+      "status": "UNAVAILABLE",
+      "reason": "no verified calibration fixtures",
       "positiveCount": 0,
-      "hardNegativeCount": 0
+      "hardNegativeCount": 0,
+      "controlCount": 0
     },
     "LOLLI": {
-      "presenceThreshold": 0.038,
-      "targetTrigger": 0.05,
+      "status": "UNAVAILABLE",
+      "reason": "no verified calibration fixtures",
       "positiveCount": 0,
-      "hardNegativeCount": 0
+      "hardNegativeCount": 0,
+      "controlCount": 0
     },
     "LEGAL": {
-      "presenceThreshold": 0.038,
-      "targetTrigger": 0.05,
+      "status": "UNAVAILABLE",
+      "reason": "no verified calibration fixtures",
       "positiveCount": 0,
-      "hardNegativeCount": 0
+      "hardNegativeCount": 0,
+      "controlCount": 0
     },
     "BLACKBURNE": {
-      "presenceThreshold": 0.038,
-      "targetTrigger": 0.05,
+      "status": "UNAVAILABLE",
+      "reason": "no verified calibration fixtures",
       "positiveCount": 0,
-      "hardNegativeCount": 0
+      "hardNegativeCount": 0,
+      "controlCount": 0
     },
     "ANDERSSEN": {
-      "presenceThreshold": 0.038,
-      "targetTrigger": 0.05,
+      "status": "UNAVAILABLE",
+      "reason": "no verified calibration fixtures",
       "positiveCount": 0,
-      "hardNegativeCount": 0
+      "hardNegativeCount": 0,
+      "controlCount": 0
     },
     "MAYET": {
-      "presenceThreshold": 0.038,
-      "targetTrigger": 0.05,
+      "status": "UNAVAILABLE",
+      "reason": "no verified calibration fixtures",
       "positiveCount": 0,
-      "hardNegativeCount": 0
+      "hardNegativeCount": 0,
+      "controlCount": 0
     },
     "RETI": {
-      "presenceThreshold": 0.038,
-      "targetTrigger": 0.05,
+      "status": "UNAVAILABLE",
+      "reason": "no verified calibration fixtures",
       "positiveCount": 0,
-      "hardNegativeCount": 0
+      "hardNegativeCount": 0,
+      "controlCount": 0
     },
     "MAX_LANGE": {
-      "presenceThreshold": 0.038,
-      "targetTrigger": 0.05,
+      "status": "UNAVAILABLE",
+      "reason": "no verified calibration fixtures",
       "positiveCount": 0,
-      "hardNegativeCount": 0
+      "hardNegativeCount": 0,
+      "controlCount": 0
     },
     "SUFFOCATION": {
-      "presenceThreshold": 0.038,
-      "targetTrigger": 0.05,
+      "status": "UNAVAILABLE",
+      "reason": "no verified calibration fixtures",
       "positiveCount": 0,
-      "hardNegativeCount": 0
+      "hardNegativeCount": 0,
+      "controlCount": 0
     },
     "LAWNMOWER": {
-      "presenceThreshold": 0.038,
-      "targetTrigger": 0.05,
+      "status": "UNAVAILABLE",
+      "reason": "no verified calibration fixtures",
       "positiveCount": 0,
-      "hardNegativeCount": 0
+      "hardNegativeCount": 0,
+      "controlCount": 0
     },
     "DAVID_GOLIATH": {
-      "presenceThreshold": 0.038,
-      "targetTrigger": 0.05,
+      "status": "UNAVAILABLE",
+      "reason": "no verified calibration fixtures",
       "positiveCount": 0,
-      "hardNegativeCount": 0
+      "hardNegativeCount": 0,
+      "controlCount": 0
     },
     "TWO_KNIGHTS": {
-      "presenceThreshold": 0.038,
-      "targetTrigger": 0.05,
+      "status": "UNAVAILABLE",
+      "reason": "no verified calibration fixtures",
       "positiveCount": 0,
-      "hardNegativeCount": 0
+      "hardNegativeCount": 0,
+      "controlCount": 0
     },
     "H_FILE": {
-      "presenceThreshold": 0.038,
-      "targetTrigger": 0.05,
+      "status": "UNAVAILABLE",
+      "reason": "no verified calibration fixtures",
       "positiveCount": 0,
-      "hardNegativeCount": 0
+      "hardNegativeCount": 0,
+      "controlCount": 0
     },
     "DIAGONAL_CORRIDOR": {
-      "presenceThreshold": 0.038,
-      "targetTrigger": 0.05,
+      "status": "UNAVAILABLE",
+      "reason": "no verified calibration fixtures",
       "positiveCount": 0,
-      "hardNegativeCount": 0
+      "hardNegativeCount": 0,
+      "controlCount": 0
     }
   }
 }

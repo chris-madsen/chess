@@ -2,59 +2,96 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { createChessJsRulesAdapter } from "../adapters/chessjs/chess-rules-adapter";
 import { ingestPatternDatasetEntry, type PatternDatasetEntry } from "../application/experiments/pattern-dataset";
-import { extractPatternPositionContext, makePatternAnalysisContext } from "../domain/patterns/context";
+import { extractPatternPositionContext, makePatternAnalysisContext, type PatternAnalysisContext } from "../domain/patterns/context";
 import { retrievePatternFamilies } from "../domain/patterns/matchers";
 import { PATTERN_FAMILY_IDS, type PatternFamilyId } from "../domain/patterns/pattern";
 import { isErr } from "../domain/shared/result";
 
-type Scores = { positive: number[]; negative: number[] };
+type Scores = { positive: number[]; hardNegative: number[]; control: number[] };
+type FamilyCalibration = { status: "CALIBRATED" | "UNAVAILABLE"; reason?: string; positiveCount: number; hardNegativeCount: number; controlCount: number; presenceThreshold?: number; targetTrigger?: number; points?: readonly (readonly [number, number])[] };
+const round = (value: number): number => Number(Math.max(0, Math.min(1, value)).toFixed(4));
+const quantile = (values: readonly number[], fraction: number): number => {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.max(0, Math.floor((sorted.length - 1) * fraction)))] ?? 0;
+};
+const rate = (n: number, d: number): number => d === 0 ? 0 : n / d;
 
-const scoreAt = (chess: ReturnType<typeof createChessJsRulesAdapter>, fen: string, family: PatternFamilyId): number => {
+const analysisFor = (chess: ReturnType<typeof createChessJsRulesAdapter>, entry: PatternDatasetEntry): PatternAnalysisContext => {
+  const start = chess.ingestPosition(entry.trajectory?.[0]?.fen ?? entry.fen);
+  if (isErr(start)) throw new Error(`Invalid calibration start for ${entry.caseId}: ${start.error.message}`);
+  return makePatternAnalysisContext(start.value.sideToMove);
+};
+const scoreAt = (chess: ReturnType<typeof createChessJsRulesAdapter>, fen: string, family: PatternFamilyId, analysis: PatternAnalysisContext): number => {
   const position = chess.ingestPosition(fen);
   if (isErr(position)) return 0;
   const facts = chess.computeFacts(position.value);
   if (isErr(facts)) return 0;
-  const context = extractPatternPositionContext(position.value, facts.value, makePatternAnalysisContext(position.value.sideToMove));
+  const context = extractPatternPositionContext(position.value, facts.value, analysis);
   return retrievePatternFamilies(context, 34).find(item => item.family === family)?.similarity ?? 0;
 };
-
-const maxCaseScore = (chess: ReturnType<typeof createChessJsRulesAdapter>, entry: PatternDatasetEntry): number => {
-  const states = entry.trajectory?.map(state => state.fen) ?? [entry.fen];
-  return Math.max(...states.map(fen => scoreAt(chess, fen, entry.family)));
+const caseScore = (chess: ReturnType<typeof createChessJsRulesAdapter>, entry: PatternDatasetEntry): number => {
+  const analysis = analysisFor(chess, entry);
+  return Math.max(...(entry.trajectory?.map(state => state.fen) ?? [entry.fen]).map(fen => scoreAt(chess, fen, entry.family, analysis)));
 };
-
-const bestThreshold = (scores: Scores): number => Number(Math.max(0.05, Math.max(...scores.positive, 0) * 0.95).toFixed(3));
+const candidatesFor = (scores: Scores): readonly number[] => [...new Set([0, 1, ...scores.positive, ...scores.hardNegative, ...scores.control])].sort((a, b) => a - b);
+const metrics = (scores: Scores, threshold: number): Readonly<{ precision: number; recall: number; f1: number }> => {
+  const tp = scores.positive.filter(value => value >= threshold).length;
+  const fp = [...scores.hardNegative, ...scores.control].filter(value => value >= threshold).length;
+  const fn = scores.positive.length - tp;
+  const precision = rate(tp, tp + fp);
+  const recall = rate(tp, tp + fn);
+  return { precision, recall, f1: precision + recall === 0 ? 0 : 2 * precision * recall / (precision + recall) };
+};
+const presenceFor = (scores: Scores): number => {
+  const candidates = candidatesFor(scores).map(threshold => ({ threshold, ...metrics(scores, threshold) }));
+  const precise = candidates.filter(item => item.precision >= 0.95);
+  const best = (precise.length > 0 ? precise.sort((a, b) => b.recall - a.recall || a.threshold - b.threshold) : candidates.sort((a, b) => b.f1 - a.f1 || a.threshold - b.threshold))[0];
+  return round(best?.threshold ?? 0);
+};
+const targetFor = (scores: Scores): number => {
+  if (scores.positive.length === 0) return 0;
+  const negativeCeiling = Math.max(quantile(scores.hardNegative, 0.95), quantile(scores.control, 0.95));
+  return round(Math.max(quantile(scores.positive, 0.75), negativeCeiling + (negativeCeiling < 1 ? 0.001 : 0)));
+};
+const pointsFor = (scores: Scores): readonly (readonly [number, number])[] => {
+  if (scores.positive.length === 0) return [];
+  const all = [...new Set([0, 1, ...scores.positive, ...scores.hardNegative, ...scores.control])].sort((a, b) => a - b);
+  return all.map(raw => [round(raw), round(0.2 + 0.8 * rate(scores.positive.filter(value => value <= raw).length, scores.positive.length))] as const);
+};
+const generatedSource = (families: Readonly<Record<string, FamilyCalibration>>): string => {
+  const body = JSON.stringify(families, null, 2);
+  return `/* Generated by npm run pattern:calibrate. */\nimport type { PatternFamilyId } from "./pattern";\nexport type PatternCalibration = Readonly<{ status: "CALIBRATED" | "UNAVAILABLE"; reason?: string; positiveCount: number; hardNegativeCount: number; controlCount: number; presenceThreshold?: number; targetTrigger?: number; points?: readonly (readonly [number, number])[] }>;\nexport const PATTERN_CALIBRATION: Readonly<Partial<Record<PatternFamilyId, PatternCalibration>>> = ${body};\n`;
+};
 
 const main = (): void => {
   const datasetPath = process.argv[2] ?? "datasets/pattern-mvp-lichess.jsonl";
   const outputPath = process.argv[3] ?? "src/domain/patterns/pattern-calibration.json";
+  const generatedPath = "src/domain/patterns/pattern-calibration.generated.ts";
   const chess = createChessJsRulesAdapter();
-  const scores = new Map<PatternFamilyId, Scores>(PATTERN_FAMILY_IDS.map(family => [family, { positive: [], negative: [] }]));
+  const scores = new Map<PatternFamilyId, Scores>(PATTERN_FAMILY_IDS.map(family => [family, { positive: [], hardNegative: [], control: [] }]));
   let datasetVersion = "unknown";
   let calibrationCases = 0;
   for (const [index, line] of readFileSync(datasetPath, "utf8").split(/\r?\n/u).map(value => value.trim()).filter(Boolean).entries()) {
-    const parsed: unknown = JSON.parse(line);
-    const entry = ingestPatternDatasetEntry(parsed, `dataset.line.${index + 1}`);
-    if (isErr(entry)) throw new Error(`${entry.error.code}: ${entry.error.message}`);
-    if (entry.value.split !== "calibration" || entry.value.exampleKind === "control") continue;
-    datasetVersion = entry.value.datasetVersion;
+    const parsed = ingestPatternDatasetEntry(JSON.parse(line) as unknown, `dataset.line.${index + 1}`);
+    if (isErr(parsed)) throw new Error(`${parsed.error.code}: ${parsed.error.message}`);
+    const entry = parsed.value;
+    if (entry.split !== "calibration") continue;
+    datasetVersion = entry.datasetVersion;
     calibrationCases += 1;
-    const bucket = scores.get(entry.value.family)!;
-    const score = maxCaseScore(chess, entry.value);
-    (entry.value.exampleKind === "positive" ? bucket.positive : bucket.negative).push(score);
+    const bucket = scores.get(entry.family)!;
+    bucket[entry.exampleKind === "positive" ? "positive" : entry.exampleKind === "hard_negative" ? "hardNegative" : "control"].push(caseScore(chess, entry));
   }
-  const families = Object.fromEntries(PATTERN_FAMILY_IDS.map(family => {
+  const families: Record<string, FamilyCalibration> = {};
+  for (const family of PATTERN_FAMILY_IDS) {
     const bucket = scores.get(family)!;
-    const targetTrigger = bestThreshold(bucket);
-    return [family, {
-      presenceThreshold: Number((targetTrigger * 0.75).toFixed(3)),
-      targetTrigger,
-      positiveCount: bucket.positive.length,
-      hardNegativeCount: bucket.negative.length
-    }];
-  }));
-  writeFileSync(outputPath, `${JSON.stringify({ modelVersion: "mate-geometry-v2-calibration-v1", datasetVersion, split: "calibration", calibrationCases, method: "per-family maximum positive trajectory score with 5% calibration margin", families }, null, 2)}\n`, "utf8");
-  process.stdout.write(`pattern calibration written to ${outputPath} (${calibrationCases} calibration cases)\n`);
+    families[family] = bucket.positive.length === 0
+      ? { status: "UNAVAILABLE", reason: "no verified calibration fixtures", positiveCount: 0, hardNegativeCount: bucket.hardNegative.length, controlCount: bucket.control.length }
+      : { status: "CALIBRATED", positiveCount: bucket.positive.length, hardNegativeCount: bucket.hardNegative.length, controlCount: bucket.control.length, presenceThreshold: presenceFor(bucket), targetTrigger: targetFor(bucket), points: pointsFor(bucket) };
+  }
+  const artifact = { modelVersion: "mate-geometry-v2-calibration-v2", datasetVersion, split: "calibration", calibrationCases, method: "stable attacker side; positive/hard-negative/control operating points; monotonic empirical map", families };
+  writeFileSync(outputPath, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
+  writeFileSync(generatedPath, generatedSource(families), "utf8");
+  process.stdout.write(`pattern calibration written to ${outputPath} and ${generatedPath} (${calibrationCases} calibration cases)\n`);
 };
-
 main();

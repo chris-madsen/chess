@@ -42,10 +42,15 @@ export type ScenarioDecisionTrace = Readonly<{
     calibratedAfterMaia: number;
     calibratedProgress: number;
     selected?: boolean;
+    trustedTalOrigin?: string;
+    candidateClass?: "IMMEDIATE_MATE" | "MATE_CLASS" | "TAL_ANCHOR" | "EXTERNAL";
+    overrideMargin?: number;
+    selectedReason?: string;
     maiaReply?: string;
   }>[];
   selectedUci: string;
   maiaReply?: string;
+  selectedReason?: string;
 }>;
 
 export type ScenarioLine = Readonly<{

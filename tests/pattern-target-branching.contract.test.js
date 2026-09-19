@@ -66,3 +66,12 @@ test("final target ranking keeps the three shortest terminal continuations", () 
   ];
   expect(rankPatternTargets(targets).map(target => target.targetFamily)).toEqual(["BODEN", "ARABIAN", "BACK_RANK"]);
 });
+
+test("final target ranking prefers real HumanPath checkmate over generic terminal", () => {
+  const targets = [
+    { targetFamily: "ANASTASIA", humanPathMate: false, line: { status: "Terminal", plies: Array(2).fill({}) } },
+    { targetFamily: "ARABIAN", humanPathMate: true, line: { status: "Terminal", plies: Array(6).fill({}) } },
+    { targetFamily: "BACK_RANK", line: { status: "Incomplete", plies: Array(1).fill({}) } }
+  ];
+  expect(rankPatternTargets(targets).map(target => target.targetFamily)).toEqual(["ARABIAN", "ANASTASIA", "BACK_RANK"]);
+});

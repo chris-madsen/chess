@@ -57,6 +57,9 @@ export const generatePatternSteeredTalPath = async (
   let current = request.start;
   const plies: ScenarioPly[] = [];
   const decisionTraces: PatternSteeringDecisionTrace[] = [];
+  let attackerStallCount = 0;
+  let previousTargetFamily: PatternFamilyId | undefined = request.targetFamily;
+  const positionVisits = new Map<string, number>([[String(current.hash), 1]]);
   const emitTargetAffinities = (selected: import("./pattern-steering").PatternSteeringCandidate, position: import("../../domain/chess/position").PositionSnapshot, prefixPlies: readonly ScenarioPly[]): void => {
     if (request.targetFamily !== undefined) return;
     selected.postResponseFamilies
@@ -70,10 +73,15 @@ export const generatePatternSteeredTalPath = async (
     if (facts.value.isTerminal) return ok(terminalLine(request, plies, "Terminal"));
     if (current.sideToMove === request.attackerSide) {
       const hasResponsePly = plyNumber + 1 <= maxPlies;
-      const decision = await evaluatePatternSteeringCandidates(request.chess, current, request.generator, request.tacticalGate, request.maia, request.lineId, request.candidateLimit ?? 8, hasResponsePly, request.cache, request.targetFamily);
+      const decision = await evaluatePatternSteeringCandidates(request.chess, current, request.generator, request.tacticalGate, request.maia, request.lineId, request.candidateLimit ?? 8, hasResponsePly, request.cache, request.targetFamily, {
+        stallCount: attackerStallCount,
+        repeatedPosition: (positionVisits.get(String(current.hash)) ?? 0) > 1,
+        ...(previousTargetFamily === undefined ? {} : { previousTargetFamily })
+      });
       if (isErr(decision)) return ok(terminalLine(request, plies, "Incomplete", decision.error));
       decisionTraces.push(decision.value.trace);
       const selected = decision.value.selected;
+      previousTargetFamily = selected.targetFamily;
       plies.push({ tag: "ScenarioPly", index: makePlyIndex(plyNumber), move: selected.seed.move, provenance: selected.seed.provenance });
       request.onProgress?.(progressLine(request, plies, decisionTraces, selected.terminalAfterCandidate === true ? "Terminal" : "Incomplete"));
       plyNumber += 1;
@@ -91,6 +99,12 @@ export const generatePatternSteeredTalPath = async (
       plies.push({ tag: "ScenarioPly", index: makePlyIndex(plyNumber), move: selected.responseMove, provenance: selected.responseProvenance });
       request.onProgress?.(progressLine(request, plies, decisionTraces));
       current = selected.postResponsePosition;
+      if (selected.calibratedProgress <= 0.02) attackerStallCount += 1;
+      else attackerStallCount = 0;
+      const positionKey = String(current.hash);
+      const visits = (positionVisits.get(positionKey) ?? 0) + 1;
+      positionVisits.set(positionKey, visits);
+      if (visits > 1) attackerStallCount = Math.max(attackerStallCount, 2);
       emitTargetAffinities(selected, current, [...plies]);
       plyNumber += 1;
       continue;

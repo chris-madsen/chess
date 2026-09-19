@@ -20,6 +20,9 @@ import { createPatriciaCandidateGenerator, createWindowsCstalPatternCandidateGen
 import { generatePatternSteeredTalPath } from "../application/use-cases/pattern-steered-tal-path";
 import { generatePatternTargetSession } from "../application/use-cases/pattern-target-branching";
 import { createInMemoryAnalysisCache } from "../adapters/cache/in-memory-analysis-cache";
+import type { ForcedMateVerifier } from "../application/ports/forced-mate";
+import { createForcedMateVerifier } from "../application/use-cases/forced-mate-verifier";
+import { createUciForcedMateProofProvider } from "../adapters/uci/uci-forced-mate-proof-adapter";
 
 type JobStatus = "queued" | "running" | "complete" | "error" | "cancelled";
 type JobEventType = "queued" | "started" | "progress" | "complete" | "error" | "cancelled";
@@ -128,6 +131,7 @@ type PatternSteeringProviders = Readonly<{
   generator: CandidateGenerator;
   tacticalGate?: CandidateTacticalGate | undefined;
   maia: MoveProvider;
+  verifyForcedMate?: ForcedMateVerifier;
   dispose?: () => void;
 }>;
 type PatternBatch = {
@@ -732,10 +736,18 @@ export const createStyleLineJobServer = (
       const patricia = paths.patriciaPath === undefined ? undefined : createPatriciaCandidateGenerator(chess, paths, 8);
       const generator = createWindowsCstalPatternCandidateGenerator(chess, paths, options, 8, patricia);
       const tacticalGate = createWindowsCstalTacticalGate(chess, paths, options);
+      const verifyForcedMate = paths.stockfish19Path === undefined ? undefined : createForcedMateVerifier(chess, createUciForcedMateProofProvider({
+        key: "stockfish19-pattern-target-proof",
+        command: paths.stockfish19Path,
+        options: [{ name: "Threads", value: 2 }, { name: "Hash", value: 1024 }],
+        mateMoves: 20,
+        timeoutMs: 300_000
+      }));
       return {
         generator,
         tacticalGate,
         maia: providers.maia,
+        ...(verifyForcedMate === undefined ? {} : { verifyForcedMate }),
         dispose: () => {
           generator.dispose?.();
           tacticalGate.dispose?.();
@@ -849,6 +861,7 @@ export const createStyleLineJobServer = (
                     return { tag: "Err" as const, error: { code: "PROVIDER_UNAVAILABLE" as const, path: `patternBatch.${item.caseId}.target`, message: error instanceof Error ? error.message : String(error) } };
                   }
                 },
+                ...(steering.verifyForcedMate === undefined ? {} : { verifyForcedMate: steering.verifyForcedMate }),
                 onProgress: current => updateBatchSession(batch, item.caseId, current)
               }),
               sleep(request.common.timeoutMs ?? 300_000).then(() => ({ tag: "Err" as const, error: { code: "PROVIDER_TIMEOUT" as const, path: `patternBatch.${item.caseId}`, message: "Pattern steering case timed out" } }))
