@@ -85,7 +85,7 @@ export const evaluatePatternSteeringCandidates = async (
   chess: ChessRulesPort,
   position: Parameters<CandidateGenerator>[0]["position"],
   generator: CandidateGenerator,
-  tacticalGate: CandidateTacticalGate,
+  tacticalGate: CandidateTacticalGate | undefined,
   maia: MoveProvider,
   lineId: string,
   limit = 8,
@@ -107,7 +107,9 @@ export const evaluatePatternSteeringCandidates = async (
     if (seed.provenance === undefined || seed.provenance.inputPositionHash !== position.hash) return err(domainError("MISSING_PROVENANCE", "patternSteering.candidate.provenance", "Candidate provenance must refer to the input position"));
     legalSeeds.push({ ...seed, move: legal.value });
   }
-  const tactical = await tacticalGate({ position, attackerSide: analysis.attackerSide, candidates: legalSeeds, lineId });
+  const tactical = tacticalGate === undefined
+    ? ok<readonly TacticalCandidateAssessment[]>(legalSeeds.map(seed => ({ seed, accepted: true, reason: "TAL_GATE_DISABLED" })))
+    : await tacticalGate({ position, attackerSide: analysis.attackerSide, candidates: legalSeeds, lineId });
   if (isErr(tactical)) return err(tactical.error);
   const tacticalByMove = new Map(tactical.value.map(assessment => [String(assessment.seed.move.uci), assessment]));
   const evaluated: PatternSteeringCandidate[] = [];

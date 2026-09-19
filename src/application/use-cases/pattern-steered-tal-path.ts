@@ -16,7 +16,7 @@ export type PatternSteeredTalPathRequest = Readonly<{
   start: import("../../domain/chess/position").PositionSnapshot;
   attackerSide: import("../../domain/chess/value-objects").Side;
   generator: CandidateGenerator;
-  tacticalGate: CandidateTacticalGate;
+  tacticalGate?: CandidateTacticalGate | undefined;
   maia: MoveProvider;
   lineId: string;
   horizon: ScenarioHorizon;
