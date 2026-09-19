@@ -1,4 +1,5 @@
 import { createChessJsRulesAdapter } from "../src/adapters/chessjs/chess-rules-adapter.ts";
+import { renderLiveTerminalFrame } from "../src/cli/live-terminal-renderer.ts";
 import { renderPatternDiscoveryStart, renderPatternLiveFrame, renderPatternLiveLineStatus, renderPatternProgressStatus, renderPatternReference, renderPatternRemoteFrame, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "../src/cli/pattern-steering-render.ts";
 
 const chess = createChessJsRulesAdapter();
@@ -13,6 +14,7 @@ test("remote progress status is a single ANSI-free line before completion", () =
 test("live frame replaces the previous multiline frame instead of appending it", () => {
   const escape = String.fromCharCode(27);
   expect(renderPatternLiveFrame("next\n", 4)).toBe(`${escape}[4F${escape}[Jnext\n`);
+  expect(renderPatternLiveFrame).toBe(renderLiveTerminalFrame);
 });
 
 test("partial remote line is rendered as one compact ANSI-free status", () => {

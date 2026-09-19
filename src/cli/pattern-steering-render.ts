@@ -5,6 +5,7 @@ import type { PatternFamilyId } from "../domain/patterns/pattern";
 import type { PatternTargetSession } from "../application/use-cases/pattern-target-branching";
 import { rankPatternTargets } from "../application/use-cases/pattern-target-branching";
 import type { PositionSnapshot } from "../domain/chess/position";
+export { renderLiveTerminalFrame as renderPatternLiveFrame } from "./live-terminal-renderer";
 
 const wrapMovetext = (text: string, width = 72): string => {
   const words = text.split(/\s+/u).filter(Boolean);
@@ -25,10 +26,6 @@ const wrapMovetext = (text: string, width = 72): string => {
 
 export const renderPatternProgressStatus = (caseId: string, completed: number, total: number, elapsedSeconds: number): string => (
   `pattern: ${caseId} Windows Tal+Maia | ${Math.max(0, completed)}/${Math.max(1, total)} completed | ${Math.max(0, elapsedSeconds)}s`
-);
-
-export const renderPatternLiveFrame = (text: string, previousLineCount: number): string => (
-  previousLineCount <= 0 ? text : `${String.fromCharCode(27)}[${previousLineCount}F${String.fromCharCode(27)}[J${text}`
 );
 
 export const renderPatternLiveLineStatus = (caseId: string, renderedLine: string): string => {

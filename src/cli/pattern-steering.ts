@@ -8,8 +8,9 @@ import { isErr } from "../domain/shared/result";
 import { makeScenarioHorizon } from "../domain/chess/value-objects";
 import { createInMemoryAnalysisCache } from "../adapters/cache/in-memory-analysis-cache";
 import { createForcedMateVerifier, createPatriciaCandidateGenerator, createUciForcedMateProofProvider, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, fetchRemotePatternSteeringBatch, generatePatternTargetSession, loadLocalEnginePaths, makeRemoteStylePathConfig } from "../wiring/index";
-import { renderPatternDiscoveryStart, renderPatternLiveFrame, renderPatternProgressStatus, renderPatternReference, renderPatternRemoteFrame, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "./pattern-steering-render";
+import { renderPatternDiscoveryStart, renderPatternProgressStatus, renderPatternReference, renderPatternRemoteFrame, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "./pattern-steering-render";
 import { defaultPatternHorizonMoves } from "./pattern-steering-options";
+import { createLiveTerminalRenderer } from "./live-terminal-renderer";
 
 const valueAfter = (args: readonly string[], flag: string): string | undefined => {
   const index = args.indexOf(flag);
@@ -39,34 +40,6 @@ const selectSubset = <T extends { caseId: string }>(items: readonly T[], raw: st
   const limit = Number(raw);
   if (!Number.isInteger(limit) || limit < 1) throw new Error("--subset must be all or a positive integer");
   return [...items].sort((a, b) => a.caseId.localeCompare(b.caseId)).slice(0, limit);
-};
-
-const terminalColumns = (): number => {
-  const columns = process.stdout.columns;
-  if (Number.isInteger(columns) && columns > 0) return columns;
-  const fromEnv = Number(process.env.COLUMNS);
-  return Number.isInteger(fromEnv) && fromEnv > 0 ? fromEnv : 80;
-};
-
-const renderedLineCount = (text: string): number => {
-  const normalized = text.endsWith("\n") ? text.slice(0, -1) : text;
-  if (normalized.length === 0) return 0;
-  return normalized.split("\n").reduce((count, line) => count + Math.max(1, Math.ceil(line.length / terminalColumns())), 0);
-};
-
-const createLiveRenderer = (): { render: (text: string, final?: boolean) => void; status: (text: string) => void } => {
-  let previousLineCount = 0;
-  const frame = (text: string): void => {
-    process.stdout.write(renderPatternLiveFrame(text, previousLineCount));
-    previousLineCount = renderedLineCount(text);
-  };
-  return {
-    render: text => frame(text),
-    status: text => {
-      const compact = text.replace(/\s+/gu, " ").trim();
-      frame(`${compact}\n`);
-    }
-  };
 };
 
 const main = async (): Promise<void> => {
@@ -102,7 +75,7 @@ const main = async (): Promise<void> => {
     const config = makeRemoteStylePathConfig({ maia3Elo });
     if (isErr(config)) throw new Error(`${config.error.code}: ${config.error.message}`);
     const renderedLines = new Map<string, string>();
-    const liveRenderer = createLiveRenderer();
+    const liveRenderer = createLiveTerminalRenderer();
     const renderLive = (text: string, final = false): void => liveRenderer.render(text, final);
     const startedAt = Date.now();
     let completed = 0;
@@ -160,7 +133,7 @@ const main = async (): Promise<void> => {
         mateMoves: 20,
         timeoutMs: 300_000
       }));
-      const liveRenderer = createLiveRenderer();
+      const liveRenderer = createLiveTerminalRenderer();
       const renderLive = (text: string, final = false): void => liveRenderer.render(text, final);
       renderLive(renderPatternDiscoveryStart(item.caseId, item.position));
       try {

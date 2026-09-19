@@ -12,6 +12,7 @@ import type { ScenarioLine, ScenarioPly } from "../domain/scenario-lines/scenari
 import { domainError, type DomainError } from "../domain/shared/errors";
 import { err, isErr, ok, type Result } from "../domain/shared/result";
 import { createLocalStylePathProviders, createWindowsCstalStylePathProviders, type WindowsCstalOpponent } from "../wiring/local-style-engines";
+import { renderedLineCount, renderLiveTerminalFrame, CLEAR_TO_END } from "./live-terminal-renderer";
 
 export type CliInput =
   | Readonly<{ tag: "Fen"; value: string }>
@@ -110,7 +111,7 @@ export type CliPorts = Readonly<{
   styleJobApi?: StyleJobApiClient;
 }>;
 
-export const WATCH_CLEAR_TO_END = "\x1b[J";
+export const WATCH_CLEAR_TO_END = CLEAR_TO_END;
 
 const defaultStyleApiBaseUrl = "https://chess.network-communications.net";
 const defaultStyleApiTokenFiles = [
@@ -279,29 +280,8 @@ const createDefaultStyleJobApiClient = (): StyleJobApiClient => {
   };
 };
 
-const terminalColumns = (): number => {
-  const fromStdout = process.stdout.columns;
-  if (Number.isInteger(fromStdout) && fromStdout > 0) {
-    return fromStdout;
-  }
-  const fromEnv = Number(process.env.COLUMNS);
-  return Number.isInteger(fromEnv) && fromEnv > 0 ? fromEnv : 80;
-};
-
-const renderedLineCount = (text: string, columns = terminalColumns()): number => {
-  const normalized = text.endsWith("\n") ? text.slice(0, -1) : text;
-  if (normalized.length === 0) {
-    return 0;
-  }
-  return normalized.split("\n").reduce((count, line) => (
-    count + Math.max(1, Math.ceil(line.length / Math.max(1, columns)))
-  ), 0);
-};
-
 const renderWatchUpdateFrame = (text: string, previousLineCount: number): string => (
-  previousLineCount <= 0
-    ? text
-    : `\x1b[${previousLineCount}F${WATCH_CLEAR_TO_END}${text}`
+  previousLineCount <= 0 ? text : renderLiveTerminalFrame(text, previousLineCount)
 );
 
 const usage = `Usage:\n  npm run style:lines -- --fen "<fen>" [--watch]\n  npm run style:lines -- --raw-file game.txt [--watch]\n  npm run style:lines:cstal -- --fen "<fen>" [--watch]\n\nOptions:\n  --fen <fen>                 Analyze a FEN position.\n  --raw-file <path>          Read RAW SAN game notation from a text file.\n  --bot-engine <id>         Watch RAW-file line source: tal or local. Default tal.\n  --engine-suite <id>        Local engine suite: local-style or cstal-windows. Default local-style.\n  --cstal-opponent <id>      CSTal opponent: maia3 or maia1900. Default maia3.\n  --maia3-elo <rating>       Maia3 Elo conditioning, integer 1..4000. Default 1900.\n  --watch                    Re-read changed input and refresh output every 2 seconds.\n  --refresh-ms <ms>          Watch render interval, default 2000.\n\nAdaptive watch starts at depth 13 and horizon 8 full moves. Stable lines increase depth every 5 seconds and horizon every 10 seconds while the process is running.\n`;
