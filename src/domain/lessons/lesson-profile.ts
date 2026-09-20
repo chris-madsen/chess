@@ -8,13 +8,13 @@ export type SacrificeMotif = "DEFLECTION" | "DECOY" | "LINE_OPENING" | "REMOVAL_
 export type SacrificeProfile = Readonly<{
   ply: number;
   type: SacrificeType;
-  causal: boolean;
-  soundOrForced: boolean;
+  functionalContribution: boolean;
+  tacticallySupported: boolean;
   mateDistanceAfterSacrifice?: number;
   motif: SacrificeMotif;
 }>;
 
-export type CausalMoveContribution = Readonly<{
+export type MoveContribution = Readonly<{
   ply: number;
   move: UciMove;
   createsThreat: boolean;
@@ -30,6 +30,9 @@ export type CausalMoveContribution = Readonly<{
   laterDependencyCount: number;
   counterfactualImportance?: number;
 }>;
+
+/** @deprecated Use MoveContribution. The runtime does not infer intent. */
+export type CausalMoveContribution = MoveContribution;
 
 export type LessonQualityTier = "A" | "B" | "C" | "D" | "E" | "SUPPRESSED";
 
@@ -57,7 +60,7 @@ export type LessonProfile = Readonly<{
   lessonUtility: number;
   qualityTier: LessonQualityTier;
   motifs: readonly TacticalMotif[];
-  causalMoves: readonly CausalMoveContribution[];
+  moveContributions: readonly MoveContribution[];
   eligible: boolean;
   reasons: readonly string[];
   penalties: readonly string[];

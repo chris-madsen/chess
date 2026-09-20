@@ -5,7 +5,7 @@ import type { Side } from "../../domain/chess/value-objects";
 import type { PositionFacts } from "../../domain/position-intelligence/facts";
 import type { ScenarioLine } from "../../domain/scenario-lines/scenario-line";
 import type { PatternFamilyId } from "../../domain/patterns/pattern";
-import type { CausalMoveContribution, LessonProfile, SacrificeMotif, SacrificeProfile, SacrificeType } from "../../domain/lessons/lesson-profile";
+import type { MoveContribution, LessonProfile, SacrificeMotif, SacrificeProfile, SacrificeType } from "../../domain/lessons/lesson-profile";
 import { lessonMotifName, type LessonTacticalMotifId, type TacticalMotif } from "../../domain/lessons/tactical-motifs";
 import { isErr } from "../../domain/shared/result";
 import { calibratedAttractorScore } from "../../domain/patterns/thresholds";
@@ -45,6 +45,52 @@ const capturedValueAt = (facts: PositionFacts, move: LegalMove, board: readonly 
   return pieceValues[pieceAt(board, move.to)?.type ?? ""] ?? 0;
 };
 
+type Square = Readonly<{ file: number; rank: number }>;
+const squareOf = (square: string): Square => ({ file: square.charCodeAt(0) - 97, rank: Number(square[1]) - 1 });
+const squareName = ({ file, rank }: Square): string => `${String.fromCharCode(97 + file)}${rank + 1}`;
+const step = (value: number): number => value === 0 ? 0 : value > 0 ? 1 : -1;
+const rayBetween = (from: Square, to: Square): readonly Square[] => {
+  const fileStep = step(to.file - from.file);
+  const rankStep = step(to.rank - from.rank);
+  if (fileStep !== 0 && rankStep !== 0 && Math.abs(to.file - from.file) !== Math.abs(to.rank - from.rank)) return [];
+  const squares: Square[] = [];
+  let file = from.file + fileStep;
+  let rank = from.rank + rankStep;
+  while (file !== to.file || rank !== to.rank) {
+    squares.push({ file, rank });
+    file += fileStep;
+    rank += rankStep;
+  }
+  return squares;
+};
+const pieceAttacks = (board: readonly BoardPiece[], piece: BoardPiece, target: string): boolean => {
+  const from = squareOf(piece.square);
+  const to = squareOf(target);
+  const df = to.file - from.file;
+  const dr = to.rank - from.rank;
+  if (piece.type === "n") return (Math.abs(df) === 1 && Math.abs(dr) === 2) || (Math.abs(df) === 2 && Math.abs(dr) === 1);
+  if (piece.type === "k") return Math.max(Math.abs(df), Math.abs(dr)) === 1;
+  if (piece.type === "p") return Math.abs(df) === 1 && dr === (piece.side === "white" ? 1 : -1);
+  const diagonal = Math.abs(df) === Math.abs(dr) && df !== 0;
+  const straight = (df === 0) !== (dr === 0);
+  const allowed = piece.type === "b" ? diagonal : piece.type === "r" ? straight : diagonal || straight;
+  if (!allowed) return false;
+  return rayBetween(from, to).every(square => pieceAt(board, squareName(square)) === undefined);
+};
+const lineOpeningToKing = (board: readonly BoardPiece[], move: LegalMove, attacker: Side): boolean => {
+  const king = board.find(piece => piece.side !== attacker && piece.type === "k");
+  const blocker = pieceAt(board, move.from);
+  if (king === undefined || blocker === undefined || !["r", "b", "q"].includes(blocker.type)) return false;
+  return board.some(piece => piece.side === attacker && ["r", "b", "q"].includes(piece.type)
+    && pieceAttacks(board, piece, move.from)
+    && pieceAttacks(board.filter(item => item.square !== move.from), { ...piece, square: piece.square }, king.square));
+};
+const removedDefender = (board: readonly BoardPiece[], move: LegalMove, attacker: Side, laterMoves: readonly LegalMove[]): boolean => {
+  const captured = pieceAt(board, move.to);
+  if (captured === undefined || captured.side === attacker) return false;
+  return laterMoves.some(later => pieceAttacks(board, captured, later.to));
+};
+
 const sacrificeType = (piece: BoardPiece | undefined, capturedValue = 0): SacrificeType => {
   if (piece?.type === "q") return "QUEEN";
   if (piece?.type === "r") return capturedValue > 0 && capturedValue < 5 ? "EXCHANGE" : "ROOK";
@@ -52,10 +98,10 @@ const sacrificeType = (piece: BoardPiece | undefined, capturedValue = 0): Sacrif
   return "PAWN";
 };
 
-const motifForSacrifice = (givesCheck: boolean, laterDependencyCount: number, opensLineToKing: boolean): SacrificeMotif => {
+const motifForSacrifice = (givesCheck: boolean, removedDefenderOnGeometry: boolean, opensLineToKing: boolean): SacrificeMotif => {
   if (givesCheck) return "KING_EXPOSURE";
   if (opensLineToKing) return "LINE_OPENING";
-  if (laterDependencyCount > 0) return "REMOVAL_OF_DEFENDER";
+  if (removedDefenderOnGeometry) return "REMOVAL_OF_DEFENDER";
   return "OTHER";
 };
 
@@ -94,9 +140,10 @@ export const analyzeLessonLine = (
   const factsAfter: PositionFacts[] = [];
   const validPlies: typeof line.plies[number][] = [];
   const moves = line.plies.map(ply => ply.move);
-  const attackerContributions: CausalMoveContribution[] = [];
+  const attackerContributions: MoveContribution[] = [];
   const sacrifices: SacrificeProfile[] = [];
   const motifs: TacticalMotif[] = [];
+  const checkingPlies: number[] = [];
   let checks = 0;
   let captures = 0;
   let forcingReplies = 0;
@@ -126,7 +173,7 @@ export const analyzeLessonLine = (
     const isAttackerAtPly = attackerMove(before, attacker);
     const givesCheck = isAttackerAtPly && afterFacts.isCheck;
     const capturesMove = isAttackerAtPly && moveIsCapture(beforeFacts, ply.move);
-    if (givesCheck) { checks += 1; motifs.push(motif("KING_HUNT", Number(ply.index))); }
+    if (givesCheck) { checks += 1; checkingPlies.push(Number(ply.index)); }
     if (capturesMove) { captures += 1; }
     const selected = isAttackerAtPly ? selectedCandidate(line, attackerDecisionIndex - (options.decisionTraceOffset ?? 0)) : undefined;
     if (selected?.mateClass === true) mateClassCount += 1;
@@ -158,21 +205,20 @@ export const analyzeLessonLine = (
           break;
         }
       }
-      const capturedAtOriginalSquare = validPlies.slice(moveIndex + 1, moveIndex + 10).some(future => future.move.to === ply.move.to);
-      replyCapturesMovedPiece = replyCapturesMovedPiece || capturedAtOriginalSquare;
       if (replyCapturesMovedPiece && capturedValue === 0) capturedValue = pieceValues[piece?.type ?? "p"] ?? 1;
       const investedValue = Math.max(0, capturedValue - capturedByTrackedPiece);
       const materialDrop = replyCapturesMovedPiece && investedValue >= 1.5;
-      const opensLineToKing = piece !== undefined && ["r", "b", "q"].includes(piece.type) && laterMoves.some(move => move.from === ply.move.to || move.to === ply.move.to);
+      const board = boardFromFen(String(before.fen));
+      const opensLineToKing = lineOpeningToKing(board, ply.move, attacker);
+      const removesDefender = capturesMove && removedDefender(board, ply.move, attacker, laterMoves);
       const patternRoleUsedLater = laterDependencyCount > 0;
-      const causal = materialDrop && (givesCheck || laterDependencyCount > 0 || afterFacts.isTerminal);
       const defenderKing = boardFromFen(String(before.fen)).find(item => item.side !== attacker && item.type === "k");
       const kingMovesBefore = defenderKing === undefined ? 0 : before.legalMoves.filter(move => move.from === defenderKing.square).length;
       const afterDefenderKing = boardFromFen(String(next.fen)).find(item => item.side !== attacker && item.type === "k");
       const kingMovesAfter = afterDefenderKing === undefined ? 0 : next.legalMoves.filter(move => move.from === afterDefenderKing.square).length;
-      const contribution: CausalMoveContribution = {
+      const contribution: MoveContribution = {
         ply: Number(ply.index), move: ply.move.uci, createsThreat: givesCheck || capturesMove,
-        givesCheck, captures: capturesMove, opensLineToKing, removesDefender: capturesMove && givesCheck && laterDependencyCount > 0,
+        givesCheck, captures: capturesMove, opensLineToKing, removesDefender,
         activatesPatternRole: opensLineToKing || patternRoleUsedLater, patternRoleUsedLater,
         restrictsKingMobilityDelta: Math.max(0, kingMovesBefore - kingMovesAfter),
         attractorDelta: (selected?.afterMaiaAffinity ?? 0) - (line.decisionTraces?.[Math.max(0, attackerDecisionIndex - 2 - (options.decisionTraceOffset ?? 0))]?.candidates.find(candidate => candidate.uci === line.decisionTraces?.[Math.max(0, attackerDecisionIndex - 2 - (options.decisionTraceOffset ?? 0))]?.selectedUci)?.afterMaiaAffinity ?? 0),
@@ -182,16 +228,18 @@ export const analyzeLessonLine = (
       attackerContributions.push(contribution);
       if (materialDrop) {
         const type = sacrificeType(piece, capturedByTrackedPiece);
-        sacrifices.push({ ply: Number(ply.index), type, causal, soundOrForced: causal && (givesCheck || afterFacts.isTerminal), ...(afterFacts.isCheckmate ? { mateDistanceAfterSacrifice: 0 } : {}), motif: motifForSacrifice(givesCheck, laterDependencyCount, opensLineToKing) });
+        const functionalContribution = materialDrop && (givesCheck || removesDefender || opensLineToKing || laterDependencyCount > 0 || afterFacts.isTerminal);
+        sacrifices.push({ ply: Number(ply.index), type, functionalContribution, tacticallySupported: options.forcedMateStatus === "VERIFIED" || selected?.mateClass === true || afterFacts.isCheckmate, ...(afterFacts.isCheckmate ? { mateDistanceAfterSacrifice: 0 } : {}), motif: motifForSacrifice(givesCheck, removesDefender, opensLineToKing) });
         motifs.push(motif(type === "QUEEN" ? "QUEEN_SACRIFICE" : type === "ROOK" ? "ROOK_SACRIFICE" : type === "EXCHANGE" ? "EXCHANGE_SACRIFICE" : type === "MINOR" ? "MINOR_SACRIFICE" : "PAWN_SACRIFICE", Number(ply.index)));
       }
       if (opensLineToKing) motifs.push(motif("LINE_OPENING", Number(ply.index)));
-      if (capturesMove && givesCheck && laterDependencyCount > 0) motifs.push(motif("REMOVAL_OF_DEFENDER", Number(ply.index)));
+      if (removesDefender) motifs.push(motif("REMOVAL_OF_DEFENDER", Number(ply.index)));
     }
     if (afterFacts.isCheckmate) finalMateMoveNumber = fullMoveNumber(next) - (next.sideToMove === "white" ? 1 : 0);
   }
   const terminalFacts = chess.computeFacts(current);
   const humanPathMate = !isErr(terminalFacts) && terminalFacts.value.isCheckmate;
+  if (checks >= 2) for (const ply of checkingPlies) motifs.push(motif("KING_HUNT", ply));
   const hashes = positions.map(position => String(position.hash));
   const repetitionCount = hashes.length - new Set(hashes).size;
   const nonProgressMoveCount = attackerContributions.filter(item => !item.givesCheck && !item.captures && !item.patternRoleUsedLater && item.laterDependencyCount === 0).length;
@@ -210,16 +258,16 @@ export const analyzeLessonLine = (
   const forcingness = round((line.plies.length === 0 ? 0 : checks / Math.max(1, attackerContributions.length)) * 0.45 + (line.plies.length === 0 ? 0 : captures / Math.max(1, attackerContributions.length)) * 0.2 + (attackerContributions.length === 0 ? 0 : forcingReplies / attackerContributions.length) * 0.2 + (attackerContributions.length === 0 ? 0 : mateClassCount / attackerContributions.length) * 0.15);
   const causalPreparation = round(attackerContributions.length === 0 ? 0 : attackerContributions.filter(item => item.laterDependencyCount > 0 || item.givesCheck || item.captures).length / attackerContributions.length);
   const pieceCoordination = round(attackerContributions.length === 0 ? 0 : attackerContributions.filter(item => item.patternRoleUsedLater || item.activatesPatternRole).length / attackerContributions.length);
-  const causalSacrifices = sacrifices.filter(item => item.causal).length;
-  const combinationBeauty = round(forcingness * 0.32 + causalPreparation * 0.25 + pieceCoordination * 0.15 + patternClarity * 0.18 + Math.min(1, causalSacrifices / 2) * 0.1 - technicalEndgamePenalty * 0.2 - promotionGrindPenalty * 0.2 - Math.min(1, repetitionCount / 3) * 0.15);
+  const functionalSacrifices = sacrifices.filter(item => item.functionalContribution).length;
+  const combinationBeauty = round(forcingness * 0.32 + causalPreparation * 0.25 + pieceCoordination * 0.15 + patternClarity * 0.18 + Math.min(1, functionalSacrifices / 2) * 0.1 - technicalEndgamePenalty * 0.2 - promotionGrindPenalty * 0.2 - Math.min(1, repetitionCount / 3) * 0.15);
   const generatedFullMoves = Math.ceil(line.plies.length / 2);
   const longLine = generatedFullMoves > 35;
   const suppressed = !humanPathMate || repetitionCount > 0 || (longLine && technicalEndgamePenalty > 0.45) || promotionGrindPenalty > 0.45;
-  const qualityTier: LessonProfile["qualityTier"] = suppressed ? "SUPPRESSED" : generatedFullMoves <= 30 && forcingness >= 0.5 && (causalSacrifices > 0 || causalPreparation >= 0.5) ? "A" : generatedFullMoves <= 30 && patternClarity >= 0.75 ? "B" : generatedFullMoves <= 35 && combinationBeauty >= 0.55 ? "C" : generatedFullMoves <= 35 && patternClarity >= 0.65 ? "D" : "E";
+  const qualityTier: LessonProfile["qualityTier"] = suppressed ? "SUPPRESSED" : generatedFullMoves <= 30 && forcingness >= 0.5 && (functionalSacrifices > 0 || causalPreparation >= 0.5) ? "A" : generatedFullMoves <= 30 && patternClarity >= 0.75 ? "B" : generatedFullMoves <= 35 && combinationBeauty >= 0.55 ? "C" : generatedFullMoves <= 35 && patternClarity >= 0.65 ? "D" : "E";
   const eligible = humanPathMate && line.status !== "Incomplete" && qualityTier !== "SUPPRESSED";
   const lessonUtility = round(combinationBeauty * 0.62 + patternClarity * 0.18 + forcingness * 0.15 + (eligible ? 0.05 : -0.2) - technicalEndgamePenalty * 0.35 - promotionGrindPenalty * 0.25 - Math.min(1, repetitionCount / 3) * 0.2);
   const reasons = [
-    ...(causalSacrifices > 0 ? [`${causalSacrifices} causal sacrifice${causalSacrifices === 1 ? "" : "s"}`] : []),
+    ...(functionalSacrifices > 0 ? [`${functionalSacrifices} functionally supported sacrifice${functionalSacrifices === 1 ? "" : "s"}`] : []),
     ...(forcingness >= 0.5 ? ["forcing attack"] : []),
     ...(patternClarity >= 0.75 ? ["clear mating finish"] : []),
     ...(line.plies.length <= 14 ? ["short conversion"] : []),
@@ -242,6 +290,6 @@ export const analyzeLessonLine = (
     ...(pattern.primary === undefined ? {} : { primaryMateFamily: pattern.primary }), patternClarity,
     sacrifices, forcingness, causalPreparation, pieceCoordination, repetitionCount, nonProgressMoveCount,
     technicalEndgamePenalty, promotionGrindPenalty, combinationBeauty, lessonUtility, qualityTier,
-    motifs, causalMoves: attackerContributions, eligible, reasons, penalties
+    motifs, moveContributions: attackerContributions, eligible, reasons, penalties
   };
 };

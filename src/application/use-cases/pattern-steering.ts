@@ -65,12 +65,9 @@ const familyProgress = (before: readonly PatternAssessment[], after: readonly Pa
       const afterResponseScore = scoreFor(postResponse, family);
       return { targetFamily: family, beforeScore, afterCandidateScore, afterResponseScore, delta: afterResponseScore - beforeScore, calibratedBefore: calibratedAttractorScore(beforeScore, family), calibratedAfter: calibratedAttractorScore(afterResponseScore, family) };
     };
-    const preferred = metric(requestedFamily);
-    const alternative = [...new Set(postResponse.map(item => item.family))]
-      .map(family => metric(family))
-      .sort((first, second) => second.calibratedAfter - first.calibratedAfter || first.targetFamily.localeCompare(second.targetFamily))[0];
-    const chosen = alternative !== undefined && alternative.targetFamily !== requestedFamily && alternative.calibratedAfter >= preferred.calibratedAfter + 0.12 ? alternative : preferred;
-    return chosen;
+    // A target branch is an experiment with one declared attractor. It may
+    // lose affinity, but it must never silently become another family.
+    return metric(requestedFamily);
   }
   const families = [...new Set([...before, ...after, ...postResponse].map(assessment => assessment.family))];
   const ranked = families.map(family => ({ family, beforeScore: scoreFor(before, family), afterCandidateScore: scoreFor(after, family), afterResponseScore: scoreFor(postResponse, family) }))

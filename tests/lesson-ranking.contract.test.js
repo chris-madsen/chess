@@ -45,17 +45,36 @@ test("queen sacrifice fixture is recognized as a short tactical lesson", () => {
   const profile = analyzeLessonLine(chess, line, { forcedMateStatus: "VERIFIED" });
   expect(profile.humanPathMate).toBe(true);
   expect(profile.sacrifices.some(sacrifice => sacrifice.type === "QUEEN")).toBe(true);
+  expect(profile.sacrifices.some(sacrifice => sacrifice.functionalContribution)).toBe(true);
   expect(profile.motifs.some(motif => motif.id === "QUEEN_SACRIFICE")).toBe(true);
   expect(profile.generatedFullMoves).toBeLessThanOrEqual(6);
   expect(profile.qualityTier).toBe("A");
 });
 
-test("ordinary queen and bishop mate can still be an eligible short lesson", () => {
+test("ordinary queen and bishop Qf8 mate can still be an eligible short lesson", () => {
   const line = lineFrom("7k/5Q2/6BK/8/8/8/8/8 w - - 0 1", ["f7f8"], "ordinary-queen-bishop-mate");
   const profile = analyzeLessonLine(chess, line);
   expect(profile.humanPathMate).toBe(true);
   expect(profile.eligible).toBe(true);
   expect(profile.qualityTier).not.toBe("SUPPRESSED");
+});
+
+test("promotion grind remains visible even when the line eventually mates", () => {
+  const line = lineFrom(
+    "6k1/P6p/8/5K2/8/8/8/8 w - - 0 1",
+    ["a7a8q", "g8g7", "a8b8", "h7h6", "b8c7", "g7f8", "c7c6", "h6h5", "c6c5", "f8g8", "f5e6", "h5h4", "c5g5", "g8h8", "e6f7", "h4h3", "g5g8"],
+    "promotion-grind-mate"
+  );
+  const profile = analyzeLessonLine(chess, line);
+  expect(profile.humanPathMate).toBe(true);
+  expect(profile.promotionGrindPenalty).toBeGreaterThan(0);
+});
+
+test("promotion that mates immediately is not treated as a grind", () => {
+  const line = lineFrom("7k/P5pp/8/5K2/8/8/8/8 w - - 0 1", ["a7a8q"], "tactical-promotion");
+  const profile = analyzeLessonLine(chess, line);
+  expect(profile.humanPathMate).toBe(true);
+  expect(profile.promotionGrindPenalty).toBe(0);
 });
 
 test("target label does not manufacture PatternClarity", () => {
@@ -89,7 +108,7 @@ const profile = (lineId, moves, utility, tier = "B", eligible = true) => ({
   mateFamilies: [], patternClarity: 0.8, sacrifices: [], forcingness: 0.7, causalPreparation: 0.7,
   pieceCoordination: 0.7, repetitionCount: 0, nonProgressMoveCount: 0, technicalEndgamePenalty: 0,
   promotionGrindPenalty: 0, combinationBeauty: utility, lessonUtility: utility, qualityTier: tier,
-  motifs: [], causalMoves: [], eligible, reasons: [], penalties: []
+  motifs: [], moveContributions: [], eligible, reasons: [], penalties: []
 });
 
 test("educational ranking allows a strong short-range lesson over a shorter Tal line", () => {

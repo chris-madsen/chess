@@ -54,6 +54,28 @@ test("Pattern steering evaluates candidates before selecting a move and preserve
   expect(result.selected.afterPosition.sideToMove).toBe("black");
 });
 
+test("a fixed target family is never replaced by a stronger incidental family", async () => {
+  const result = mustOk(await evaluatePatternSteeringCandidates(
+    chess,
+    start,
+    async () => ({ tag: "Ok", value: [seedFor("e2e4", 1)] }),
+    acceptAll,
+    async request => {
+      const move = chess.parseLegalMove(request.position, "e7e5");
+      return move.tag === "Err" ? move : { tag: "Ok", value: { move: move.value, provenance: {
+        source: "MAIA", provider: maiaProvider("fixed-target"), status: "MODELED_LOCAL", requestId: makeRequestId("fixed-target-maia"), inputPositionHash: request.position.hash, configuration: {}
+      } } };
+    },
+    "fixed-target",
+    1,
+    true,
+    undefined,
+    "MORPHYS"
+  ));
+  expect(result.selected.targetFamily).toBe("MORPHYS");
+  expect(result.candidates.every(candidate => candidate.targetFamily === "MORPHYS")).toBe(true);
+});
+
 test("Pattern steering never reuses a Maia response from the analysis cache", async () => {
   const cache = createInMemoryAnalysisCache();
   let maiaCalls = 0;
