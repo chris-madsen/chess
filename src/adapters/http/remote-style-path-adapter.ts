@@ -19,6 +19,7 @@ export type RemoteStylePathConfig = Readonly<{
   token: string;
   cstalOpponent: "maia3" | "maia1900";
   maia3Elo: number;
+  cstalThreads?: number;
   timeoutMs: number;
 }>;
 
@@ -65,6 +66,7 @@ export const makeRemoteStylePathConfig = (overrides: Partial<Omit<RemoteStylePat
     token,
     cstalOpponent: overrides.cstalOpponent ?? "maia3",
     maia3Elo: overrides.maia3Elo ?? 1800,
+    ...(overrides.cstalThreads === undefined ? {} : { cstalThreads: overrides.cstalThreads }),
     timeoutMs: overrides.timeoutMs ?? 900_000
   });
 };
@@ -241,7 +243,7 @@ export const fetchRemoteStylePaths = async (
       method: "POST",
       signal: controller.signal,
       headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
-      body: JSON.stringify({ ...(rawGame === undefined ? { fen: String(start.fen) } : { rawGameBase64: base64Utf8(rawGame) }), engineSuite: "cstal-windows", cstalOpponent: config.cstalOpponent, maia3Elo: config.maia3Elo, refreshMs: 2_000, maxFullMoves: Math.max(1, Math.floor(Number(horizon) / 2)), timeoutMs: config.timeoutMs, ...(styleDepth === undefined ? {} : { styleDepth }) })
+      body: JSON.stringify({ ...(rawGame === undefined ? { fen: String(start.fen) } : { rawGameBase64: base64Utf8(rawGame) }), engineSuite: "cstal-windows", cstalOpponent: config.cstalOpponent, maia3Elo: config.maia3Elo, refreshMs: 2_000, maxFullMoves: Math.max(1, Math.floor(Number(horizon) / 2)), timeoutMs: config.timeoutMs, ...(styleDepth === undefined ? {} : { styleDepth }), ...(config.cstalThreads === undefined ? {} : { cstalThreads: config.cstalThreads }) })
     });
     const created = await response.json().catch(() => undefined) as { jobId?: unknown } | undefined;
     if (!response.ok || typeof created?.jobId !== "string") return responseError("remoteStyleApi.createJob", "Remote StylePath API job creation failed", { status: response.status });

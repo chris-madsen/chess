@@ -81,6 +81,8 @@ export type WindowsCstalOpponent = "maia3" | "maia1900";
 export type WindowsCstalOptions = Readonly<{
   opponent?: WindowsCstalOpponent;
   maia3Elo?: number;
+  styleDepth?: number;
+  cstalThreads?: number;
 }>;
 
 const defaultStyleDepth = 13;
@@ -333,7 +335,7 @@ export const createWindowsCstalTacticalGate = (
   options: WindowsCstalOptions = {},
   policy: UciTacticalGatePolicy = { mode: "EXTERNAL_ADMISSION", minCentipawns: -150, allowedLossCentipawns: 100, preserveMateClass: true }
 ) => {
-  const config = styleConfig("cstal-absurd", "CSTal ABSURD tactical gate", requirePath(paths, "cstalAbsurdPath"), "2.07-cst-absurd", cstalStyleDepth, styleEngineTimeoutMs, cstalThreads);
+  const config = styleConfig("cstal-absurd", "CSTal ABSURD tactical gate", requirePath(paths, "cstalAbsurdPath"), "2.07-cst-absurd", options.styleDepth ?? cstalStyleDepth, styleEngineTimeoutMs, options.cstalThreads ?? cstalThreads);
   return createUciPostMoveTacticalGate(chess, {
     ...config,
     configuration: { ...config.configuration, role: "tactical-gate", gateMode: "POST_MOVE_EVALUATION", judge: "CSTal ABSURD", searchMovesCapability: "UNSUPPORTED", tacticalGatePolicy: "ABSURD_UNIFIED_SAFETY_JUDGE", opponent: options.opponent ?? "maia3", maia3Elo: options.maia3Elo ?? 1900 }
@@ -347,8 +349,8 @@ export const createWindowsCstalStylePathProviders = (
 ): StylePathProviders => {
   const opponent = options.opponent ?? "maia3";
   const maia3Elo = options.maia3Elo ?? 1900;
-  const absurdConfig = styleConfig("cstal-absurd", "CSTal ABSURD", requirePath(paths, "cstalAbsurdPath"), "2.07-cst-absurd", cstalStyleDepth, styleEngineTimeoutMs, cstalThreads);
-  const extremeConfig = styleConfig("cstal-extreme", "CSTal EXTREME", requirePath(paths, "cstalExtremePath"), "2.07-cst-extreme", cstalStyleDepth, styleEngineTimeoutMs, cstalThreads);
+  const absurdConfig = styleConfig("cstal-absurd", "CSTal ABSURD", requirePath(paths, "cstalAbsurdPath"), "2.07-cst-absurd", options.styleDepth ?? cstalStyleDepth, styleEngineTimeoutMs, options.cstalThreads ?? cstalThreads);
+  const extremeConfig = styleConfig("cstal-extreme", "CSTal EXTREME", requirePath(paths, "cstalExtremePath"), "2.07-cst-extreme", options.styleDepth ?? cstalStyleDepth, styleEngineTimeoutMs, options.cstalThreads ?? cstalThreads);
   const maia: MoveProvider = opponent === "maia1900"
     ? createUciMoveProvider(chess, maiaConfig(requirePath(paths, "maia9Path"), paths.maia9Args, maiaLimit, cstalOpponentMaiaThreads))
     : createUciMoveProvider(chess, maia3Config(paths, maia3Elo));

@@ -25,6 +25,7 @@
     "pattern:experiment": "tsx src/cli/pattern-steering.ts",
     "pattern:baseline-parity": "tsx src/cli/pattern-baseline-parity.ts",
     "pattern:baseline-repeatability": "tsx src/cli/pattern-baseline-parity.ts --mode repeatability",
+    "cstal:threads:experiment": "tsx src/cli/cstal-threads-experiment.ts",
     "pattern:legacy-posthoc": "tsx src/cli/pattern-experiment.ts",
     "pattern:recognizer": "tsx src/cli/pattern-recognizer.ts",
     "pattern:calibrate": "tsx src/cli/pattern-calibrate.ts",

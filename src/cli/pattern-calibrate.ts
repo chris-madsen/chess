@@ -63,14 +63,27 @@ const targetFor = (scores: Scores): number => {
 const pointsFor = (scores: Scores): readonly (readonly [number, number])[] => {
   if (scores.positive.length === 0) return [];
   const all = [...new Set([0, 1, ...scores.positive, ...scores.hardNegative, ...scores.control])].sort((a, b) => a - b);
-  let best = 0.2;
-  return all.map(raw => {
+  const negativeCount = scores.hardNegative.length + scores.control.length;
+  const prior = rate(scores.positive.length, scores.positive.length + negativeCount);
+  const values = all.map(raw => {
+    if (raw === 0) return 0;
     const positive = scores.positive.filter(value => value >= raw).length;
     const negative = [...scores.hardNegative, ...scores.control].filter(value => value >= raw).length;
     const precision = positive + negative === 0 ? 0 : positive / (positive + negative);
-    best = Math.max(best, 0.2 + 0.8 * precision);
-    return [round(raw), round(best)] as const;
+    const evidence = prior >= 1 ? 0 : Math.max(0, (precision - prior) / (1 - prior));
+    return evidence;
   });
+  const blocks: Array<{ start: number; end: number; value: number }> = [];
+  values.forEach((value, index) => {
+    blocks.push({ start: index, end: index, value });
+    while (blocks.length >= 2 && blocks.at(-2)!.value > blocks.at(-1)!.value) {
+      const right = blocks.pop()!;
+      const left = blocks.pop()!;
+      const count = right.end - left.start + 1;
+      blocks.push({ start: left.start, end: right.end, value: (left.value * (left.end - left.start + 1) + right.value * (right.end - right.start + 1)) / count });
+    }
+  });
+  return all.map((raw, index) => [round(raw), round(blocks.find(block => index >= block.start && index <= block.end)?.value ?? 0)] as const);
 };
 const generatedSource = (families: Readonly<Record<string, FamilyCalibration>>, metadata: Readonly<{ modelVersion: string; datasetVersion: string; calibrationSha256: string }>): string => {
   const body = JSON.stringify(families, null, 2);
@@ -110,7 +123,7 @@ const main = (): void => {
       ? { status: "UNAVAILABLE", reason: "no verified calibration fixtures", positiveCount: 0, hardNegativeCount: bucket.hardNegative.length, controlCount: bucket.control.length }
       : (() => { const presenceThreshold = presenceFor(bucket); return { status: presenceThreshold === 0 ? "WEAK_SEPARATION" as const : "CALIBRATED" as const, ...(presenceThreshold === 0 ? { reason: "no high-precision operating point" } : {}), positiveCount: bucket.positive.length, hardNegativeCount: bucket.hardNegative.length, controlCount: bucket.control.length, presenceThreshold, targetTrigger: Math.max(presenceThreshold, targetFor(bucket)), points: pointsFor(bucket) }; })();
   }
-  const artifact = { modelVersion: "mate-geometry-v2-calibration-v3", datasetVersion, split: "calibration", calibrationCases, method: "stable attacker side; state-level positive-near basin; positive/hard-negative/control operating points; monotonic empirical map", families };
+  const artifact = { modelVersion: "mate-geometry-v2-calibration-v4-prior-adjusted", datasetVersion, split: "calibration", calibrationCases, method: "stable attacker side; state-level positive-near basin; prior-adjusted positive/hard-negative/control evidence map", families };
   const artifactText = `${JSON.stringify(artifact, null, 2)}\n`;
   const calibrationSha256 = createHash("sha256").update(artifactText, "utf8").digest("hex");
   writeFileSync(outputPath, artifactText, "utf8");

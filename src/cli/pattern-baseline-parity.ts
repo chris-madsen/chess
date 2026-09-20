@@ -27,7 +27,7 @@ const remoteStyleCliRoots = async (config: RemoteStylePathConfig, rawGame: strin
       method: "POST",
       signal: controller.signal,
       headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
-      body: JSON.stringify({ rawGameBase64: Buffer.from(rawGame, "utf8").toString("base64"), engineSuite: "cstal-windows", cstalOpponent: config.cstalOpponent, maia3Elo: config.maia3Elo, refreshMs: 2_000, maxFullMoves: Math.max(1, Math.floor(horizonPlies / 2)), timeoutMs: config.timeoutMs, styleDepth })
+      body: JSON.stringify({ rawGameBase64: Buffer.from(rawGame, "utf8").toString("base64"), engineSuite: "cstal-windows", cstalOpponent: config.cstalOpponent, maia3Elo: config.maia3Elo, refreshMs: 2_000, maxFullMoves: Math.max(1, Math.floor(horizonPlies / 2)), timeoutMs: config.timeoutMs, styleDepth, ...(config.cstalThreads === undefined ? {} : { cstalThreads: config.cstalThreads }) })
     });
     const created = await createdResponse.json() as { jobId?: unknown };
     if (!createdResponse.ok || typeof created.jobId !== "string") throw new Error(`style:lines API create failed (${createdResponse.status})`);
@@ -62,22 +62,29 @@ const main = async (): Promise<void> => {
   if (mode !== "parity" && mode !== "repeatability") throw new Error("--mode must be parity or repeatability");
   const requireRoot = mode === "parity" || args.includes("--require-root-parity");
   const requireExact = args.includes("--require-exact-parity");
+  const cstalThreadsRaw = valueAfter(args, "--cstal-threads");
+  const cstalThreads = cstalThreadsRaw === undefined ? undefined : positive(args, "--cstal-threads", 0);
+  if (cstalThreads !== undefined && cstalThreads > 2) throw new Error("--cstal-threads must be 1 or 2");
   const chess = createChessJsRulesAdapter();
   const rawGame = readFileSync(rawFile, "utf8");
   const start = chess.ingestRawGame(rawGame);
   if (isErr(start)) throw new Error(`${start.error.code}: ${start.error.message}`);
   const horizon = makeScenarioHorizon(horizonPlies);
   if (isErr(horizon)) throw new Error(`${horizon.error.code}: ${horizon.error.message}`);
-  const config = makeRemoteStylePathConfig({ maia3Elo });
+  const config = makeRemoteStylePathConfig({ maia3Elo, ...(cstalThreads === undefined ? {} : { cstalThreads }) });
   if (isErr(config)) throw new Error(`${config.error.code}: ${config.error.message}`);
   const runtime = windowsCstalRuntimeConfig();
-  process.stdout.write(`${mode === "parity" ? "Canonical baseline parity" : "Canonical baseline repeatability"}\nWindows backend: ${config.value.baseUrl}\nCSTal depth ${runtime.styleDepth}, threads ${runtime.cstalThreads}\nMaia3 Elo ${maia3Elo}\n`);
+  process.stdout.write(`${mode === "parity" ? "Canonical baseline parity" : "Canonical baseline repeatability"}\nWindows backend: ${config.value.baseUrl}\nMaia3 Elo ${maia3Elo}\n`);
 
   let exactMatches = 0;
   let rootMatches = 0;
   for (let run = 1; run <= runs; run += 1) {
     const first = await fetchRemoteStylePaths(chess, start.value, horizon.value, config.value, runtime.styleDepth, rawGame);
     if (isErr(first)) throw new Error(`first run ${run}: ${first.error.code}: ${first.error.message}`);
+    if (run === 1) {
+      const backend = first.value.find(item => item.backend !== undefined)?.backend;
+      process.stdout.write(`Remote fingerprint: depth ${backend?.styleDepth ?? "unknown"}, threads ${backend?.cstalThreads ?? "unknown"}, git ${backend?.gitSha ?? "unknown"}\n`);
+    }
     const firstRoots = first.value.map(item => ({ engineKey: item.engineKey, moves: item.line.plies.map(ply => String(ply.move.uci)) }));
     let secondRoots: readonly RootLine[];
     if (mode === "parity") {

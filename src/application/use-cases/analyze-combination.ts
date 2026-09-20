@@ -81,10 +81,32 @@ const pieceAttacks = (board: readonly BoardPiece[], piece: BoardPiece, target: s
 const lineOpeningToKing = (board: readonly BoardPiece[], move: LegalMove, attacker: Side): boolean => {
   const king = board.find(piece => piece.side !== attacker && piece.type === "k");
   const blocker = pieceAt(board, move.from);
-  if (king === undefined || blocker === undefined || !["r", "b", "q"].includes(blocker.type)) return false;
+  if (king === undefined || blocker === undefined) return false;
+  const after = board.filter(item => item.square !== move.from && item.square !== move.to)
+    .concat({ ...blocker, square: move.to });
   return board.some(piece => piece.side === attacker && ["r", "b", "q"].includes(piece.type)
     && pieceAttacks(board, piece, move.from)
-    && pieceAttacks(board.filter(item => item.square !== move.from), { ...piece, square: piece.square }, king.square));
+    && pieceAttacks(after, { ...piece }, king.square));
+};
+
+const kingEscapeCount = (board: readonly BoardPiece[], side: Side): number => {
+  const king = board.find(piece => piece.side === side && piece.type === "k");
+  if (king === undefined) return 0;
+  const origin = squareOf(king.square);
+  let count = 0;
+  for (const fileDelta of [-1, 0, 1]) for (const rankDelta of [-1, 0, 1]) {
+    if (fileDelta === 0 && rankDelta === 0) continue;
+    const file = origin.file + fileDelta;
+    const rank = origin.rank + rankDelta;
+    if (file < 0 || file > 7 || rank < 0 || rank > 7) continue;
+    const target = squareName({ file, rank });
+    const occupant = pieceAt(board, target);
+    if (occupant?.side === side) continue;
+    const nextBoard = board.filter(piece => piece.square !== king.square && piece.square !== target).concat({ ...king, square: target });
+    const attacked = nextBoard.some(piece => piece.side !== side && pieceAttacks(nextBoard, piece, target));
+    if (!attacked) count += 1;
+  }
+  return count;
 };
 const removedDefender = (board: readonly BoardPiece[], move: LegalMove, attacker: Side, laterMoves: readonly LegalMove[]): boolean => {
   const captured = pieceAt(board, move.to);
@@ -213,10 +235,8 @@ export const analyzeLessonLine = (
       const opensLineToKing = lineOpeningToKing(board, ply.move, attacker);
       const removesDefender = capturesMove && removedDefender(board, ply.move, attacker, laterMoves);
       const patternRoleUsedLater = laterDependencyCount > 0;
-      const defenderKing = boardFromFen(String(before.fen)).find(item => item.side !== attacker && item.type === "k");
-      const kingMovesBefore = defenderKing === undefined ? 0 : before.legalMoves.filter(move => move.from === defenderKing.square).length;
-      const afterDefenderKing = boardFromFen(String(next.fen)).find(item => item.side !== attacker && item.type === "k");
-      const kingMovesAfter = afterDefenderKing === undefined ? 0 : next.legalMoves.filter(move => move.from === afterDefenderKing.square).length;
+      const kingMovesBefore = kingEscapeCount(board, attacker === "white" ? "black" : "white");
+      const kingMovesAfter = kingEscapeCount(boardFromFen(String(next.fen)), attacker === "white" ? "black" : "white");
       const contribution: MoveContribution = {
         ply: Number(ply.index), move: ply.move.uci, createsThreat: givesCheck || capturesMove,
         givesCheck, captures: capturesMove, opensLineToKing, removesDefender,

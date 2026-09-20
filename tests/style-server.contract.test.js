@@ -210,7 +210,7 @@ test("Style server maps base64 raw game and CSTal params into provider factory",
     });
     expect(created.status).toBe(202);
     const events = await collectSse(port, created.body.jobId, ["complete"]);
-    expect(seen).toEqual([{ opponent: "maia3", maia3Elo: 2100 }]);
+    expect(seen).toEqual([{ opponent: "maia3", maia3Elo: 2100, styleDepth: 14, cstalThreads: 2 }]);
     const complete = events.find(event => event.type === "complete");
     expect(complete.data.input.sideToMove).toBe("black");
     expect(complete.data.lines).toHaveLength(2);

@@ -1,15 +1,17 @@
 import type { PatternFamilyId } from "./pattern";
 import { PATTERN_CALIBRATION } from "./pattern-calibration.generated";
 
-const fallbackThreshold = 0.97;
 const calibrationFor = (family: PatternFamilyId) => PATTERN_CALIBRATION[family];
 
-export const patternTargetTriggerFor = (family: PatternFamilyId): number => calibrationFor(family)?.status === "CALIBRATED" ? calibrationFor(family)?.targetTrigger ?? fallbackThreshold : fallbackThreshold;
-export const patternPresenceThresholdFor = (family: PatternFamilyId): number => calibrationFor(family)?.status === "CALIBRATED" ? calibrationFor(family)?.presenceThreshold ?? fallbackThreshold : fallbackThreshold;
+export const patternTargetTriggerFor = (family: PatternFamilyId): number | undefined => {
+  const calibration = calibrationFor(family);
+  return calibration?.status === "CALIBRATED" ? calibration.targetTrigger : undefined;
+};
+export const patternPresenceThresholdFor = (family: PatternFamilyId): number => calibrationFor(family)?.status === "CALIBRATED" ? calibrationFor(family)?.presenceThreshold ?? 1 : 1;
 
 export const calibratedAttractorScore = (rawAffinity: number, family: PatternFamilyId): number => {
   const points = calibrationFor(family)?.points;
-  if (points === undefined || points.length === 0) return Math.max(0, Math.min(1, rawAffinity / fallbackThreshold));
+  if (points === undefined || points.length === 0) return 0;
   if (rawAffinity <= (points[0]?.[0] ?? 0)) return points[0]?.[1] ?? 0;
   for (let index = 1; index < points.length; index += 1) {
     const left = points[index - 1]!;

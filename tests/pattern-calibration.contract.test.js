@@ -14,7 +14,8 @@ test("calibration artifact covers every catalog family and marks fixture-less fa
     } else {
       expect(calibration?.positiveCount).toBeGreaterThan(0);
       expect(patternPresenceThresholdFor(family)).toBeGreaterThanOrEqual(0);
-      expect(patternTargetTriggerFor(family)).toBeGreaterThanOrEqual(0);
+      const trigger = patternTargetTriggerFor(family);
+      expect(trigger === undefined || trigger >= 0).toBe(true);
       const points = calibration?.points ?? [];
       expect(points.every((point, index) => index === 0 || point[0] >= (points[index - 1]?.[0] ?? 0))).toBe(true);
       expect(points.every((point, index) => index === 0 || point[1] >= (points[index - 1]?.[1] ?? 0))).toBe(true);

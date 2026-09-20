@@ -36,6 +36,8 @@ export type StyleServerJobRequest = Readonly<{
   engineSuite?: "cstal-windows";
   cstalOpponent?: WindowsCstalOpponent;
   maia3Elo?: number;
+  styleDepth?: number;
+  cstalThreads?: number;
   refreshMs?: number;
   maxFullMoves?: number;
   timeoutMs?: number;
@@ -50,6 +52,8 @@ type NormalizedJobRequest = Readonly<{
   refreshMs: number;
   maxFullMoves: number;
   timeoutMs: number;
+  styleDepth: number;
+  cstalThreads: number;
 }>;
 
 type ServerConfig = Readonly<{
@@ -222,10 +226,10 @@ type StyleJob = {
 
 export type StyleServerPorts = Readonly<{
   chess?: ChessRulesPort;
-  createProviders?: (chess: ChessRulesPort, options: Readonly<{ opponent: WindowsCstalOpponent; maia3Elo: number }>) => StylePathProviders;
+  createProviders?: (chess: ChessRulesPort, options: Readonly<{ opponent: WindowsCstalOpponent; maia3Elo: number; styleDepth: number; cstalThreads: number }>) => StylePathProviders;
   now?: () => Date;
   makeJobId?: () => string;
-  createPatternSteering?: (chess: ChessRulesPort, options: Readonly<{ opponent: WindowsCstalOpponent; maia3Elo: number }>) => PatternSteeringProviders;
+  createPatternSteering?: (chess: ChessRulesPort, options: Readonly<{ opponent: WindowsCstalOpponent; maia3Elo: number; styleDepth: number; cstalThreads: number }>) => PatternSteeringProviders;
 }>;
 
 const defaultConfig = (): ServerConfig => ({
@@ -317,10 +321,14 @@ const normalizeJobRequest = (body: unknown): NormalizedJobRequest | DomainError 
   const refreshMs = integerInRange(data.refreshMs, 2000, 250, 60_000);
   const maxFullMoves = integerInRange(data.maxFullMoves, 80, 1, 300);
   const timeoutMs = integerInRange(data.timeoutMs, 300_000, 1_000, 3_600_000);
+  const styleDepth = integerInRange(data.styleDepth, CSTAL_STYLE_DEPTH, 1, 64);
+  const cstalThreads = integerInRange(data.cstalThreads, windowsCstalRuntimeConfig().cstalThreads, 1, 2);
   if (maia3Elo === undefined) return { code: "INVALID_MOVE_NOTATION", path: "body.maia3Elo", message: "maia3Elo must be an integer between 1 and 4000" };
   if (refreshMs === undefined) return { code: "INVALID_MOVE_NOTATION", path: "body.refreshMs", message: "refreshMs must be an integer between 250 and 60000" };
   if (maxFullMoves === undefined) return { code: "INVALID_MOVE_NOTATION", path: "body.maxFullMoves", message: "maxFullMoves must be an integer between 1 and 300" };
   if (timeoutMs === undefined) return { code: "INVALID_MOVE_NOTATION", path: "body.timeoutMs", message: "timeoutMs must be an integer between 1000 and 3600000" };
+  if (styleDepth === undefined) return { code: "INVALID_MOVE_NOTATION", path: "body.styleDepth", message: "styleDepth must be an integer between 1 and 64" };
+  if (cstalThreads === undefined) return { code: "INVALID_MOVE_NOTATION", path: "body.cstalThreads", message: "cstalThreads must be 1 or 2" };
   const rawGame = hasRawGame ? Buffer.from(data.rawGameBase64 as string, "base64").toString("utf8") : undefined;
   if (hasRawGame && rawGame?.trim().length === 0) return { code: "INVALID_MOVE_NOTATION", path: "body.rawGameBase64", message: "Decoded raw game is empty" };
   return {
@@ -330,7 +338,9 @@ const normalizeJobRequest = (body: unknown): NormalizedJobRequest | DomainError 
     maia3Elo,
     refreshMs,
     maxFullMoves,
-    timeoutMs
+    timeoutMs,
+    styleDepth,
+    cstalThreads
   };
 };
 
@@ -388,7 +398,9 @@ class StyleJobQueue {
     this.chess = ports.chess ?? createChessJsRulesAdapter();
     this.createProviders = ports.createProviders ?? ((chess, options) => createWindowsCstalStylePathProviders(chess, undefined, {
       opponent: options.opponent,
-      maia3Elo: options.maia3Elo
+      maia3Elo: options.maia3Elo,
+      styleDepth: options.styleDepth,
+      cstalThreads: options.cstalThreads
     }));
     this.now = ports.now ?? (() => new Date());
     this.makeJobId = ports.makeJobId ?? (() => randomUUID());
@@ -491,7 +503,7 @@ class StyleJobQueue {
       createdAt: now.toISOString(),
       settings: {
         horizonMoves: Math.min(INITIAL_ANALYSIS_SETTINGS.horizonMoves, request.maxFullMoves),
-        styleDepth: CSTAL_STYLE_DEPTH,
+        styleDepth: request.styleDepth,
         maxFullMoves: request.maxFullMoves,
         refreshMs: request.refreshMs,
         timeoutMs: request.timeoutMs,
@@ -513,7 +525,7 @@ class StyleJobQueue {
       ...(job.completedAt !== undefined ? { completedAt: job.completedAt.toISOString() } : {}),
       settings: {
         horizonMoves: job.targetHorizonMoves,
-        styleDepth: CSTAL_STYLE_DEPTH,
+        styleDepth: job.request.styleDepth,
         maxFullMoves: job.request.maxFullMoves,
         refreshMs: job.request.refreshMs,
         timeoutMs: job.request.timeoutMs,
@@ -582,7 +594,9 @@ class StyleJobQueue {
     job.startedAt = this.now();
     const providers = this.createProviders(this.chess, {
       opponent: job.request.cstalOpponent,
-      maia3Elo: job.request.maia3Elo
+      maia3Elo: job.request.maia3Elo,
+      styleDepth: job.request.styleDepth,
+      cstalThreads: job.request.cstalThreads
     });
     job.providers = providers;
     const inputOptions: CliOptions = {
@@ -681,7 +695,7 @@ class StyleJobQueue {
           position: state.currentPosition,
           lineId: `style-${ingestedResult.value.position.hash}-${engine.key}`,
           ply: plyNumber,
-          ...(isStylePly ? { searchLimit: { tag: "Depth" as const, depth: styleDepthForEngine(engine) } } : {})
+          ...(isStylePly ? { searchLimit: { tag: "Depth" as const, depth: job.request.styleDepth } } : {})
         });
         if (job.abort.signal.aborted || job.finalEmitted) {
           return;
@@ -857,8 +871,10 @@ export const createStyleLineJobServer = (
             continue;
           }
           const createSteering = (): PatternSteeringProviders | undefined => resolvedPorts.createPatternSteering?.(queue.chess, {
-            opponent: request.common.cstalOpponent ?? "maia3",
-            maia3Elo: request.common.maia3Elo ?? 1800
+          opponent: request.common.cstalOpponent ?? "maia3",
+            maia3Elo: request.common.maia3Elo ?? 1800,
+            styleDepth: 14,
+            cstalThreads: windowsCstalRuntimeConfig().cstalThreads
           });
           const steering = createSteering();
           if (steering === undefined) {

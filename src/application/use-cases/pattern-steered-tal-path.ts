@@ -36,7 +36,7 @@ export type PatternSteeredTalPathRequest = Readonly<{
     family: PatternFamilyId;
     raw: number;
     calibrated: number;
-    targetTrigger: number;
+    targetTrigger?: number;
     ply: number;
   }>) => void;
 }>;
@@ -72,8 +72,8 @@ export const generatePatternSteeredTalPath = async (
     if (request.targetFamily !== undefined) return;
     selected.postResponseFamilies.forEach(assessment => {
       const targetTrigger = patternTargetTriggerFor(assessment.family);
-      request.onPatternEvidence?.({ family: assessment.family, raw: assessment.similarity, calibrated: calibratedAttractorScore(assessment.similarity, assessment.family), targetTrigger, ply: prefixPlies.length });
-      if (assessment.similarity >= targetTrigger) request.onTargetAffinity?.({ targetFamily: assessment.family, affinity: assessment.similarity, position, prefixPlies });
+      request.onPatternEvidence?.({ family: assessment.family, raw: assessment.similarity, calibrated: calibratedAttractorScore(assessment.similarity, assessment.family), ...(targetTrigger === undefined ? {} : { targetTrigger }), ply: prefixPlies.length });
+      if (targetTrigger !== undefined && assessment.similarity >= targetTrigger) request.onTargetAffinity?.({ targetFamily: assessment.family, affinity: assessment.similarity, position, prefixPlies });
     });
   };
   let plyNumber = 1;

@@ -91,7 +91,7 @@ export type PatternTargetDiagnostic = Readonly<{
   family: PatternFamilyId;
   maxRawSeen: number;
   maxCalibratedSeen: number;
-  targetTrigger: number;
+  targetTrigger?: number;
   firstCrossingPly?: number;
   targetEventEmitted: boolean;
   targetRegistered: boolean;
@@ -146,14 +146,17 @@ export const generatePatternTargetSession = async (
   let latestDiscovery: ScenarioLine | undefined;
   let discoveryDecisionTraces: readonly ScenarioDecisionTrace[] = [];
   const pendingTargets: PatternTargetBranch[] = [];
-  const targetDiagnostics: PatternTargetDiagnostic[] = STEERABLE_PATTERN_FAMILY_IDS.map(family => ({
-    family,
-    maxRawSeen: 0,
-    maxCalibratedSeen: 0,
-    targetTrigger: patternTargetTriggerFor(family),
-    targetEventEmitted: false,
-    targetRegistered: false
-  }));
+  const targetDiagnostics: PatternTargetDiagnostic[] = STEERABLE_PATTERN_FAMILY_IDS.map(family => {
+    const targetTrigger = patternTargetTriggerFor(family);
+    return {
+      family,
+      maxRawSeen: 0,
+      maxCalibratedSeen: 0,
+      ...(targetTrigger === undefined ? {} : { targetTrigger }),
+      targetEventEmitted: false,
+      targetRegistered: false
+    };
+  });
   let activeTargets = 0;
   let discoveryFinished = false;
   let resolveAllTargets: (() => void) | undefined;
@@ -252,7 +255,7 @@ export const generatePatternTargetSession = async (
     const index = targetDiagnostics.findIndex(item => item.family === event.family);
     if (index < 0) return;
     const previous = targetDiagnostics[index]!;
-    const crossed = event.raw >= event.targetTrigger;
+    const crossed = event.targetTrigger !== undefined && event.raw >= event.targetTrigger;
     targetDiagnostics[index] = {
       ...previous,
       maxRawSeen: Math.max(previous.maxRawSeen, event.raw),

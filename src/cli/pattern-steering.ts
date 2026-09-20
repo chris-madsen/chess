@@ -86,6 +86,9 @@ const main = async (): Promise<void> => {
   if (provider === "remote") {
     const config = makeRemoteStylePathConfig({ maia3Elo });
     if (isErr(config)) throw new Error(`${config.error.code}: ${config.error.message}`);
+    const baseline = rawCase === undefined
+      ? undefined
+      : await fetchRemoteStylePaths(chess, rawCase.position, rawCase.horizon, config.value, 14, rawCase.rawGame);
     const renderedLines = new Map<string, string>();
     const liveRenderer = createLiveTerminalRenderer();
     const renderLive = (text: string, final = false): void => liveRenderer.render(text, final);
@@ -98,9 +101,6 @@ const main = async (): Promise<void> => {
     selected.forEach(item => renderedLines.set(item.caseId, renderPatternDiscoveryStart(item.caseId, item.position)));
     renderLive([...renderedLines.values()].join(""));
     renderProgress();
-    const baselinePromise = rawCase === undefined
-      ? Promise.resolve(undefined)
-      : fetchRemoteStylePaths(chess, rawCase.position, rawCase.horizon, config.value, 14, rawCase.rawGame);
     const progressTimer = setInterval(renderProgress, 2_000);
     let remote;
     try {
@@ -122,7 +122,6 @@ const main = async (): Promise<void> => {
     if (isErr(remote)) throw new Error(`${remote.error.code}: ${remote.error.message}`);
     renderLive(debug ? [...renderedLines.values()].join("") : "", true);
     const baselineViews: Readonly<{ label: string; line: import("../domain/scenario-lines/scenario-line").ScenarioLine; profile: ReturnType<typeof analyzeLessonLine>; fullLineSignature?: string; backend?: Readonly<Record<string, unknown>> }>[] = [];
-    const baseline = await baselinePromise;
     if (baseline !== undefined && !isErr(baseline)) {
       baseline.value.forEach(item => {
         if (remoteBackend === undefined && item.backend !== undefined) remoteBackend = item.backend;
@@ -162,9 +161,9 @@ const main = async (): Promise<void> => {
         mateMoves: 20,
         timeoutMs: 300_000
       }));
-      const baselinePromise = rawCase === undefined
-        ? Promise.resolve(undefined)
-        : (async () => {
+      const baseline = rawCase === undefined
+        ? undefined
+        : await (async () => {
           const baselineProviders = createWindowsCstalStylePathProviders(chess, paths, { opponent: "maia3", maia3Elo });
           try {
             return await generateStylePaths(chess, baselineProviders, { start: item.position, horizon: item.horizon, lineId: `pattern-baseline-${item.caseId}` });
@@ -193,7 +192,6 @@ const main = async (): Promise<void> => {
         });
         if (isErr(session)) throw new Error(`${item.caseId}: ${session.error.code}: ${session.error.message}`);
         const baselineViews: Readonly<{ label: string; line: import("../domain/scenario-lines/scenario-line").ScenarioLine; profile: ReturnType<typeof analyzeLessonLine>; fullLineSignature?: string }>[] = [];
-        const baseline = await baselinePromise;
         if (baseline !== undefined && !isErr(baseline)) {
           baseline.value.forEach(item => baselineViews.push({ label: item.line.label, line: item.line, profile: analyzeLessonLine(chess, item.line, { lineId: item.engineKey, fullRootToTerminalPlies: item.line.plies.length }), fullLineSignature: item.line.plies.map(ply => String(ply.move.uci)).join(" ") }));
         }

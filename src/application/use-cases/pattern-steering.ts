@@ -73,7 +73,7 @@ const familyProgress = (before: readonly PatternAssessment[], after: readonly Pa
       .map(family => metric(family))
       .sort((first, second) => second.calibratedAfter - first.calibratedAfter || first.targetFamily.localeCompare(second.targetFamily))[0];
     const stalled = (selectionContext.stallCount ?? 0) >= 2 || selectionContext.repeatedPosition === true;
-    const materiallyStronger = strongestAlternative !== undefined && strongestAlternative.calibratedAfter >= preferred.calibratedAfter + 0.2;
+    const materiallyStronger = strongestAlternative !== undefined && strongestAlternative.calibratedAfter >= preferred.calibratedAfter + 0.5;
     return strongestAlternative !== undefined && (stalled || materiallyStronger) ? strongestAlternative : preferred;
   }
   const families = [...new Set([...before, ...after, ...postResponse].map(assessment => assessment.family))];
@@ -138,9 +138,7 @@ export const selectPatternSteeringCandidate = (
   );
   const immediate = candidates.filter(candidate => candidate.immediateMate === true);
   const mateClass = candidates.filter(candidate => candidate.mateClass === true);
-  const shortestMateDistance = Math.min(...mateClass.map(candidate => candidate.mateDistance ?? Number.POSITIVE_INFINITY));
-  const educationalMateClass = mateClass.filter(candidate => (candidate.mateDistance ?? Number.POSITIVE_INFINITY) <= shortestMateDistance + 4);
-  const pool = immediate.length > 0 ? immediate : mateClass.length > 0 ? (stallFallback ? mateClass : educationalMateClass) : candidates;
+  const pool = immediate.length > 0 ? immediate : mateClass.length > 0 ? mateClass : candidates;
   const recentPositionKeys = context.recentPositionKeys ?? context.recentPositionHashes;
   const nonRepeating = recentPositionKeys === undefined ? pool : pool.filter(candidate => candidate.postResponsePosition === undefined || !recentPositionKeys.includes(String(candidate.postResponsePosition.fen).split(/\s+/u).slice(0, 4).join(" ")));
   const effectivePool = nonRepeating.length > 0 ? nonRepeating : pool;
