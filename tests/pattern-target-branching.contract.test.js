@@ -76,6 +76,14 @@ test("final target ranking prefers real HumanPath checkmate over generic termina
   expect(rankPatternTargets(targets).map(target => target.targetFamily)).toEqual(["ARABIAN", "ANASTASIA", "BACK_RANK"]);
 });
 
+test("final target ranking uses full root-to-terminal length, not only the target tail", () => {
+  const targets = [
+    { targetFamily: "ANASTASIA", humanPathMate: true, fullRootToTerminalPlies: 46, line: { status: "Terminal", plies: Array(6).fill({}) } },
+    { targetFamily: "ARABIAN", humanPathMate: true, fullRootToTerminalPlies: 30, line: { status: "Terminal", plies: Array(20).fill({}) } }
+  ];
+  expect(rankPatternTargets(targets).map(target => target.targetFamily)).toEqual(["ARABIAN", "ANASTASIA"]);
+});
+
 test("identical full lines collapse into one target with aliases", () => {
   const line = { status: "Terminal", plies: [{ move: { uci: "e2e4" } }, { move: { uci: "e7e5" } }] };
   const unique = deduplicatePatternTargets([

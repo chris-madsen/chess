@@ -11,6 +11,8 @@ import type { ForcedMateVerification } from "../../domain/patterns/outcomes";
 import { isPatternFamilyId, type PatternFamilyId } from "../../domain/patterns/pattern";
 import { domainError, type DomainError } from "../../domain/shared/errors";
 import { err, isErr, ok, type Result } from "../../domain/shared/result";
+import type { LessonProfile } from "../../domain/lessons/lesson-profile";
+import { analyzeLessonLine } from "../../application/use-cases/analyze-combination";
 
 export type RemoteStylePathConfig = Readonly<{
   baseUrl: string;
@@ -37,7 +39,7 @@ type RemotePly = Readonly<{
 type RemoteLine = Readonly<{ engineKey: string; label: string; status: string; start?: unknown; targetFamily?: unknown; styleDepth?: number; plies: readonly RemotePly[]; decisionTraces?: NonNullable<ScenarioLine["decisionTraces"]>; error?: DomainError }>;
 type RemoteJobSnapshot = Readonly<{ jobId: string; status: string; lines: readonly RemoteLine[] }>;
 type RemoteSteeringLine = Readonly<{ status: string; start?: unknown; horizon?: unknown; targetFamily?: unknown; plies: readonly RemotePly[]; decisionTraces?: NonNullable<ScenarioLine["decisionTraces"]>; error?: DomainError }>;
-type RemoteSteeringTarget = Readonly<{ targetFamily: string; triggerPly: number; triggerAffinity: number; position?: unknown; prefixPlies: readonly RemotePly[]; line?: RemoteSteeringLine; forcedMate?: ForcedMateVerification; humanPathMate?: boolean; fullLineSignature?: string; fullRootToTerminalPlies?: number; alsoMatches?: readonly string[] }>;
+type RemoteSteeringTarget = Readonly<{ targetFamily: string; triggerPly: number; triggerAffinity: number; position?: unknown; prefixPlies: readonly RemotePly[]; line?: RemoteSteeringLine; forcedMate?: ForcedMateVerification; humanPathMate?: boolean; fullLineSignature?: string; fullRootToTerminalPlies?: number; alsoMatches?: readonly string[]; lessonProfile?: LessonProfile }>;
 type RemoteSteeringSession = Readonly<{ discovery: RemoteSteeringLine; targets: readonly RemoteSteeringTarget[] }>;
 type RemoteBatchResult = Readonly<{ caseId: string; status: string; snapshot?: RemoteJobSnapshot; steeringLine?: RemoteSteeringLine; steeringSession?: RemoteSteeringSession; error?: DomainError }>;
 type RemoteBatchSnapshot = Readonly<{ batchId: string; status: string; completed?: number; results: readonly RemoteBatchResult[] }>;
@@ -164,7 +166,7 @@ const makeRemoteLine = (chess: ChessRulesPort, start: PositionSnapshot, horizon:
   return ok({ engineKey: remote.engineKey, line, ...(remote.styleDepth === undefined ? {} : { styleDepth: remote.styleDepth }) });
 };
 
-const makeRemoteSteeringSession = (chess: ChessRulesPort, start: PositionSnapshot, horizon: ScenarioHorizon, remote: RemoteSteeringSession, config: RemoteStylePathConfig): Result<Readonly<{ discovery: ScenarioLine; targets: readonly Readonly<{ targetFamily: PatternFamilyId; triggerPly: number; triggerAffinity: number; position: PositionSnapshot; prefixPlies: readonly import("../../domain/scenario-lines/scenario-line").ScenarioPly[]; line?: ScenarioLine; forcedMate?: ForcedMateVerification; humanPathMate?: boolean; fullLineSignature?: string; fullRootToTerminalPlies?: number; alsoMatches?: readonly PatternFamilyId[] }>[] }>, DomainError> => {
+const makeRemoteSteeringSession = (chess: ChessRulesPort, start: PositionSnapshot, horizon: ScenarioHorizon, remote: RemoteSteeringSession, config: RemoteStylePathConfig): Result<Readonly<{ discovery: ScenarioLine; targets: readonly Readonly<{ targetFamily: PatternFamilyId; triggerPly: number; triggerAffinity: number; position: PositionSnapshot; prefixPlies: readonly import("../../domain/scenario-lines/scenario-line").ScenarioPly[]; line?: ScenarioLine; forcedMate?: ForcedMateVerification; humanPathMate?: boolean; fullLineSignature?: string; fullRootToTerminalPlies?: number; alsoMatches?: readonly PatternFamilyId[]; lessonProfile?: LessonProfile }>[] }>, DomainError> => {
   const discovery = makeRemoteLine(chess, start, horizon, { engineKey: "pattern-discovery", label: "PatternSteeredTalPath", status: remote.discovery.status, plies: remote.discovery.plies, ...(remote.discovery.decisionTraces === undefined ? {} : { decisionTraces: remote.discovery.decisionTraces }), ...(remote.discovery.error === undefined ? {} : { error: remote.discovery.error }) }, config, "HumanPath");
   if (isErr(discovery)) return err(discovery.error);
   const targets = [];
@@ -182,7 +184,13 @@ const makeRemoteSteeringSession = (chess: ChessRulesPort, start: PositionSnapsho
     }
     const alsoMatches = target.alsoMatches?.filter(isPatternFamilyId);
     const fullLineSignature = target.fullLineSignature ?? (line === undefined ? undefined : [...prefix.value, ...line.plies].map(ply => String(ply.move.uci)).join(" "));
-    targets.push({ targetFamily: target.targetFamily, triggerPly: target.triggerPly, triggerAffinity: target.triggerAffinity, position: branchStart.value, prefixPlies: prefix.value, ...(line === undefined ? {} : { line }), ...(target.forcedMate === undefined ? {} : { forcedMate: target.forcedMate }), ...(target.humanPathMate === undefined ? {} : { humanPathMate: target.humanPathMate }), ...(fullLineSignature === undefined ? {} : { fullLineSignature }), ...(target.fullRootToTerminalPlies === undefined && line === undefined ? {} : { fullRootToTerminalPlies: target.fullRootToTerminalPlies ?? prefix.value.length + (line?.plies.length ?? 0) }), ...(alsoMatches === undefined ? {} : { alsoMatches }) });
+    const fullLine = line === undefined ? undefined : { ...line, start, horizon, plies: [...prefix.value, ...line.plies] };
+    const lessonProfile = target.lessonProfile ?? (fullLine === undefined ? undefined : analyzeLessonLine(chess, fullLine, {
+      lineId: `pattern-target-${target.targetFamily}`,
+      ...(fullLineSignature === undefined || line === undefined ? {} : { fullRootToTerminalPlies: prefix.value.length + line.plies.length }),
+      ...(target.forcedMate === undefined ? {} : { forcedMateStatus: target.forcedMate.status })
+    }));
+    targets.push({ targetFamily: target.targetFamily, triggerPly: target.triggerPly, triggerAffinity: target.triggerAffinity, position: branchStart.value, prefixPlies: prefix.value, ...(line === undefined ? {} : { line }), ...(target.forcedMate === undefined ? {} : { forcedMate: target.forcedMate }), ...(target.humanPathMate === undefined ? {} : { humanPathMate: target.humanPathMate }), ...(fullLineSignature === undefined ? {} : { fullLineSignature }), ...(target.fullRootToTerminalPlies === undefined && line === undefined ? {} : { fullRootToTerminalPlies: target.fullRootToTerminalPlies ?? prefix.value.length + (line?.plies.length ?? 0) }), ...(alsoMatches === undefined ? {} : { alsoMatches }), ...(lessonProfile === undefined ? {} : { lessonProfile }) });
   }
   return ok({ discovery: discovery.value.line, targets: rankPatternTargets(targets) });
 };
@@ -220,7 +228,8 @@ export const fetchRemoteStylePaths = async (
   start: PositionSnapshot,
   horizon: ScenarioHorizon,
   config: RemoteStylePathConfig,
-  styleDepth?: number
+  styleDepth?: number,
+  rawGame?: string
 ): Promise<Result<readonly StylePathLineResult[], DomainError>> => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.timeoutMs);
@@ -229,7 +238,7 @@ export const fetchRemoteStylePaths = async (
       method: "POST",
       signal: controller.signal,
       headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
-      body: JSON.stringify({ fen: String(start.fen), engineSuite: "cstal-windows", cstalOpponent: config.cstalOpponent, maia3Elo: config.maia3Elo, refreshMs: 2_000, maxFullMoves: Math.max(1, Math.floor(Number(horizon) / 2)), timeoutMs: config.timeoutMs, ...(styleDepth === undefined ? {} : { styleDepth }) })
+      body: JSON.stringify({ ...(rawGame === undefined ? { fen: String(start.fen) } : { rawGameBase64: base64Utf8(rawGame) }), engineSuite: "cstal-windows", cstalOpponent: config.cstalOpponent, maia3Elo: config.maia3Elo, refreshMs: 2_000, maxFullMoves: Math.max(1, Math.floor(Number(horizon) / 2)), timeoutMs: config.timeoutMs, ...(styleDepth === undefined ? {} : { styleDepth }) })
     });
     const created = await response.json().catch(() => undefined) as { jobId?: unknown } | undefined;
     if (!response.ok || typeof created?.jobId !== "string") return responseError("remoteStyleApi.createJob", "Remote StylePath API job creation failed", { status: response.status });

@@ -19,6 +19,10 @@ export { recognizePatternCase, summarizePatternRecognition } from "../applicatio
 export { evaluatePatternSteeringCandidates, selectPatternSteeringCandidate } from "../application/use-cases/pattern-steering";
 export { generatePatternSteeredTalPath } from "../application/use-cases/pattern-steered-tal-path";
 export { generatePatternTargetSession, rankPatternTargets } from "../application/use-cases/pattern-target-branching";
+export { analyzeLessonLine } from "../application/use-cases/analyze-combination";
+export { chooseShortTalAlternative, compareLessonProfiles, rankLessonLines } from "../application/use-cases/rank-lesson-lines";
+export type { LessonProfile, SacrificeProfile, CausalMoveContribution, LessonLine, ShortAlternativeDecision } from "../domain/lessons/lesson-profile";
+export type { LessonTacticalMotifId, TacticalMotif } from "../domain/lessons/tactical-motifs";
 export { registerPatternTarget } from "../application/use-cases/pattern-target-branching";
 export type { PatternTargetBranch, PatternTargetSession, PatternTargetSessionRequest, PatternTargetBranchRequest, PatternTargetAffinityEvent } from "../application/use-cases/pattern-target-branching";
 export type { CandidateGenerator, CandidateGeneratorRequest } from "../application/ports/pattern-steering";

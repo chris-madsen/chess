@@ -31,11 +31,11 @@ const scoreAt = (chess: ReturnType<typeof createChessJsRulesAdapter>, fen: strin
   const context = extractPatternPositionContext(position.value, facts.value, analysis);
   return retrievePatternFamilies(context, 34).find(item => item.family === family)?.similarity ?? 0;
 };
-const caseScores = (chess: ReturnType<typeof createChessJsRulesAdapter>, entry: PatternDatasetEntry): readonly number[] => {
+const caseScores = (chess: ReturnType<typeof createChessJsRulesAdapter>, entry: PatternDatasetEntry): readonly Readonly<{ score: number; distanceToTerminal?: number }>[] => {
   const analysis = analysisFor(chess, entry);
   const startPly = entry.trajectoryStartPly ?? (entry.trajectory?.some(state => state.ply === 1) === true ? 1 : 0);
   const states = entry.trajectory?.filter(state => state.ply >= startPly) ?? [];
-  return states.length === 0 ? [scoreAt(chess, entry.fen, entry.family, analysis)] : states.map(state => scoreAt(chess, state.fen, entry.family, analysis));
+  return states.length === 0 ? [{ score: scoreAt(chess, entry.fen, entry.family, analysis) }] : states.map(state => ({ score: scoreAt(chess, state.fen, entry.family, analysis), distanceToTerminal: state.distanceToTerminal }));
 };
 const candidatesFor = (scores: Scores): readonly number[] => [...new Set([0, 1, ...scores.positive, ...scores.hardNegative, ...scores.control])].sort((a, b) => a - b);
 const metrics = (scores: Scores, threshold: number): Readonly<{ precision: number; recall: number; f1: number }> => {
@@ -92,9 +92,12 @@ const main = (): void => {
     calibrationCases += 1;
     const bucket = scores.get(entry.family)!;
     const caseScoresValue = caseScores(chess, entry);
-    const maximum = Math.max(...caseScoresValue);
+    const maximum = Math.max(...caseScoresValue.map(item => item.score));
     bucket[entry.exampleKind === "positive" ? "positive" : entry.exampleKind === "hard_negative" ? "hardNegative" : "control"].push(maximum);
-    if (entry.exampleKind === "positive" && (entry.trajectory?.some(state => state.ply >= (entry.trajectoryStartPly ?? 1) && state.distanceToTerminal <= 4) ?? false)) bucket.positiveNear.push(maximum);
+    if (entry.exampleKind === "positive") {
+      const nearScores = caseScoresValue.filter(item => item.distanceToTerminal !== undefined && item.distanceToTerminal <= 4).map(item => item.score);
+      if (nearScores.length > 0) bucket.positiveNear.push(Math.max(...nearScores));
+    }
   }
   const families: Record<string, FamilyCalibration> = {};
   for (const family of PATTERN_FAMILY_IDS) {

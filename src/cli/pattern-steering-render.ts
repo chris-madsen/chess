@@ -5,6 +5,8 @@ import type { PatternFamilyId } from "../domain/patterns/pattern";
 import type { PatternTargetSession } from "../application/use-cases/pattern-target-branching";
 import { rankPatternTargets } from "../application/use-cases/pattern-target-branching";
 import type { PositionSnapshot } from "../domain/chess/position";
+import type { LessonProfile } from "../domain/lessons/lesson-profile";
+import { chooseShortTalAlternative, type LessonRankCandidate } from "../application/use-cases/rank-lesson-lines";
 export { renderLiveTerminalFrame as renderPatternLiveFrame } from "./live-terminal-renderer";
 
 const wrapMovetext = (text: string, width = 72): string => {
@@ -152,6 +154,30 @@ export const renderPatternReference = (line: ScenarioLine, minimumAffinityByFami
 
 const targetDisplayName = (family: PatternFamilyId): string => PATTERN_FAMILY_CATALOG.find(item => item.id === family)?.displayName ?? family;
 
+export const renderLessonProfile = (profile: LessonProfile): string => [
+  "Lesson analysis",
+  `Tier ${profile.qualityTier}, utility ${(profile.lessonUtility * 100).toFixed(1)}%`,
+  `Generated continuation: ${profile.generatedFullMoves} full moves (${profile.generatedPlies} plies)${profile.finalMateMoveNumber === undefined ? "" : `, mate on move ${profile.finalMateMoveNumber}`}`,
+  `Pattern clarity ${(profile.patternClarity * 100).toFixed(1)}%, forcingness ${(profile.forcingness * 100).toFixed(1)}%`,
+  ...(profile.reasons.length === 0 ? [] : [`Selected because: ${profile.reasons.join(", ")}`]),
+  ...(profile.penalties.length === 0 ? [] : [`Penalties: ${profile.penalties.join(", ")}`]),
+  ""
+].join("\n");
+
+export const renderLessonComparison = (caseId: string, lesson: Readonly<{ label: string; line: ScenarioLine; profile: LessonProfile; fullLineSignature?: string }> | undefined, baselines: readonly Readonly<{ label: string; line: ScenarioLine; profile: LessonProfile; fullLineSignature?: string }>[]): string => {
+  if (lesson === undefined) return "";
+  const lessonCandidate: LessonRankCandidate<typeof lesson> = { value: lesson, profile: lesson.profile, ...(lesson.fullLineSignature === undefined ? {} : { fullLineSignature: lesson.fullLineSignature }) };
+  const baselineCandidates: readonly LessonRankCandidate<typeof baselines[number]>[] = baselines.map(value => ({ value, profile: value.profile, ...(value.fullLineSignature === undefined ? {} : { fullLineSignature: value.fullLineSignature }) }));
+  const alternative = chooseShortTalAlternative(lessonCandidate, baselineCandidates);
+  const output = ["", "Educational comparison", `Case ${caseId}`, `Recommended lesson: ${lesson.label}`, renderLessonProfile(lesson.profile).trim()];
+  if (alternative.shown && alternative.shortTalLineId !== undefined) {
+    const short = baselines.find(value => value.profile.lineId === alternative.shortTalLineId);
+    if (short !== undefined) output.push("Shorter Tal alternative", `${short.label}: ${short.profile.generatedFullMoves} full moves, ${alternative.gapFullMoves} moves shorter`, formatSanMovetext(short.line));
+  }
+  output.push("");
+  return `${output.join("\n")}\n`;
+};
+
 const combinedTargetLine = (session: PatternTargetSession, target: NonNullable<PatternTargetSession["targets"][number]>, line: ScenarioLine): ScenarioLine => ({
   ...line,
   start: session.discovery.start,
@@ -193,6 +219,7 @@ export const renderPatternTargetReferences = (caseId: string, session: PatternTa
       output.push("status: Incomplete", "reference unavailable because the target branch did not finish", "");
       continue;
     }
+    if (target.lessonProfile !== undefined) output.push(renderLessonProfile(target.lessonProfile));
     output.push(renderPatternReference(target.line, new Map([[target.targetFamily, target.triggerAffinity]])));
     output.push(`Forced-mate verification: ${target.forcedMate?.status ?? "UNAVAILABLE"}${target.forcedMate?.reason === undefined ? "" : ` (${target.forcedMate.reason})`}`, "");
   }

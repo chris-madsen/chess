@@ -4,11 +4,13 @@ import { dirname } from "node:path";
 import { createChessJsRulesAdapter } from "../adapters/chessjs/chess-rules-adapter";
 import { parsePatternDataset } from "../application/experiments/pattern-dataset";
 import { generatePatternSteeredTalPath } from "../application/use-cases/pattern-steered-tal-path";
+import { generateStylePaths } from "../application/use-cases/style-path";
+import { analyzeLessonLine } from "../application/use-cases/analyze-combination";
 import { isErr } from "../domain/shared/result";
 import { makeScenarioHorizon } from "../domain/chess/value-objects";
 import { createInMemoryAnalysisCache } from "../adapters/cache/in-memory-analysis-cache";
-import { createForcedMateVerifier, createPatriciaCandidateGenerator, createUciForcedMateProofProvider, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, fetchRemotePatternSteeringBatch, generatePatternTargetSession, loadLocalEnginePaths, makeRemoteStylePathConfig } from "../wiring/index";
-import { renderPatternDiscoveryStart, renderPatternProgressStatus, renderPatternReference, renderPatternRemoteFrame, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "./pattern-steering-render";
+import { createForcedMateVerifier, createPatriciaCandidateGenerator, createUciForcedMateProofProvider, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, fetchRemotePatternSteeringBatch, fetchRemoteStylePaths, generatePatternTargetSession, loadLocalEnginePaths, makeRemoteStylePathConfig } from "../wiring/index";
+import { renderLessonComparison, renderPatternDiscoveryStart, renderPatternProgressStatus, renderPatternReference, renderPatternRemoteFrame, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "./pattern-steering-render";
 import { defaultPatternHorizonMoves } from "./pattern-steering-options";
 import { createLiveTerminalRenderer } from "./live-terminal-renderer";
 
@@ -105,15 +107,26 @@ const main = async (): Promise<void> => {
       clearInterval(progressTimer);
     }
     if (isErr(remote)) throw new Error(`${remote.error.code}: ${remote.error.message}`);
-    selected.forEach(item => {
-      const line = remote.value[item.caseId];
-      records.push({ type: "case", caseId: item.caseId, mode: "steering", line: line ?? null, ...(line?.targetSession === undefined ? {} : { targetSession: line.targetSession }) });
-    });
     renderLive([...renderedLines.values()].join(""), true);
+    const baselineViews: Readonly<{ label: string; line: import("../domain/scenario-lines/scenario-line").ScenarioLine; profile: ReturnType<typeof analyzeLessonLine>; fullLineSignature?: string }>[] = [];
+    if (rawCase !== undefined) {
+      const baseline = await fetchRemoteStylePaths(chess, rawCase.position, rawCase.horizon, config.value, 14, rawCase.rawGame);
+      if (!isErr(baseline)) {
+        baseline.value.forEach(item => baselineViews.push({ label: item.line.label, line: item.line, profile: analyzeLessonLine(chess, item.line, { lineId: item.engineKey, fullRootToTerminalPlies: item.line.plies.length }), fullLineSignature: item.line.plies.map(ply => String(ply.move.uci)).join(" ") }));
+      }
+    }
     selected.forEach(item => {
       const line = remote.value[item.caseId];
+      records.push({ type: "case", caseId: item.caseId, mode: "steering", line: line ?? null, ...(line?.targetSession === undefined ? {} : { targetSession: line.targetSession }), ...(item.caseId === "raw-game" && baselineViews.length === 0 ? {} : item.caseId === "raw-game" ? { baseline: baselineViews } : {}) });
       if (line?.targetSession !== undefined) process.stdout.write(renderPatternTargetReferences(item.caseId, line.targetSession));
       else if (line !== undefined) process.stdout.write(renderPatternReference(line));
+      if (item.caseId === "raw-game" && line?.targetSession !== undefined) {
+        const target = line.targetSession.targets.find(candidate => candidate.lessonProfile !== undefined && candidate.line !== undefined);
+        if (target?.line !== undefined && target.lessonProfile !== undefined) {
+          const fullLine = { ...target.line, start: line.targetSession.discovery.start, plies: [...target.prefixPlies, ...target.line.plies] };
+          process.stdout.write(renderLessonComparison(item.caseId, { label: `Target ${target.targetFamily}`, line: fullLine, profile: target.lessonProfile, ...(target.fullLineSignature === undefined ? {} : { fullLineSignature: target.fullLineSignature }) }, baselineViews));
+        }
+      }
     });
   } else {
     const paths = loadLocalEnginePaths();
@@ -152,9 +165,27 @@ const main = async (): Promise<void> => {
           onProgress: current => renderLive(renderPatternTargetSession(item.caseId, current))
         });
         if (isErr(session)) throw new Error(`${item.caseId}: ${session.error.code}: ${session.error.message}`);
-        records.push({ type: "case", caseId: item.caseId, mode: "steering", discovery: session.value.discovery, targets: session.value.targets });
+        const baselineViews: Readonly<{ label: string; line: import("../domain/scenario-lines/scenario-line").ScenarioLine; profile: ReturnType<typeof analyzeLessonLine>; fullLineSignature?: string }>[] = [];
+        if (rawCase !== undefined) {
+          const baselineProviders = createWindowsCstalStylePathProviders(chess, paths, { opponent: "maia3", maia3Elo });
+          try {
+            const baseline = await generateStylePaths(chess, baselineProviders, { start: item.position, horizon: item.horizon, lineId: `pattern-baseline-${item.caseId}` });
+            if (!isErr(baseline)) baseline.value.forEach(item => baselineViews.push({ label: item.line.label, line: item.line, profile: analyzeLessonLine(chess, item.line, { lineId: item.engineKey, fullRootToTerminalPlies: item.line.plies.length }), fullLineSignature: item.line.plies.map(ply => String(ply.move.uci)).join(" ") }));
+          } finally {
+            baselineProviders.maia.dispose?.();
+            baselineProviders.styleEngines.forEach(engine => engine.provideMove.dispose?.());
+          }
+        }
+        records.push({ type: "case", caseId: item.caseId, mode: "steering", discovery: session.value.discovery, targets: session.value.targets, ...(baselineViews.length === 0 ? {} : { baseline: baselineViews } ) });
         renderLive(renderPatternTargetSession(item.caseId, session.value), true);
         process.stdout.write(renderPatternTargetReferences(item.caseId, session.value));
+        if (rawCase !== undefined) {
+          const target = session.value.targets.find(candidate => candidate.lessonProfile !== undefined && candidate.line !== undefined);
+          if (target?.line !== undefined && target.lessonProfile !== undefined) {
+            const fullLine = { ...target.line, start: session.value.discovery.start, plies: [...target.prefixPlies, ...target.line.plies] };
+            process.stdout.write(renderLessonComparison(item.caseId, { label: `Target ${target.targetFamily}`, line: fullLine, profile: target.lessonProfile, ...(target.fullLineSignature === undefined ? {} : { fullLineSignature: target.fullLineSignature }) }, baselineViews));
+          }
+        }
       } finally {
         discoveryProviders.generator.dispose?.();
         discoveryProviders.tacticalGate.dispose?.();

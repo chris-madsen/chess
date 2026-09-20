@@ -8,6 +8,9 @@ import type { ForcedMateVerification } from "../../domain/patterns/outcomes";
 import type { PatternSteeredTalPathRequest } from "./pattern-steered-tal-path";
 import { generatePatternSteeredTalPath } from "./pattern-steered-tal-path";
 import { patternTargetTriggerFor } from "../../domain/patterns/thresholds";
+import type { LessonProfile } from "../../domain/lessons/lesson-profile";
+import { analyzeLessonLine } from "./analyze-combination";
+import { compareLessonProfiles } from "./rank-lesson-lines";
 
 export const MAX_PATTERN_TARGETS = 3;
 
@@ -26,7 +29,12 @@ export const deduplicatePatternTargets = <T extends Readonly<{ targetFamily: str
     else groups.set(signature, [...(groups.get(signature) ?? []), target]);
   }
   const merged = [...groups.entries()].map(([signature, group]) => {
-    const representative = [...group].sort((first, second) => ((second as typeof first & { triggerAffinity?: number }).triggerAffinity ?? 0) - ((first as typeof second & { triggerAffinity?: number }).triggerAffinity ?? 0) || first.targetFamily.localeCompare(second.targetFamily))[0]!;
+    const representative = [...group].sort((first, second) => {
+      const firstProfile = (first as typeof first & { lessonProfile?: LessonProfile }).lessonProfile;
+      const secondProfile = (second as typeof second & { lessonProfile?: LessonProfile }).lessonProfile;
+      if (firstProfile !== undefined && secondProfile !== undefined) return compareLessonProfiles(firstProfile, secondProfile);
+      return ((second as typeof first & { triggerAffinity?: number }).triggerAffinity ?? 0) - ((first as typeof second & { triggerAffinity?: number }).triggerAffinity ?? 0) || first.targetFamily.localeCompare(second.targetFamily);
+    })[0]!;
     const alsoMatches = [...new Set(group.flatMap(item => [item.targetFamily, ...(((item as typeof item & { alsoMatches?: readonly string[] }).alsoMatches) ?? [])]).filter(family => family !== representative.targetFamily))].sort();
     return { ...representative, fullLineSignature: signature, ...(alsoMatches.length === 0 ? {} : { alsoMatches }) };
   });
@@ -40,12 +48,15 @@ export const rankPatternTargets = <T extends Readonly<{ targetFamily: string; hu
   .sort((first, second) => {
     const firstMate = first.humanPathMate === true;
     const secondMate = second.humanPathMate === true;
+    const firstProfile = (first as typeof first & { lessonProfile?: LessonProfile }).lessonProfile;
+    const secondProfile = (second as typeof second & { lessonProfile?: LessonProfile }).lessonProfile;
+    if (firstProfile !== undefined && secondProfile !== undefined) return compareLessonProfiles(firstProfile, secondProfile);
     if (firstMate !== secondMate) return firstMate ? -1 : 1;
     const firstTerminal = first.line?.status === "Terminal";
     const secondTerminal = second.line?.status === "Terminal";
     if (firstTerminal !== secondTerminal) return firstTerminal ? -1 : 1;
-    const firstPlies = first.line?.plies.length ?? Number.POSITIVE_INFINITY;
-    const secondPlies = second.line?.plies.length ?? Number.POSITIVE_INFINITY;
+    const firstPlies = (first as typeof first & { fullRootToTerminalPlies?: number }).fullRootToTerminalPlies ?? first.line?.plies.length ?? Number.POSITIVE_INFINITY;
+    const secondPlies = (second as typeof second & { fullRootToTerminalPlies?: number }).fullRootToTerminalPlies ?? second.line?.plies.length ?? Number.POSITIVE_INFINITY;
     return firstPlies - secondPlies || first.targetFamily.localeCompare(second.targetFamily);
   })
   .slice(0, Math.min(MAX_PATTERN_TARGETS, Math.max(1, limit)));
@@ -62,6 +73,7 @@ export type PatternTargetBranch = Readonly<{
   fullLineSignature?: string;
   fullRootToTerminalPlies?: number;
   alsoMatches?: readonly PatternFamilyId[];
+  lessonProfile?: LessonProfile;
 }>;
 
 export type PatternTargetSession = Readonly<{
@@ -168,12 +180,24 @@ export const generatePatternTargetSession = async (
               ? request.discovery.chess.computeFacts(terminalPositionResult.value)
               : undefined;
             const fullLineSignature = lineSignatureFor({ prefixPlies: target.prefixPlies, line: result.value });
+            const fullLine: ScenarioLine = {
+              ...result.value,
+              start: request.discovery.start,
+              horizon: request.discovery.horizon,
+              plies: [...target.prefixPlies, ...result.value.plies]
+            };
+            const lessonProfile = analyzeLessonLine(request.discovery.chess, fullLine, {
+              lineId: `pattern-target-${target.targetFamily}`,
+              ...(fullLineSignature === undefined ? {} : { fullRootToTerminalPlies: target.prefixPlies.length + result.value.plies.length }),
+              ...(forcedMate === undefined ? {} : { forcedMateStatus: forcedMate.status })
+            });
             targets[index] = {
               ...target,
               line: result.value,
               ...(forcedMate === undefined ? {} : { forcedMate }),
               ...(fullLineSignature === undefined ? {} : { fullLineSignature, fullRootToTerminalPlies: target.prefixPlies.length + result.value.plies.length }),
-              ...(humanPathMate !== undefined && !isErr(humanPathMate) ? { humanPathMate: humanPathMate.value.isCheckmate } : {})
+              ...(humanPathMate !== undefined && !isErr(humanPathMate) ? { humanPathMate: humanPathMate.value.isCheckmate } : {}),
+              lessonProfile
             };
           }
         }
