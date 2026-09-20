@@ -10,7 +10,6 @@ import { evaluatePatternSteeringCandidates } from "./pattern-steering";
 import type { PatternSteeringDecisionTrace } from "./pattern-steering";
 import type { AnalysisCachePort } from "../ports/analysis-cache";
 import type { PatternFamilyId } from "../../domain/patterns/pattern";
-import { patternTargetTriggerFor } from "../../domain/patterns/thresholds";
 import { repetitionKey } from "../../domain/chess/repetition-key";
 
 export type PatternSteeredTalPathRequest = Readonly<{
@@ -64,7 +63,7 @@ export const generatePatternSteeredTalPath = async (
   const emitTargetAffinities = (selected: import("./pattern-steering").PatternSteeringCandidate, position: import("../../domain/chess/position").PositionSnapshot, prefixPlies: readonly ScenarioPly[]): void => {
     if (request.targetFamily !== undefined) return;
     selected.postResponseFamilies
-      .filter(assessment => assessment.similarity >= patternTargetTriggerFor(assessment.family))
+      .filter(assessment => assessment.similarity >= 0.97)
       .forEach(assessment => request.onTargetAffinity?.({ targetFamily: assessment.family, affinity: assessment.similarity, position, prefixPlies }));
   };
   let plyNumber = 1;

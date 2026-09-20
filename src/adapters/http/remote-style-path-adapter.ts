@@ -111,7 +111,9 @@ const remoteConfiguration = (ply: RemotePly): Readonly<Record<string, unknown>> 
 const positionFromRemote = (chess: ChessRulesPort, fallback: PositionSnapshot, value: unknown, path: string): Result<PositionSnapshot, DomainError> => {
   if (value === undefined || value === null || typeof value !== "object" || typeof (value as { fen?: unknown }).fen !== "string") return ok(fallback);
   const parsed = chess.ingestPosition((value as { fen: string }).fen);
-  return isErr(parsed) ? err(domainError("INVALID_FEN", path, "Remote API returned an invalid branch start position", { cause: parsed.error })) : parsed;
+  if (isErr(parsed)) return err(domainError("INVALID_FEN", path, "Remote API returned an invalid branch start position", { cause: parsed.error }));
+  const pgn = (value as { pgn?: unknown }).pgn;
+  return ok(typeof pgn === "string" && pgn.trim().length > 0 ? { ...parsed.value, pgn } : parsed.value);
 };
 
 const makeRemotePlies = (chess: ChessRulesPort, start: PositionSnapshot, remotePlies: readonly RemotePly[], config: RemoteStylePathConfig, pathPrefix: string): Result<readonly import("../../domain/scenario-lines/scenario-line").ScenarioPly[], DomainError> => {

@@ -17,7 +17,7 @@ test("remote StylePath adapter imports and validates Windows CSTal lines", async
     json: async () => ({ jobId: "remote-test-job" }),
     text: async () => `event: queued\ndata: ${JSON.stringify({ jobId: "remote-test-job", status: "queued", lines: [] })}\n\nevent: complete\ndata: ${JSON.stringify({
       lines: [
-        { engineKey: "cstal-absurd-maia3", label: "CSTal ABSURD", status: "Complete", styleDepth: 14, plies: [
+        { engineKey: "cstal-absurd-maia3", label: "CSTal ABSURD", status: "Complete", styleDepth: 14, start: { fen: startFen, pgn: "1. e4 e5" }, plies: [
           { index: 1, uci: "e2e4", san: "e4", source: "LOCAL_STYLE_ENGINE", provider: "CSTal ABSURD" },
           { index: 2, uci: "e7e5", san: "e5", source: "MAIA", provider: "Maia3 79M" }
         ] },
@@ -42,6 +42,7 @@ test("remote StylePath adapter imports and validates Windows CSTal lines", async
     expect(result.value[0].line.plies[0].provenance.status).toBe("IMPORTED");
     expect(result.value[0].line.plies[0].provenance.source).toBe("LOCAL_STYLE_ENGINE");
     expect(result.value[0].line.plies[1].provenance.source).toBe("MAIA");
+    expect(result.value[0].line.start.pgn).toBe("1. e4 e5");
   } finally {
     globalThis.fetch = originalFetch;
   }

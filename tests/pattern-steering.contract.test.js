@@ -3,6 +3,7 @@ import { evaluatePatternSteeringCandidates, selectPatternSteeringCandidate } fro
 import { makeCandidateSeed } from "../src/domain/scenario-lines/candidate-seed.ts";
 import { makeRequestId, maiaProvider, playerProvider } from "../src/domain/index.ts";
 import { createInMemoryAnalysisCache } from "../src/adapters/cache/in-memory-analysis-cache.ts";
+import { registerPatternTarget } from "../src/application/use-cases/pattern-target-branching.ts";
 
 const chess = createChessJsRulesAdapter();
 const mustOk = result => {
@@ -20,6 +21,12 @@ const seedFor = (uci, index) => makeCandidateSeed(mustOk(chess.parseLegalMove(st
   configuration: {}
 }).value;
 const acceptAll = async request => ({ tag: "Ok", value: request.candidates.map(seed => ({ seed, accepted: true })) });
+
+test("pattern target registration never branches below the fixed 97 percent threshold", () => {
+  const event = { targetFamily: "BODEN", affinity: 0.11, position: start, prefixPlies: [] };
+  expect(registerPatternTarget([], event).accepted).toBe(false);
+  expect(registerPatternTarget([], { ...event, affinity: 0.97 }).accepted).toBe(true);
+});
 
 test("Pattern steering evaluates candidates before selecting a move and preserves attacker side", async () => {
   const result = mustOk(await evaluatePatternSteeringCandidates(

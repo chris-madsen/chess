@@ -7,7 +7,6 @@ import type { ForcedMateVerifier } from "../ports/forced-mate";
 import type { ForcedMateVerification } from "../../domain/patterns/outcomes";
 import type { PatternSteeredTalPathRequest } from "./pattern-steered-tal-path";
 import { generatePatternSteeredTalPath } from "./pattern-steered-tal-path";
-import { patternTargetTriggerFor } from "../../domain/patterns/thresholds";
 import type { LessonProfile } from "../../domain/lessons/lesson-profile";
 import { analyzeLessonLine } from "./analyze-combination";
 import { compareLessonProfiles } from "./rank-lesson-lines";
@@ -218,7 +217,7 @@ export const generatePatternTargetSession = async (
     if (discoveryFinished && activeTargets === 0 && pendingTargets.length === 0) resolveAllTargets?.();
   };
   const onTargetAffinity = (event: Parameters<NonNullable<PatternSteeredTalPathRequest["onTargetAffinity"]>>[0]): void => {
-    const registered = registerPatternTarget(targets, event, threshold ?? patternTargetTriggerFor(event.targetFamily), Number.MAX_SAFE_INTEGER);
+    const registered = registerPatternTarget(targets, event, threshold ?? 0.97, Number.MAX_SAFE_INTEGER);
     if (!registered.accepted) return;
     const target = registered.targets.at(-1);
     if (target === undefined) return;
