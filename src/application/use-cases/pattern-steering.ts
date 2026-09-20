@@ -127,17 +127,20 @@ export const selectPatternSteeringCandidate = (
   candidates: readonly PatternSteeringCandidate[],
   context: PatternSelectionContext = {}
 ): Result<PatternSteeringCandidate, DomainError> => {
+  const stallFallback = (context.stallCount ?? 0) >= 2 || context.repeatedPosition === true;
   const order = (first: PatternSteeringCandidate, second: PatternSteeringCandidate): number => (
     Number(second.immediateMate === true) - Number(first.immediateMate === true)
     || Number(second.mateClass === true) - Number(first.mateClass === true)
-    || (first.mateClass === true && second.mateClass === true ? (first.mateDistance ?? Number.POSITIVE_INFINITY) - (second.mateDistance ?? Number.POSITIVE_INFINITY) : 0)
+    || (stallFallback && first.mateClass === true && second.mateClass === true ? (first.mateDistance ?? Number.POSITIVE_INFINITY) - (second.mateDistance ?? Number.POSITIVE_INFINITY) : 0)
     || (second.calibratedAfterResponseScore ?? second.afterResponseScore) - (first.calibratedAfterResponseScore ?? first.afterResponseScore)
     || (second.calibratedProgress ?? second.patternDelta) - (first.calibratedProgress ?? first.patternDelta)
     || String(first.seed.move.uci).localeCompare(String(second.seed.move.uci))
   );
   const immediate = candidates.filter(candidate => candidate.immediateMate === true);
   const mateClass = candidates.filter(candidate => candidate.mateClass === true);
-  const pool = immediate.length > 0 ? immediate : mateClass.length > 0 ? mateClass : candidates;
+  const shortestMateDistance = Math.min(...mateClass.map(candidate => candidate.mateDistance ?? Number.POSITIVE_INFINITY));
+  const educationalMateClass = mateClass.filter(candidate => (candidate.mateDistance ?? Number.POSITIVE_INFINITY) <= shortestMateDistance + 4);
+  const pool = immediate.length > 0 ? immediate : mateClass.length > 0 ? (stallFallback ? mateClass : educationalMateClass) : candidates;
   const recentPositionKeys = context.recentPositionKeys ?? context.recentPositionHashes;
   const nonRepeating = recentPositionKeys === undefined ? pool : pool.filter(candidate => candidate.postResponsePosition === undefined || !recentPositionKeys.includes(String(candidate.postResponsePosition.fen).split(/\s+/u).slice(0, 4).join(" ")));
   const effectivePool = nonRepeating.length > 0 ? nonRepeating : pool;
@@ -148,7 +151,6 @@ export const selectPatternSteeringCandidate = (
   const shortestTrustedMate = [...trusted]
     .filter(candidate => candidate.mateClass === true)
     .sort((first, second) => (first.mateDistance ?? Number.POSITIVE_INFINITY) - (second.mateDistance ?? Number.POSITIVE_INFINITY) || order(first, second))[0];
-  const stallFallback = (context.stallCount ?? 0) >= 2 || context.repeatedPosition === true;
   const selected = bestTal === undefined
     ? bestExternal
     : bestExternal !== undefined && bestExternal.calibratedAfterResponseScore >= bestTal.calibratedAfterResponseScore + 0.08 && bestExternal.calibratedProgress > 0.02

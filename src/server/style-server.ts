@@ -24,6 +24,7 @@ import type { ForcedMateVerifier } from "../application/ports/forced-mate";
 import { createForcedMateVerifier } from "../application/use-cases/forced-mate-verifier";
 import { createUciForcedMateProofProvider } from "../adapters/uci/uci-forced-mate-proof-adapter";
 import { PATTERN_MODEL_VERSION } from "../domain/patterns/pattern";
+import { PATTERN_CALIBRATION_DATASET_VERSION, PATTERN_CALIBRATION_MODEL_VERSION, PATTERN_CALIBRATION_SHA256 } from "../domain/patterns/pattern-calibration.generated";
 import { windowsCstalRuntimeConfig } from "../wiring/local-style-engines";
 
 type JobStatus = "queued" | "running" | "complete" | "error" | "cancelled";
@@ -63,6 +64,9 @@ type ServerFingerprint = Readonly<{
   buildTime: string;
   startedAt: string;
   patternCalibrationVersion: string;
+  patternModelVersion: string;
+  patternCalibrationDatasetVersion: string;
+  patternCalibrationSha256: string;
   engineSuiteVersion: string;
   cstalAbsurdBinary: string;
   cstalExtremeBinary: string;
@@ -88,7 +92,10 @@ const serverFingerprint = (): ServerFingerprint => ({
   gitSha: currentGitSha(),
   buildTime: process.env.STYLE_SERVER_BUILD_TIME ?? "unknown",
   startedAt: serverStartedAt,
-  patternCalibrationVersion: PATTERN_MODEL_VERSION,
+  patternCalibrationVersion: PATTERN_CALIBRATION_MODEL_VERSION,
+  patternModelVersion: PATTERN_MODEL_VERSION,
+  patternCalibrationDatasetVersion: PATTERN_CALIBRATION_DATASET_VERSION,
+  patternCalibrationSha256: PATTERN_CALIBRATION_SHA256,
   engineSuiteVersion: "CSTal 2.07-cst Windows",
   cstalAbsurdBinary: process.env.STYLE_SERVER_CSTAL_ABSURD_VERSION ?? "CSTal-2.07-cst-absurd-AVX2",
   cstalExtremeBinary: process.env.STYLE_SERVER_CSTAL_EXTREME_VERSION ?? "CSTal-2.07-cst-extreme-AVX2",

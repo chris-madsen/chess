@@ -88,7 +88,10 @@ const cstalStyleDepth = 14;
 const jackalStyleDepth = 8;
 const engineMemoryMb = 10_240;
 const winnerStyleThreads = Math.min(2, Math.max(1, availableParallelism()));
-const cstalThreads = Math.min(2, Math.max(1, availableParallelism()));
+const configuredCstalThreads = Number(process.env.STYLE_SERVER_CSTAL_THREADS ?? "");
+const cstalThreads = Number.isInteger(configuredCstalThreads) && configuredCstalThreads >= 1 && configuredCstalThreads <= 2
+  ? configuredCstalThreads
+  : Math.min(2, Math.max(1, availableParallelism()));
 const jackalThreads = 1;
 const maiaMoveTimeMs = 4_000;
 const maiaThreads = Math.min(6, Math.max(1, availableParallelism()));

@@ -1,4 +1,4 @@
-import type { PatternFamilyId } from "../../domain/patterns/pattern";
+import { STEERABLE_PATTERN_FAMILY_IDS, type PatternFamilyId } from "../../domain/patterns/pattern";
 import type { ScenarioDecisionTrace, ScenarioLine, ScenarioPly } from "../../domain/scenario-lines/scenario-line";
 import type { PositionSnapshot } from "../../domain/chess/position";
 import type { DomainError } from "../../domain/shared/errors";
@@ -10,7 +10,7 @@ import { generatePatternSteeredTalPath } from "./pattern-steered-tal-path";
 import type { LessonProfile } from "../../domain/lessons/lesson-profile";
 import { analyzeLessonLine } from "./analyze-combination";
 import { compareLessonProfiles } from "./rank-lesson-lines";
-import { calibratedAttractorScore, patternTargetTriggerFor } from "../../domain/patterns/thresholds";
+import { patternTargetTriggerFor } from "../../domain/patterns/thresholds";
 
 export const MAX_PATTERN_TARGETS = 3;
 
@@ -89,10 +89,10 @@ export type PatternTargetSession = Readonly<{
 
 export type PatternTargetDiagnostic = Readonly<{
   family: PatternFamilyId;
-  raw: number;
-  calibrated: number;
+  maxRawSeen: number;
+  maxCalibratedSeen: number;
   targetTrigger: number;
-  triggerPly: number;
+  firstCrossingPly?: number;
   targetEventEmitted: boolean;
   targetRegistered: boolean;
 }>;
@@ -146,7 +146,14 @@ export const generatePatternTargetSession = async (
   let latestDiscovery: ScenarioLine | undefined;
   let discoveryDecisionTraces: readonly ScenarioDecisionTrace[] = [];
   const pendingTargets: PatternTargetBranch[] = [];
-  const targetDiagnostics: PatternTargetDiagnostic[] = [];
+  const targetDiagnostics: PatternTargetDiagnostic[] = STEERABLE_PATTERN_FAMILY_IDS.map(family => ({
+    family,
+    maxRawSeen: 0,
+    maxCalibratedSeen: 0,
+    targetTrigger: patternTargetTriggerFor(family),
+    targetEventEmitted: false,
+    targetRegistered: false
+  }));
   let activeTargets = 0;
   let discoveryFinished = false;
   let resolveAllTargets: (() => void) | undefined;
@@ -228,21 +235,10 @@ export const generatePatternTargetSession = async (
   };
   const onTargetAffinity = (event: Parameters<NonNullable<PatternSteeredTalPathRequest["onTargetAffinity"]>>[0]): void => {
     const registered = registerPatternTarget(targets, event, maxTargets);
-    const diagnostic: PatternTargetDiagnostic = {
-      family: event.targetFamily,
-      raw: event.affinity,
-      calibrated: calibratedAttractorScore(event.affinity, event.targetFamily),
-      targetTrigger: patternTargetTriggerFor(event.targetFamily),
-      triggerPly: event.prefixPlies.length,
-      targetEventEmitted: true,
-      targetRegistered: registered.accepted
-    };
     const previousDiagnostic = targetDiagnostics.findIndex(item => item.family === event.targetFamily);
     if (previousDiagnostic >= 0) {
       const previous = targetDiagnostics[previousDiagnostic]!;
-      targetDiagnostics[previousDiagnostic] = { ...previous, raw: Math.max(previous.raw, diagnostic.raw), calibrated: Math.max(previous.calibrated, diagnostic.calibrated), triggerPly: diagnostic.raw > previous.raw ? diagnostic.triggerPly : previous.triggerPly, targetRegistered: previous.targetRegistered || diagnostic.targetRegistered };
-    } else {
-      targetDiagnostics.push(diagnostic);
+      targetDiagnostics[previousDiagnostic] = { ...previous, targetEventEmitted: true, targetRegistered: previous.targetRegistered || registered.accepted };
     }
     if (!registered.accepted) { emit(); return; }
     const target = registered.targets.at(-1);
@@ -252,6 +248,19 @@ export const generatePatternTargetSession = async (
     emit();
     pumpTargets();
   };
+  const onPatternEvidence = (event: Parameters<NonNullable<PatternSteeredTalPathRequest["onPatternEvidence"]>>[0]): void => {
+    const index = targetDiagnostics.findIndex(item => item.family === event.family);
+    if (index < 0) return;
+    const previous = targetDiagnostics[index]!;
+    const crossed = event.raw >= event.targetTrigger;
+    targetDiagnostics[index] = {
+      ...previous,
+      maxRawSeen: Math.max(previous.maxRawSeen, event.raw),
+      maxCalibratedSeen: Math.max(previous.maxCalibratedSeen, event.calibrated),
+      ...(previous.firstCrossingPly === undefined && crossed ? { firstCrossingPly: event.ply } : {}),
+      targetEventEmitted: previous.targetEventEmitted || crossed
+    };
+  };
   const discoveryRequest: PatternSteeredTalPathRequest = {
     ...request.discovery,
     onProgress: line => {
@@ -260,7 +269,8 @@ export const generatePatternTargetSession = async (
       request.discovery.onProgress?.(line);
       emit();
     },
-    onTargetAffinity
+    onTargetAffinity,
+    onPatternEvidence
   };
   const discovery = await generatePatternSteeredTalPath(discoveryRequest);
   if (isErr(discovery)) return err(discovery.error);

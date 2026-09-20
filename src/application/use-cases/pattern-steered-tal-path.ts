@@ -11,7 +11,7 @@ import type { PatternSteeringDecisionTrace } from "./pattern-steering";
 import type { AnalysisCachePort } from "../ports/analysis-cache";
 import type { PatternFamilyId } from "../../domain/patterns/pattern";
 import { repetitionKey } from "../../domain/chess/repetition-key";
-import { patternTargetTriggerFor } from "../../domain/patterns/thresholds";
+import { calibratedAttractorScore, patternTargetTriggerFor } from "../../domain/patterns/thresholds";
 
 export type PatternSteeredTalPathRequest = Readonly<{
   chess: ChessRulesPort;
@@ -31,6 +31,13 @@ export type PatternSteeredTalPathRequest = Readonly<{
     affinity: number;
     position: import("../../domain/chess/position").PositionSnapshot;
     prefixPlies: readonly ScenarioPly[];
+  }>) => void;
+  onPatternEvidence?: (event: Readonly<{
+    family: PatternFamilyId;
+    raw: number;
+    calibrated: number;
+    targetTrigger: number;
+    ply: number;
   }>) => void;
 }>;
 
@@ -63,9 +70,11 @@ export const generatePatternSteeredTalPath = async (
   const positionVisits = new Map<string, number>([[repetitionKey(current), 1]]);
   const emitTargetAffinities = (selected: import("./pattern-steering").PatternSteeringCandidate, position: import("../../domain/chess/position").PositionSnapshot, prefixPlies: readonly ScenarioPly[]): void => {
     if (request.targetFamily !== undefined) return;
-    selected.postResponseFamilies
-      .filter(assessment => assessment.similarity >= patternTargetTriggerFor(assessment.family))
-      .forEach(assessment => request.onTargetAffinity?.({ targetFamily: assessment.family, affinity: assessment.similarity, position, prefixPlies }));
+    selected.postResponseFamilies.forEach(assessment => {
+      const targetTrigger = patternTargetTriggerFor(assessment.family);
+      request.onPatternEvidence?.({ family: assessment.family, raw: assessment.similarity, calibrated: calibratedAttractorScore(assessment.similarity, assessment.family), targetTrigger, ply: prefixPlies.length });
+      if (assessment.similarity >= targetTrigger) request.onTargetAffinity?.({ targetFamily: assessment.family, affinity: assessment.similarity, position, prefixPlies });
+    });
   };
   let plyNumber = 1;
   while (plyNumber <= maxPlies) {
