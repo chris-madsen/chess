@@ -2,11 +2,13 @@
 
 ## Requirements
 
-### Fixed target identity
+### Preferred target identity
 
-When a target family is supplied to Pattern steering, every evaluated
-candidate and every resulting decision trace uses that family, even if another
-family has a higher incidental affinity.
+When a target family is supplied to Pattern steering, it is the preferred
+family for normal candidate evaluation and decision traces. A branch may
+escape to a materially stronger calibrated family when it is stalled or a
+repetition guard is active; it SHALL NOT switch merely because of a small
+incidental-affinity difference.
 
 ### Evidence labels
 

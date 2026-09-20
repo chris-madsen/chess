@@ -33,7 +33,7 @@ export const candidateGeneratorFromProviders = (
     const uci = String(legal.value.uci);
     if (!seen.has(uci)) {
       seen.add(uci);
-      candidates.push({ tag: "CandidateSeed" as const, move: legal.value, provenance: provided.value.provenance, proposedBy: [provided.value.provenance], ...(provided.value.engineScore === undefined ? {} : { engineScore: provided.value.engineScore }), ...(provided.value.enginePv === undefined ? {} : { enginePv: provided.value.enginePv }) });
+      candidates.push({ tag: "CandidateSeed" as const, move: legal.value, provenance: provided.value.provenance, proposedBy: [provided.value.provenance], ...(provided.value.engineScore === undefined ? {} : { engineScore: provided.value.engineScore }), ...(provided.value.enginePv === undefined ? {} : { enginePv: provided.value.enginePv }), engineEvidence: [{ provider: provided.value.provenance, ...(provided.value.engineScore === undefined ? {} : { score: provided.value.engineScore }), ...(provided.value.enginePv === undefined ? {} : { pv: provided.value.enginePv }) }] });
     }
   }
   return ok(candidates);
@@ -61,11 +61,12 @@ export const composeCandidateGenerators = (
         if (existing !== undefined) {
           const proposedBy = [...(existing.proposedBy ?? [existing.provenance]), ...(candidate.proposedBy ?? [candidate.provenance])];
           const unique = proposedBy.filter((provenance, index, all) => all.findIndex(item => item.requestId === provenance.requestId) === index);
-        byUci.set(uci, { ...existing, proposedBy: unique, ...(candidate.engineScore === undefined ? {} : { engineScore: candidate.engineScore }), ...(candidate.enginePv === undefined ? {} : { enginePv: candidate.enginePv }) });
+        const evidence = [...(existing.engineEvidence ?? []), ...(candidate.engineEvidence ?? [{ provider: candidate.provenance, ...(candidate.engineScore === undefined ? {} : { score: candidate.engineScore }), ...(candidate.enginePv === undefined ? {} : { pv: candidate.enginePv }) }])];
+        byUci.set(uci, { ...existing, proposedBy: unique, ...(existing.engineScore === undefined && candidate.engineScore !== undefined ? { engineScore: candidate.engineScore } : {}), ...(existing.enginePv === undefined && candidate.enginePv !== undefined ? { enginePv: candidate.enginePv } : {}), engineEvidence: evidence.filter((item, index, all) => all.findIndex(other => other.provider.requestId === item.provider.requestId) === index) });
           if (typeof source !== "function" && source.mandatory === true) mandatoryUci.add(uci);
           continue;
         }
-        byUci.set(uci, { tag: "CandidateSeed" as const, move: legal.value, provenance: candidate.provenance, proposedBy: candidate.proposedBy ?? [candidate.provenance], ...(candidate.engineScore === undefined ? {} : { engineScore: candidate.engineScore }), ...(candidate.enginePv === undefined ? {} : { enginePv: candidate.enginePv }), ...(candidate.engineRank === undefined ? {} : { engineRank: candidate.engineRank }) });
+        byUci.set(uci, { tag: "CandidateSeed" as const, move: legal.value, provenance: candidate.provenance, proposedBy: candidate.proposedBy ?? [candidate.provenance], ...(candidate.engineScore === undefined ? {} : { engineScore: candidate.engineScore }), ...(candidate.enginePv === undefined ? {} : { enginePv: candidate.enginePv }), ...(candidate.engineRank === undefined ? {} : { engineRank: candidate.engineRank }), ...(candidate.engineEvidence === undefined ? {} : { engineEvidence: candidate.engineEvidence }) });
         order.push(uci);
         if (typeof source !== "function" && source.mandatory === true) mandatoryUci.add(uci);
       }
@@ -79,5 +80,15 @@ export const composeCandidateGenerators = (
 
 export const candidateGeneratorFromMoveProvider = (provider: MoveProvider): CandidateGenerator => Object.assign(async (request: CandidateGeneratorRequest) => {
   const result = await provider({ position: request.position, lineId: request.lineId, ply: 1 });
-  return isErr(result) ? err(result.error) : ok([{ tag: "CandidateSeed" as const, move: result.value.move, provenance: result.value.provenance }]);
+  if (isErr(result)) return err(result.error);
+  return ok([{
+    tag: "CandidateSeed" as const,
+    move: result.value.move,
+    provenance: result.value.provenance,
+    proposedBy: [result.value.provenance],
+    ...(result.value.engineScore === undefined ? {} : { engineScore: result.value.engineScore }),
+    ...(result.value.enginePv === undefined ? {} : { enginePv: result.value.enginePv }),
+    engineRank: 1,
+    engineEvidence: [{ provider: result.value.provenance, ...(result.value.engineScore === undefined ? {} : { score: result.value.engineScore }), ...(result.value.enginePv === undefined ? {} : { pv: result.value.enginePv }) }]
+  }]);
 }, { dispose: () => provider.dispose?.() });

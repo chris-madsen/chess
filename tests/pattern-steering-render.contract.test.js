@@ -1,6 +1,6 @@
 import { createChessJsRulesAdapter } from "../src/adapters/chessjs/chess-rules-adapter.ts";
 import { renderLiveTerminalFrame } from "../src/cli/live-terminal-renderer.ts";
-import { renderPatternDiscoveryStart, renderPatternLiveFrame, renderPatternLiveLineStatus, renderPatternProgressStatus, renderPatternReference, renderPatternRemoteFrame, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "../src/cli/pattern-steering-render.ts";
+import { renderLessonComparison, renderPatternDiscoveryStart, renderPatternLiveFrame, renderPatternLiveLineStatus, renderPatternProgressStatus, renderPatternReference, renderPatternRemoteFrame, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "../src/cli/pattern-steering-render.ts";
 
 const chess = createChessJsRulesAdapter();
 
@@ -214,6 +214,15 @@ test("suppressed target branches are hidden from normal target output", () => {
     }]
   });
   expect(rendered).not.toContain("Target Corner Mate");
+});
+
+test("tier E candidates are never presented as a recommended lesson", () => {
+  const position = chess.ingestPosition("4r3/1k6/pp3r2/1b2P2p/3R1p2/P1R2P2/1P4PP/6K1 w - - 0 35");
+  expect(position.tag).toBe("Ok");
+  const profile = { lineId: "bad-pattern", generatedPlies: 80, generatedFullMoves: 40, inputFinalMoveNumber: 35, humanPathMate: true, forcedMateStatus: "UNAVAILABLE", mateFamilies: [], patternClarity: 0, sacrifices: [], forcingness: 0, causalPreparation: 0, pieceCoordination: 0, repetitionCount: 0, nonProgressMoveCount: 10, technicalEndgamePenalty: 0.8, promotionGrindPenalty: 0, combinationBeauty: 0, lessonUtility: 0, qualityTier: "E", motifs: [], moveContributions: [], eligible: true, reasons: [], penalties: [] };
+  const rendered = renderLessonComparison("tier-e", { label: "Pattern discovery", line: { tag: "ScenarioLine", mode: "HumanPath", label: "Pattern", start: position.value, horizon: 80, plies: [], status: "Terminal" }, profile }, []);
+  expect(rendered).toContain("No educational Pattern lesson found.");
+  expect(rendered).not.toContain("Recommended lesson:");
 });
 
 test("pattern steering renderer preserves a raw PGN prefix before continuation", () => {

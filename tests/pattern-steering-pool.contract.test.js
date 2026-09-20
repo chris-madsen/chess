@@ -1,5 +1,5 @@
 import { createChessJsRulesAdapter } from "../src/adapters/chessjs/chess-rules-adapter.ts";
-import { candidateGeneratorFromProviders, composeCandidateGenerators, generatePatternSteeredTalPath, runSteeredRollout, runSteeredRolloutArtifact } from "../src/wiring/index.ts";
+import { candidateGeneratorFromMoveProvider, candidateGeneratorFromProviders, composeCandidateGenerators, generatePatternSteeredTalPath, runSteeredRollout, runSteeredRolloutArtifact } from "../src/wiring/index.ts";
 import { evaluatePatternSteeringCandidates } from "../src/application/use-cases/pattern-steering.ts";
 import { makeRequestId, maiaProvider, stockfishProvider } from "../src/domain/index.ts";
 
@@ -28,6 +28,18 @@ test("candidate pool deduplicates legal provider moves and keeps provenance", as
   const result = mustOk(await generator({ position: start, lineId: "pool", limit: 3 }));
   expect(result.map(candidate => String(candidate.move.uci))).toEqual(["e2e4", "d2d4"]);
   expect(result.every(candidate => candidate.provenance.inputPositionHash === start.hash)).toBe(true);
+});
+
+test("single trusted provider adapter preserves engine score and PV metadata", async () => {
+  const moveProvider = async request => {
+    const move = chess.parseLegalMove(request.position, "e2e4");
+    if (move.tag === "Err") return move;
+    return { tag: "Ok", value: { move: move.value, engineScore: { kind: "mate", value: 5 }, enginePv: ["e2e4", "e7e5"], provenance: { source: "LOCAL_STYLE_ENGINE", provider: { name: "cstal-absurd", displayName: "CSTal ABSURD" }, status: "ENGINE_GENERATED", requestId: makeRequestId("metadata"), inputPositionHash: request.position.hash, configuration: {} } } };
+  };
+  const result = mustOk(await candidateGeneratorFromMoveProvider(moveProvider)({ position: start, lineId: "metadata", limit: 1 }));
+  expect(result[0].engineScore).toEqual({ kind: "mate", value: 5 });
+  expect(result[0].enginePv).toEqual(["e2e4", "e7e5"]);
+  expect(result[0].engineRank).toBe(1);
 });
 
 test("duplicate UCI moves merge Patricia and CSTal provenance", async () => {

@@ -170,8 +170,20 @@ export const renderLessonComparison = (caseId: string, lesson: Readonly<{ label:
   const lessonCandidate: LessonRankCandidate<typeof lesson> = { value: lesson, profile: lesson.profile, ...(lesson.fullLineSignature === undefined ? {} : { fullLineSignature: lesson.fullLineSignature }) };
   const baselineCandidates: readonly LessonRankCandidate<typeof baselines[number]>[] = baselines.map(value => ({ value, profile: value.profile, ...(value.fullLineSignature === undefined ? {} : { fullLineSignature: value.fullLineSignature }) }));
   const otherCandidates = additional.map(value => ({ value, profile: value.profile, ...(value.fullLineSignature === undefined ? {} : { fullLineSignature: value.fullLineSignature }) }));
-  const ranked = rankLessonLines([lessonCandidate, ...otherCandidates, ...baselineCandidates], 1);
-  const recommended = ranked[0] ?? lessonCandidate;
+  const allCandidates = [lessonCandidate, ...otherCandidates, ...baselineCandidates];
+  const eligibleCandidates = allCandidates.filter(candidate => candidate.profile.eligible && candidate.profile.qualityTier !== "E" && candidate.profile.qualityTier !== "SUPPRESSED");
+  const recommended = rankLessonLines(eligibleCandidates, 1)[0];
+  const fallback = rankLessonLines(baselineCandidates.length > 0 ? baselineCandidates : [lessonCandidate], 1)[0];
+  if (recommended === undefined) {
+    const output = ["", "Educational comparison", `Case ${caseId}`, "No educational Pattern lesson found."];
+    if (fallback !== undefined) {
+      output.push("Best available Tal continuation", fallback.value.label, formatSanMovetext(fallback.value.line), renderLessonProfile(fallback.profile).trim());
+    } else {
+      output.push("No complete lesson candidate was available.");
+    }
+    output.push("");
+    return `${output.join("\n")}\n`;
+  }
   const alternative = chooseShortTalAlternative(recommended, baselineCandidates);
   const output = [...["", "Educational comparison", `Case ${caseId}`, `Recommended lesson: ${recommended.value.label}`], formatSanMovetext(recommended.value.line), renderLessonProfile(recommended.profile).trim()];
   if (alternative.shown && alternative.shortTalLineId !== undefined) {
@@ -212,7 +224,7 @@ export const renderPatternTargetReferences = (caseId: string, session: PatternTa
   const output = ["", "########", `Pattern references for ${caseId}`, ""];
   const targets = rankPatternTargets(visiblePatternTargets(session.targets));
   if (targets.length === 0) {
-    output.push("No target reached 97%.", "");
+    output.push("No calibrated mating-pattern target was reached.", "");
     return `${output.join("\n")}########\n`;
   }
   for (const target of targets) {

@@ -99,6 +99,11 @@ const styleEngineTimeoutMs = 300_000;
 const maiaTransportTimeoutMs = 300_000;
 const maia3TransportTimeoutMs = 120_000;
 
+export const windowsCstalRuntimeConfig = (): Readonly<{ cstalThreads: number; styleDepth: number }> => ({
+  cstalThreads,
+  styleDepth: cstalStyleDepth
+});
+
 const commandPath = (command: string): string => (
   /[\\/]/.test(command) || /^[a-zA-Z]:/.test(command) ? resolve(command) : command
 );

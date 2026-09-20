@@ -17,6 +17,11 @@ export type CandidateSeed = Readonly<{
   engineScore?: Readonly<{ kind: "centipawns" | "mate"; value: number; bound?: "exact" | "lower" | "upper" }>;
   enginePv?: readonly string[];
   engineRank?: number;
+  engineEvidence?: readonly Readonly<{
+    provider: MoveProvenance;
+    score?: Readonly<{ kind: "centipawns" | "mate"; value: number; bound?: "exact" | "lower" | "upper" }>;
+    pv?: readonly string[];
+  }>[];
 }>;
 
 export type ScenarioPly = Readonly<{
@@ -36,6 +41,8 @@ export type ScenarioDecisionTrace = Readonly<{
     talRequired?: boolean;
     talReason?: string;
     talScore?: Readonly<{ kind: "centipawns" | "mate"; value: number; bound?: "exact" | "lower" | "upper" }>;
+    enginePv?: readonly string[];
+    engineRank?: number;
     targetFamily: PatternFamilyId;
     beforeAffinity: number;
     afterCandidateAffinity: number;

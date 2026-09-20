@@ -10,6 +10,7 @@ import { generatePatternSteeredTalPath } from "./pattern-steered-tal-path";
 import type { LessonProfile } from "../../domain/lessons/lesson-profile";
 import { analyzeLessonLine } from "./analyze-combination";
 import { compareLessonProfiles } from "./rank-lesson-lines";
+import { calibratedAttractorScore, patternTargetTriggerFor } from "../../domain/patterns/thresholds";
 
 export const MAX_PATTERN_TARGETS = 3;
 
@@ -83,6 +84,17 @@ export type PatternTargetBranch = Readonly<{
 export type PatternTargetSession = Readonly<{
   discovery: ScenarioLine;
   targets: readonly PatternTargetBranch[];
+  targetDiagnostics?: readonly PatternTargetDiagnostic[];
+}>;
+
+export type PatternTargetDiagnostic = Readonly<{
+  family: PatternFamilyId;
+  raw: number;
+  calibrated: number;
+  targetTrigger: number;
+  triggerPly: number;
+  targetEventEmitted: boolean;
+  targetRegistered: boolean;
 }>;
 
 export type PatternTargetBranchRequest = Readonly<{
@@ -100,11 +112,10 @@ export type PatternTargetAffinityEvent = Readonly<{
 export const registerPatternTarget = (
   targets: readonly PatternTargetBranch[],
   event: PatternTargetAffinityEvent,
-  threshold = 0.97,
   maxTargets = MAX_PATTERN_TARGETS
 ): Readonly<{ accepted: boolean; targets: readonly PatternTargetBranch[] }> => {
   const limit = Math.max(1, maxTargets);
-  if (event.affinity < threshold || targets.some(target => target.targetFamily === event.targetFamily) || targets.length >= limit) return { accepted: false, targets };
+  if (targets.some(target => target.targetFamily === event.targetFamily) || targets.length >= limit) return { accepted: false, targets };
   return {
     accepted: true,
     targets: [...targets, {
@@ -120,32 +131,31 @@ export const registerPatternTarget = (
 export type PatternTargetSessionRequest = Readonly<{
   discovery: PatternSteeredTalPathRequest;
   runTarget: (request: PatternTargetBranchRequest, onProgress: (line: ScenarioLine) => void) => Promise<Result<ScenarioLine, DomainError>>;
-  threshold?: number;
   maxTargets?: number;
   verifyForcedMate?: ForcedMateVerifier;
   onProgress?: (session: PatternTargetSession) => void;
 }>;
 
-const snapshot = (discovery: ScenarioLine, targets: readonly PatternTargetBranch[]): PatternTargetSession => ({ discovery, targets });
+const snapshot = (discovery: ScenarioLine, targets: readonly PatternTargetBranch[], diagnostics: readonly PatternTargetDiagnostic[]): PatternTargetSession => ({ discovery, targets, ...(diagnostics.length === 0 ? {} : { targetDiagnostics: diagnostics }) });
 
 export const generatePatternTargetSession = async (
   request: PatternTargetSessionRequest
 ): Promise<Result<PatternTargetSession, DomainError>> => {
-  const threshold = request.threshold;
   const maxTargets = Math.min(MAX_PATTERN_TARGETS, Math.max(1, request.maxTargets ?? MAX_PATTERN_TARGETS));
   const targets: PatternTargetBranch[] = [];
   let latestDiscovery: ScenarioLine | undefined;
   let discoveryDecisionTraces: readonly ScenarioDecisionTrace[] = [];
   const pendingTargets: PatternTargetBranch[] = [];
+  const targetDiagnostics: PatternTargetDiagnostic[] = [];
   let activeTargets = 0;
   let discoveryFinished = false;
   let resolveAllTargets: (() => void) | undefined;
   const allTargetsFinished = new Promise<void>(resolve => { resolveAllTargets = resolve; });
   const emit = (): void => {
-    if (latestDiscovery !== undefined) request.onProgress?.(snapshot(latestDiscovery, targets));
+    if (latestDiscovery !== undefined) request.onProgress?.(snapshot(latestDiscovery, targets, targetDiagnostics));
   };
   const pumpTargets = (): void => {
-    while (activeTargets < MAX_PATTERN_TARGETS && pendingTargets.length > 0) {
+    while (activeTargets < maxTargets && pendingTargets.length > 0) {
       const target = pendingTargets.shift();
       if (target === undefined) break;
       activeTargets += 1;
@@ -217,8 +227,24 @@ export const generatePatternTargetSession = async (
     if (discoveryFinished && activeTargets === 0 && pendingTargets.length === 0) resolveAllTargets?.();
   };
   const onTargetAffinity = (event: Parameters<NonNullable<PatternSteeredTalPathRequest["onTargetAffinity"]>>[0]): void => {
-    const registered = registerPatternTarget(targets, event, threshold ?? 0.97, Number.MAX_SAFE_INTEGER);
-    if (!registered.accepted) return;
+    const registered = registerPatternTarget(targets, event, maxTargets);
+    const diagnostic: PatternTargetDiagnostic = {
+      family: event.targetFamily,
+      raw: event.affinity,
+      calibrated: calibratedAttractorScore(event.affinity, event.targetFamily),
+      targetTrigger: patternTargetTriggerFor(event.targetFamily),
+      triggerPly: event.prefixPlies.length,
+      targetEventEmitted: true,
+      targetRegistered: registered.accepted
+    };
+    const previousDiagnostic = targetDiagnostics.findIndex(item => item.family === event.targetFamily);
+    if (previousDiagnostic >= 0) {
+      const previous = targetDiagnostics[previousDiagnostic]!;
+      targetDiagnostics[previousDiagnostic] = { ...previous, raw: Math.max(previous.raw, diagnostic.raw), calibrated: Math.max(previous.calibrated, diagnostic.calibrated), triggerPly: diagnostic.raw > previous.raw ? diagnostic.triggerPly : previous.triggerPly, targetRegistered: previous.targetRegistered || diagnostic.targetRegistered };
+    } else {
+      targetDiagnostics.push(diagnostic);
+    }
+    if (!registered.accepted) { emit(); return; }
     const target = registered.targets.at(-1);
     if (target === undefined) return;
     targets.push(target);
@@ -243,5 +269,5 @@ export const generatePatternTargetSession = async (
   emit();
   pumpTargets();
   await allTargetsFinished;
-  return ok(snapshot(discovery.value, rankPatternTargets(targets, maxTargets)));
+  return ok(snapshot(discovery.value, rankPatternTargets(targets, maxTargets), targetDiagnostics));
 };

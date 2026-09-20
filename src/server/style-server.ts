@@ -23,6 +23,8 @@ import { createInMemoryAnalysisCache } from "../adapters/cache/in-memory-analysi
 import type { ForcedMateVerifier } from "../application/ports/forced-mate";
 import { createForcedMateVerifier } from "../application/use-cases/forced-mate-verifier";
 import { createUciForcedMateProofProvider } from "../adapters/uci/uci-forced-mate-proof-adapter";
+import { PATTERN_MODEL_VERSION } from "../domain/patterns/pattern";
+import { windowsCstalRuntimeConfig } from "../wiring/local-style-engines";
 
 type JobStatus = "queued" | "running" | "complete" | "error" | "cancelled";
 type JobEventType = "queued" | "started" | "progress" | "complete" | "error" | "cancelled";
@@ -56,7 +58,44 @@ type ServerConfig = Readonly<{
   allowedCountries: readonly string[];
 }>;
 
+type ServerFingerprint = Readonly<{
+  gitSha: string;
+  buildTime: string;
+  startedAt: string;
+  patternCalibrationVersion: string;
+  engineSuiteVersion: string;
+  cstalAbsurdBinary: string;
+  cstalExtremeBinary: string;
+  cstalThreads: number;
+  styleDepth: number;
+  maiaModel: string;
+}>;
+
 const localStyleServerTokenPath = ".local/style-server-token.txt";
+const serverStartedAt = new Date().toISOString();
+
+const currentGitSha = (): string => {
+  const configured = process.env.STYLE_SERVER_GIT_SHA?.trim();
+  if (configured !== undefined && configured.length > 0) return configured;
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim() || "unknown";
+  } catch {
+    return "unknown";
+  }
+};
+
+const serverFingerprint = (): ServerFingerprint => ({
+  gitSha: currentGitSha(),
+  buildTime: process.env.STYLE_SERVER_BUILD_TIME ?? "unknown",
+  startedAt: serverStartedAt,
+  patternCalibrationVersion: PATTERN_MODEL_VERSION,
+  engineSuiteVersion: "CSTal 2.07-cst Windows",
+  cstalAbsurdBinary: process.env.STYLE_SERVER_CSTAL_ABSURD_VERSION ?? "CSTal-2.07-cst-absurd-AVX2",
+  cstalExtremeBinary: process.env.STYLE_SERVER_CSTAL_EXTREME_VERSION ?? "CSTal-2.07-cst-extreme-AVX2",
+  cstalThreads: windowsCstalRuntimeConfig().cstalThreads,
+  styleDepth: windowsCstalRuntimeConfig().styleDepth,
+  maiaModel: "maia3-79m"
+});
 
 export const readStyleServerToken = (tokenPath = localStyleServerTokenPath): string => {
   const tokenFromEnv = process.env.STYLE_SERVER_TOKEN?.trim();
@@ -105,6 +144,7 @@ type JobSnapshot = Readonly<{
     sideToMove: "white" | "black";
   }>;
   lines: readonly JobLineSnapshot[];
+  server?: ServerFingerprint;
   error?: DomainError;
 }>;
 
@@ -451,7 +491,8 @@ class StyleJobQueue {
         cstalOpponent: request.cstalOpponent,
         maia3Elo: request.maia3Elo
       },
-      lines: []
+      lines: [],
+      server: serverFingerprint()
     };
   }
 
@@ -479,6 +520,7 @@ class StyleJobQueue {
         }
       } : {}),
       lines: engines.map(engine => lineSnapshot(job.ingested, engine, states.get(engine.key))),
+      server: serverFingerprint(),
       ...(job.error !== undefined ? { error: job.error } : {})
     };
   }
@@ -766,6 +808,7 @@ export const createStyleLineJobServer = (
     createdAt: batch.createdAt,
     total: batch.total,
     completed: batch.completed,
+    server: serverFingerprint(),
     results: batch.results
   });
   const emitBatch = (batch: PatternBatch, type: "started" | "progress" | "complete"): void => {
@@ -906,7 +949,11 @@ export const createStyleLineJobServer = (
   return createServer(async (request, response) => {
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
     if (url.pathname === "/health") {
-      jsonResponse(response, 200, { ok: true });
+      jsonResponse(response, 200, { ok: true, server: serverFingerprint() });
+      return;
+    }
+    if (url.pathname === "/version") {
+      jsonResponse(response, 200, { server: serverFingerprint() });
       return;
     }
     if (config.token.length === 0 || request.headers.authorization !== `Bearer ${config.token}`) {

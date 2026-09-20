@@ -19,6 +19,7 @@ export type StylePathLineResult = Readonly<{
   engineKey: string;
   line: ScenarioLine;
   styleDepth?: number;
+  backend?: Readonly<Record<string, unknown>>;
 }>;
 
 export type GenerateStylePathsRequest = GenerateStylePathRequest;

@@ -260,6 +260,8 @@ export const evaluatePatternSteeringCandidates = async (
           candidateClass,
           ...(tacticalAssessment.reason === undefined ? {} : { talReason: tacticalAssessment.reason }),
           ...(tacticalAssessment.talScore === undefined && seed.engineScore === undefined ? {} : { talScore: tacticalAssessment.talScore ?? seed.engineScore }),
+          ...(seed.enginePv === undefined ? {} : { enginePv: seed.enginePv }),
+          ...(seed.engineRank === undefined ? {} : { engineRank: seed.engineRank }),
           ...(candidate === undefined
             ? { targetFamily: targetFamily ?? beforeFamilies[0]?.family ?? "ANASTASIA", beforeAffinity: 0, afterCandidateAffinity: 0, afterMaiaAffinity: 0, patternDelta: 0, calibratedBefore: 0, calibratedAfterMaia: 0, calibratedProgress: 0, selected: false }
             : {

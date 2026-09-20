@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { dirname } from "node:path";
 import { createChessJsRulesAdapter } from "../adapters/chessjs/chess-rules-adapter";
 import { parsePatternDataset } from "../application/experiments/pattern-dataset";
@@ -9,7 +11,7 @@ import { analyzeLessonLine } from "../application/use-cases/analyze-combination"
 import { isErr } from "../domain/shared/result";
 import { makeScenarioHorizon } from "../domain/chess/value-objects";
 import { createInMemoryAnalysisCache } from "../adapters/cache/in-memory-analysis-cache";
-import { createForcedMateVerifier, createPatriciaCandidateGenerator, createUciForcedMateProofProvider, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, fetchRemotePatternSteeringBatch, fetchRemoteStylePaths, generatePatternTargetSession, loadLocalEnginePaths, makeRemoteStylePathConfig } from "../wiring/index";
+import { createForcedMateVerifier, createPatriciaCandidateGenerator, createUciForcedMateProofProvider, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, fetchRemotePatternSteeringBatch, fetchRemoteStylePaths, generatePatternTargetSession, loadLocalEnginePaths, makeRemoteStylePathConfig, windowsCstalRuntimeConfig } from "../wiring/index";
 import { renderLessonComparison, renderPatternDiscoveryStart, renderPatternProgressStatus, renderPatternReference, renderPatternRemoteFrame, renderPatternSteeringLine, renderPatternTargetReferences, renderPatternTargetSession } from "./pattern-steering-render";
 import { defaultPatternHorizonMoves } from "./pattern-steering-options";
 import { createLiveTerminalRenderer } from "./live-terminal-renderer";
@@ -31,7 +33,7 @@ const usage = `Usage:
 Options:
   --provider <remote|local>    Windows batch API (default remote) or local Windows engines.
   --subset <n|all>             Number of deterministic cases, default 100.
-  --raw-file <path>             Analyze one PGN/raw SAN game and preserve its history (default horizon: 80 full moves).
+  --raw-file <path>             Analyze one PGN/raw SAN game and preserve its history (default horizon: 34 full moves).
   --maia3-elo <rating>         Maia3 Elo, default 1800.
   --concurrency <n>            Remote bounded workers, default 2.
   --out <path>                 JSONL artifact path.
@@ -43,6 +45,11 @@ const selectSubset = <T extends { caseId: string }>(items: readonly T[], raw: st
   const limit = Number(raw);
   if (!Number.isInteger(limit) || limit < 1) throw new Error("--subset must be all or a positive integer");
   return [...items].sort((a, b) => a.caseId.localeCompare(b.caseId)).slice(0, limit);
+};
+
+const clientGitSha = (): string => {
+  try { return execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim() || "unknown"; }
+  catch { return "unknown"; }
 };
 
 const main = async (): Promise<void> => {
@@ -73,6 +80,7 @@ const main = async (): Promise<void> => {
   const debug = args.includes("--debug");
   const output = valueAfter(args, "--out") ?? `.local/pattern-steering-${Date.now()}.jsonl`;
   const records: unknown[] = [];
+  let remoteBackend: Readonly<Record<string, unknown>> | undefined;
   const patternCache = createInMemoryAnalysisCache();
 
   if (provider === "remote") {
@@ -90,6 +98,9 @@ const main = async (): Promise<void> => {
     selected.forEach(item => renderedLines.set(item.caseId, renderPatternDiscoveryStart(item.caseId, item.position)));
     renderLive([...renderedLines.values()].join(""));
     renderProgress();
+    const baselinePromise = rawCase === undefined
+      ? Promise.resolve(undefined)
+      : fetchRemoteStylePaths(chess, rawCase.position, rawCase.horizon, config.value, 14, rawCase.rawGame);
     const progressTimer = setInterval(renderProgress, 2_000);
     let remote;
     try {
@@ -110,15 +121,17 @@ const main = async (): Promise<void> => {
     }
     if (isErr(remote)) throw new Error(`${remote.error.code}: ${remote.error.message}`);
     renderLive(debug ? [...renderedLines.values()].join("") : "", true);
-    const baselineViews: Readonly<{ label: string; line: import("../domain/scenario-lines/scenario-line").ScenarioLine; profile: ReturnType<typeof analyzeLessonLine>; fullLineSignature?: string }>[] = [];
-    if (rawCase !== undefined) {
-      const baseline = await fetchRemoteStylePaths(chess, rawCase.position, rawCase.horizon, config.value, 14, rawCase.rawGame);
-      if (!isErr(baseline)) {
-        baseline.value.forEach(item => baselineViews.push({ label: item.line.label, line: item.line, profile: analyzeLessonLine(chess, item.line, { lineId: item.engineKey, fullRootToTerminalPlies: item.line.plies.length }), fullLineSignature: item.line.plies.map(ply => String(ply.move.uci)).join(" ") }));
-      }
+    const baselineViews: Readonly<{ label: string; line: import("../domain/scenario-lines/scenario-line").ScenarioLine; profile: ReturnType<typeof analyzeLessonLine>; fullLineSignature?: string; backend?: Readonly<Record<string, unknown>> }>[] = [];
+    const baseline = await baselinePromise;
+    if (baseline !== undefined && !isErr(baseline)) {
+      baseline.value.forEach(item => {
+        if (remoteBackend === undefined && item.backend !== undefined) remoteBackend = item.backend;
+        baselineViews.push({ label: item.line.label, line: item.line, profile: analyzeLessonLine(chess, item.line, { lineId: item.engineKey, fullRootToTerminalPlies: item.line.plies.length }), fullLineSignature: item.line.plies.map(ply => String(ply.move.uci)).join(" "), ...(item.backend === undefined ? {} : { backend: item.backend }) });
+      });
     }
     selected.forEach(item => {
       const line = remote.value[item.caseId];
+      if (line?.backend !== undefined) remoteBackend = line.backend;
       records.push({ type: "case", caseId: item.caseId, mode: "steering", line: line ?? null, ...(line?.targetSession === undefined ? {} : { targetSession: line.targetSession }), ...(item.caseId === "raw-game" && baselineViews.length === 0 ? {} : item.caseId === "raw-game" ? { baseline: baselineViews } : {}) });
       if (line?.targetSession !== undefined) process.stdout.write(renderPatternTargetReferences(item.caseId, line.targetSession));
       else if (line !== undefined) process.stdout.write(renderPatternReference(line));
@@ -128,6 +141,9 @@ const main = async (): Promise<void> => {
         process.stdout.write(renderLessonComparison(item.caseId, { label: "Pattern discovery", line: line.targetSession.discovery, profile: discoveryProfile, fullLineSignature: line.targetSession.discovery.plies.map(ply => String(ply.move.uci)).join(" ") }, baselineViews, targets));
       }
     });
+    if (debug && remoteBackend !== undefined) {
+      process.stdout.write(`Windows backend: git ${String(remoteBackend.gitSha ?? "unknown")}\nCSTal depth ${String(remoteBackend.styleDepth ?? 14)}, threads ${String(remoteBackend.cstalThreads ?? "unknown")}\nMaia ${String(remoteBackend.maiaModel ?? "unknown")}\nPattern calibration: ${String(remoteBackend.patternCalibrationVersion ?? "unknown")}\n`);
+    }
   } else {
     const paths = loadLocalEnginePaths();
     for (const item of selected) {
@@ -146,6 +162,17 @@ const main = async (): Promise<void> => {
         mateMoves: 20,
         timeoutMs: 300_000
       }));
+      const baselinePromise = rawCase === undefined
+        ? Promise.resolve(undefined)
+        : (async () => {
+          const baselineProviders = createWindowsCstalStylePathProviders(chess, paths, { opponent: "maia3", maia3Elo });
+          try {
+            return await generateStylePaths(chess, baselineProviders, { start: item.position, horizon: item.horizon, lineId: `pattern-baseline-${item.caseId}` });
+          } finally {
+            baselineProviders.maia.dispose?.();
+            baselineProviders.styleEngines.forEach(engine => engine.provideMove.dispose?.());
+          }
+        })();
       const liveRenderer = createLiveTerminalRenderer();
       const renderLive = (text: string, final = false): void => liveRenderer.render(text, final);
       renderLive(renderPatternDiscoveryStart(item.caseId, item.position));
@@ -166,15 +193,9 @@ const main = async (): Promise<void> => {
         });
         if (isErr(session)) throw new Error(`${item.caseId}: ${session.error.code}: ${session.error.message}`);
         const baselineViews: Readonly<{ label: string; line: import("../domain/scenario-lines/scenario-line").ScenarioLine; profile: ReturnType<typeof analyzeLessonLine>; fullLineSignature?: string }>[] = [];
-        if (rawCase !== undefined) {
-          const baselineProviders = createWindowsCstalStylePathProviders(chess, paths, { opponent: "maia3", maia3Elo });
-          try {
-            const baseline = await generateStylePaths(chess, baselineProviders, { start: item.position, horizon: item.horizon, lineId: `pattern-baseline-${item.caseId}` });
-            if (!isErr(baseline)) baseline.value.forEach(item => baselineViews.push({ label: item.line.label, line: item.line, profile: analyzeLessonLine(chess, item.line, { lineId: item.engineKey, fullRootToTerminalPlies: item.line.plies.length }), fullLineSignature: item.line.plies.map(ply => String(ply.move.uci)).join(" ") }));
-          } finally {
-            baselineProviders.maia.dispose?.();
-            baselineProviders.styleEngines.forEach(engine => engine.provideMove.dispose?.());
-          }
+        const baseline = await baselinePromise;
+        if (baseline !== undefined && !isErr(baseline)) {
+          baseline.value.forEach(item => baselineViews.push({ label: item.line.label, line: item.line, profile: analyzeLessonLine(chess, item.line, { lineId: item.engineKey, fullRootToTerminalPlies: item.line.plies.length }), fullLineSignature: item.line.plies.map(ply => String(ply.move.uci)).join(" ") }));
         }
         records.push({ type: "case", caseId: item.caseId, mode: "steering", discovery: session.value.discovery, targets: session.value.targets, ...(baselineViews.length === 0 ? {} : { baseline: baselineViews } ) });
         renderLive(debug ? renderPatternTargetSession(item.caseId, session.value) : "", true);
@@ -193,7 +214,9 @@ const main = async (): Promise<void> => {
     }
   }
   mkdirSync(dirname(output), { recursive: true });
-  writeFileSync(output, `${JSON.stringify({ type: "run", mode: "steering", provider, ...(datasetPath === undefined ? { rawFile } : { dataset: datasetPath }), selectedCases: selected.length, concurrency })}\n${records.map(record => JSON.stringify(record)).join("\n")}\n`, "utf8");
+  const runtime = windowsCstalRuntimeConfig();
+  const rawGameHash = rawCase === undefined ? undefined : createHash("sha256").update(rawCase.rawGame, "utf8").digest("hex");
+  writeFileSync(output, `${JSON.stringify({ type: "run", mode: "steering", provider, clientGitSha: clientGitSha(), ...(datasetPath === undefined ? { rawFile, ...(rawGameHash === undefined ? {} : { rawGameHash }) } : { dataset: datasetPath }), selectedCases: selected.length, concurrency, maia3Elo, cstalDepth: remoteBackend?.styleDepth ?? runtime.styleDepth, cstalThreads: remoteBackend?.cstalThreads ?? runtime.cstalThreads, patternCalibrationVersion: remoteBackend?.patternCalibrationVersion ?? "local", ...(remoteBackend === undefined ? {} : { remoteBackend }) })}\n${records.map(record => JSON.stringify(record)).join("\n")}\n`, "utf8");
   process.stdout.write(`steering artifact=${output}\n`);
 };
 

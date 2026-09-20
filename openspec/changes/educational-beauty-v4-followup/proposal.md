@@ -9,7 +9,8 @@ engine intent.
 
 ## Scope
 
-- keep a requested pattern family fixed for the lifetime of a target branch;
+- keep a requested pattern family preferred while allowing a calibrated escape
+  from stalled or materially inferior target branches;
 - use explicit ray and defender geometry for line-opening/removal labels;
 - distinguish functional contribution and tactical support from causal intent;
 - cover promotion-grind and fixed-target behavior with contract tests.

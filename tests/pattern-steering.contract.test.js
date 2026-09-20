@@ -22,10 +22,11 @@ const seedFor = (uci, index) => makeCandidateSeed(mustOk(chess.parseLegalMove(st
 }).value;
 const acceptAll = async request => ({ tag: "Ok", value: request.candidates.map(seed => ({ seed, accepted: true })) });
 
-test("pattern target registration never branches below the fixed 97 percent threshold", () => {
+test("pattern target registration trusts the calibrated discovery trigger", () => {
   const event = { targetFamily: "BODEN", affinity: 0.11, position: start, prefixPlies: [] };
-  expect(registerPatternTarget([], event).accepted).toBe(false);
-  expect(registerPatternTarget([], { ...event, affinity: 0.97 }).accepted).toBe(true);
+  const registered = registerPatternTarget([], event);
+  expect(registered.accepted).toBe(true);
+  expect(registerPatternTarget(registered.targets, event).accepted).toBe(false);
 });
 
 test("Pattern steering evaluates candidates before selecting a move and preserves attacker side", async () => {

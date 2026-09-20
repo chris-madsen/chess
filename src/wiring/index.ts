@@ -8,7 +8,7 @@ export type { ForcedMateProof, ForcedMateProofProvider, ForcedMateVerifier, Forc
 export { createForcedMateVerifier } from "../application/use-cases/forced-mate-verifier";
 export { generateStylePath, generateStylePaths } from "../application/use-cases/style-path";
 export { comparePatternTraces, evaluatePatternTrace, runPatternSelectionExperiment, runPatternSelectionExperimentFromLines, selectPatternLine, tracePatternLine } from "../application/use-cases/pattern-experiment";
-export { fetchRemoteStylePaths, fetchRemoteStylePathBatch, fetchRemotePatternSteeringBatch, makeRemoteStylePathConfig, type RemoteStylePathConfig } from "../adapters/http/remote-style-path-adapter";
+export { fetchRemoteStylePaths, fetchRemoteStylePathBatch, fetchRemotePatternSteeringBatch, makeRemoteStylePathConfig, type RemoteStylePathConfig, type RemoteBackendFingerprint } from "../adapters/http/remote-style-path-adapter";
 export { parsePatternDataset, ingestPatternDatasetEntry } from "../application/experiments/pattern-dataset";
 export { pairedDifference95, summarizePatternExperiment } from "../application/experiments/pattern-report";
 export { PATTERN_FAMILY_CATALOG, PATTERN_FAMILY_IDS, STEERABLE_PATTERN_FAMILY_IDS, CATALOG_ONLY_PATTERN_FAMILY_IDS, isPatternFamilyId } from "../domain/patterns/pattern";
@@ -24,11 +24,11 @@ export { chooseShortTalAlternative, compareLessonProfiles, rankLessonLines } fro
 export type { LessonProfile, SacrificeProfile, MoveContribution, CausalMoveContribution, LessonLine, ShortAlternativeDecision } from "../domain/lessons/lesson-profile";
 export type { LessonTacticalMotifId, TacticalMotif } from "../domain/lessons/tactical-motifs";
 export { registerPatternTarget } from "../application/use-cases/pattern-target-branching";
-export type { PatternTargetBranch, PatternTargetSession, PatternTargetSessionRequest, PatternTargetBranchRequest, PatternTargetAffinityEvent } from "../application/use-cases/pattern-target-branching";
+export type { PatternTargetBranch, PatternTargetSession, PatternTargetSessionRequest, PatternTargetBranchRequest, PatternTargetAffinityEvent, PatternTargetDiagnostic } from "../application/use-cases/pattern-target-branching";
 export type { CandidateGenerator, CandidateGeneratorRequest } from "../application/ports/pattern-steering";
 export type { CandidateTacticalGate, EngineScore, TacticalCandidateAssessment } from "../application/ports/pattern-steering";
 export type { SteeredRollout } from "../application/ports/pattern-steering";
 export { LICHESS_MATE_PATTERN_CATALOG, MATE_PATTERN_SOURCE_CATALOG, TACTICAL_MOTIF_SOURCE_CATALOG } from "../application/experiments/mate-pattern-catalog";
-export { createLocalPatternCandidateGenerator, createLocalStylePathProviders, createPatriciaCandidateGenerator, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, loadLocalEnginePaths, type LocalEnginePaths, type WindowsCstalOpponent, type WindowsCstalOptions } from "./local-style-engines";
+export { createLocalPatternCandidateGenerator, createLocalStylePathProviders, createPatriciaCandidateGenerator, createWindowsCstalPatternCandidateGenerator, createWindowsCstalStylePathProviders, createWindowsCstalTacticalGate, loadLocalEnginePaths, windowsCstalRuntimeConfig, type LocalEnginePaths, type WindowsCstalOpponent, type WindowsCstalOptions } from "./local-style-engines";
 export { createUciMoveProvider, createUciCandidateGenerator, createUciTacticalGate, createUciPostMoveTacticalGate, compareEngineScoresForAttacker, normalizeScoreToAttacker, parseUciScore, type UciTacticalGatePolicy } from "../adapters/uci/uci-engine-adapter";
 export { createUciForcedMateProofProvider, parseUciMateScore, type UciForcedMateProofConfig } from "../adapters/uci/uci-forced-mate-proof-adapter";

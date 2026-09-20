@@ -312,6 +312,27 @@ test("Pattern batch steering mode runs iterative Tal gate and Maia path", async 
   }
 });
 
+test("Style server exposes a reproducibility fingerprint on health", async () => {
+  const { server, port } = await listen(createStyleLineJobServer({ token }, { chess, createProviders: () => providersFor(() => "d8h4") }));
+  try {
+    const response = await requestJson(port, "GET", "/health", undefined, null);
+    expect(response.status).toBe(200);
+    expect(response.body.server).toEqual(expect.objectContaining({
+      gitSha: expect.any(String),
+      startedAt: expect.any(String),
+      patternCalibrationVersion: expect.any(String),
+      engineSuiteVersion: expect.stringContaining("CSTal"),
+      cstalAbsurdBinary: expect.any(String),
+      cstalExtremeBinary: expect.any(String),
+      cstalThreads: expect.any(Number),
+      styleDepth: 14,
+      maiaModel: "maia3-79m"
+    }));
+  } finally {
+    await close(server);
+  }
+});
+
 test("Pattern batch steering accepts raw PGN and preserves Maia history", async () => {
   const { server, port } = await listen(createStyleLineJobServer({ token }, {
     chess,

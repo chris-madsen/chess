@@ -44,10 +44,10 @@ test("fixed target keeps every evaluated candidate on one pattern family", async
   expect(result.selected.targetFamily).toBe("MORPHYS");
 });
 
-test("target registration only accepts threshold hits, deduplicates, and caps at three", () => {
+test("target registration trusts discovery calibration, deduplicates, and caps at three", () => {
   const position = start;
-  const event = family => ({ targetFamily: family, affinity: 0.97, position, prefixPlies: [] });
-  expect(registerPatternTarget([], { ...event("BALESTRA"), affinity: 0.969 }).accepted).toBe(false);
+  const event = family => ({ targetFamily: family, affinity: 0.4, position, prefixPlies: [] });
+  expect(registerPatternTarget([], event("BALESTRA")).accepted).toBe(true);
   let targets = [];
   for (const family of ["BALESTRA", "EPAULETTE", "MORPHYS", "BACK_RANK", "DOVETAIL"]) {
     targets = [...registerPatternTarget(targets, event(family)).targets];
