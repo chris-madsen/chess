@@ -184,7 +184,7 @@ const makeRemoteSteeringSession = (chess: ChessRulesPort, start: PositionSnapsho
     }
     const alsoMatches = target.alsoMatches?.filter(isPatternFamilyId);
     const fullLineSignature = target.fullLineSignature ?? (line === undefined ? undefined : [...prefix.value, ...line.plies].map(ply => String(ply.move.uci)).join(" "));
-    const fullLine = line === undefined ? undefined : { ...line, start, horizon, plies: [...prefix.value, ...line.plies] };
+    const fullLine = line === undefined ? undefined : { ...line, start, horizon, plies: [...prefix.value, ...line.plies], decisionTraces: [...(discovery.value.line.decisionTraces ?? []).slice(0, Math.ceil(prefix.value.length / 2)), ...(line.decisionTraces ?? [])] };
     const lessonProfile = target.lessonProfile ?? (fullLine === undefined ? undefined : analyzeLessonLine(chess, fullLine, {
       lineId: `pattern-target-${target.targetFamily}`,
       ...(fullLineSignature === undefined || line === undefined ? {} : { fullRootToTerminalPlies: prefix.value.length + line.plies.length }),

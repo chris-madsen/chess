@@ -1,5 +1,5 @@
 import type { PatternFamilyId } from "../../domain/patterns/pattern";
-import type { ScenarioLine, ScenarioPly } from "../../domain/scenario-lines/scenario-line";
+import type { ScenarioDecisionTrace, ScenarioLine, ScenarioPly } from "../../domain/scenario-lines/scenario-line";
 import type { PositionSnapshot } from "../../domain/chess/position";
 import type { DomainError } from "../../domain/shared/errors";
 import { err, ok, isErr, type Result } from "../../domain/shared/result";
@@ -17,6 +17,11 @@ export const MAX_PATTERN_TARGETS = 3;
 const lineSignatureFor = (target: Readonly<{ prefixPlies: readonly ScenarioPly[]; line?: ScenarioLine }>): string | undefined => {
   if (target.line === undefined) return undefined;
   return [...target.prefixPlies, ...target.line.plies].map(ply => String(ply.move.uci)).join(" ");
+};
+
+const mergeDecisionTraces = (discoveryTraces: readonly ScenarioDecisionTrace[], prefixPlies: readonly ScenarioPly[], continuation: ScenarioLine): readonly ScenarioDecisionTrace[] => {
+  const prefixTraceCount = Math.ceil(prefixPlies.length / 2);
+  return [...discoveryTraces.slice(0, prefixTraceCount), ...(continuation.decisionTraces ?? [])];
 };
 
 export const deduplicatePatternTargets = <T extends Readonly<{ targetFamily: string }>>(targets: readonly T[]): readonly T[] => {
@@ -131,6 +136,7 @@ export const generatePatternTargetSession = async (
   const maxTargets = Math.min(MAX_PATTERN_TARGETS, Math.max(1, request.maxTargets ?? MAX_PATTERN_TARGETS));
   const targets: PatternTargetBranch[] = [];
   let latestDiscovery: ScenarioLine | undefined;
+  let discoveryDecisionTraces: readonly ScenarioDecisionTrace[] = [];
   const pendingTargets: PatternTargetBranch[] = [];
   let activeTargets = 0;
   let discoveryFinished = false;
@@ -184,7 +190,8 @@ export const generatePatternTargetSession = async (
               ...result.value,
               start: request.discovery.start,
               horizon: request.discovery.horizon,
-              plies: [...target.prefixPlies, ...result.value.plies]
+              plies: [...target.prefixPlies, ...result.value.plies],
+              decisionTraces: mergeDecisionTraces(discoveryDecisionTraces, target.prefixPlies, result.value)
             };
             const lessonProfile = analyzeLessonLine(request.discovery.chess, fullLine, {
               lineId: `pattern-target-${target.targetFamily}`,
@@ -224,6 +231,7 @@ export const generatePatternTargetSession = async (
     ...request.discovery,
     onProgress: line => {
       latestDiscovery = line;
+      discoveryDecisionTraces = line.decisionTraces ?? [];
       request.discovery.onProgress?.(line);
       emit();
     },

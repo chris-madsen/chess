@@ -121,11 +121,9 @@ const main = async (): Promise<void> => {
       if (line?.targetSession !== undefined) process.stdout.write(renderPatternTargetReferences(item.caseId, line.targetSession));
       else if (line !== undefined) process.stdout.write(renderPatternReference(line));
       if (item.caseId === "raw-game" && line?.targetSession !== undefined) {
-        const target = line.targetSession.targets.find(candidate => candidate.lessonProfile !== undefined && candidate.line !== undefined);
-        if (target?.line !== undefined && target.lessonProfile !== undefined) {
-          const fullLine = { ...target.line, start: line.targetSession.discovery.start, plies: [...target.prefixPlies, ...target.line.plies] };
-          process.stdout.write(renderLessonComparison(item.caseId, { label: `Target ${target.targetFamily}`, line: fullLine, profile: target.lessonProfile, ...(target.fullLineSignature === undefined ? {} : { fullLineSignature: target.fullLineSignature }) }, baselineViews));
-        }
+        const targets = line.targetSession.targets.filter(candidate => candidate.lessonProfile !== undefined && candidate.line !== undefined).map(candidate => ({ label: `Target ${candidate.targetFamily}`, line: { ...candidate.line!, start: line.targetSession!.discovery.start, plies: [...candidate.prefixPlies, ...candidate.line!.plies] }, profile: candidate.lessonProfile!, ...(candidate.fullLineSignature === undefined ? {} : { fullLineSignature: candidate.fullLineSignature }) }));
+        const discoveryProfile = analyzeLessonLine(chess, line.targetSession.discovery, { lineId: "pattern-discovery", fullRootToTerminalPlies: line.targetSession.discovery.plies.length });
+        process.stdout.write(renderLessonComparison(item.caseId, { label: "Pattern discovery", line: line.targetSession.discovery, profile: discoveryProfile, fullLineSignature: line.targetSession.discovery.plies.map(ply => String(ply.move.uci)).join(" ") }, baselineViews, targets));
       }
     });
   } else {
@@ -180,11 +178,9 @@ const main = async (): Promise<void> => {
         renderLive(renderPatternTargetSession(item.caseId, session.value), true);
         process.stdout.write(renderPatternTargetReferences(item.caseId, session.value));
         if (rawCase !== undefined) {
-          const target = session.value.targets.find(candidate => candidate.lessonProfile !== undefined && candidate.line !== undefined);
-          if (target?.line !== undefined && target.lessonProfile !== undefined) {
-            const fullLine = { ...target.line, start: session.value.discovery.start, plies: [...target.prefixPlies, ...target.line.plies] };
-            process.stdout.write(renderLessonComparison(item.caseId, { label: `Target ${target.targetFamily}`, line: fullLine, profile: target.lessonProfile, ...(target.fullLineSignature === undefined ? {} : { fullLineSignature: target.fullLineSignature }) }, baselineViews));
-          }
+          const targets = session.value.targets.filter(candidate => candidate.lessonProfile !== undefined && candidate.line !== undefined).map(candidate => ({ label: `Target ${candidate.targetFamily}`, line: { ...candidate.line!, start: session.value.discovery.start, plies: [...candidate.prefixPlies, ...candidate.line!.plies] }, profile: candidate.lessonProfile!, ...(candidate.fullLineSignature === undefined ? {} : { fullLineSignature: candidate.fullLineSignature }) }));
+          const discoveryProfile = analyzeLessonLine(chess, session.value.discovery, { lineId: "pattern-discovery", fullRootToTerminalPlies: session.value.discovery.plies.length });
+          process.stdout.write(renderLessonComparison(item.caseId, { label: "Pattern discovery", line: session.value.discovery, profile: discoveryProfile, fullLineSignature: session.value.discovery.plies.map(ply => String(ply.move.uci)).join(" ") }, baselineViews, targets));
         }
       } finally {
         discoveryProviders.generator.dispose?.();

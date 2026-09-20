@@ -94,7 +94,7 @@ export const PATTERN_CALIBRATION: Readonly<Partial<Record<PatternFamilyId, Patte
     "hardNegativeCount": 4,
     "controlCount": 0,
     "presenceThreshold": 0.465,
-    "targetTrigger": 0.78,
+    "targetTrigger": 0.465,
     "points": [
       [
         0,
@@ -140,7 +140,7 @@ export const PATTERN_CALIBRATION: Readonly<Partial<Record<PatternFamilyId, Patte
     "hardNegativeCount": 4,
     "controlCount": 0,
     "presenceThreshold": 0.2639,
-    "targetTrigger": 0.485,
+    "targetTrigger": 0.3422,
     "points": [
       [
         0,
@@ -198,7 +198,7 @@ export const PATTERN_CALIBRATION: Readonly<Partial<Record<PatternFamilyId, Patte
     "hardNegativeCount": 4,
     "controlCount": 0,
     "presenceThreshold": 0.465,
-    "targetTrigger": 0.9,
+    "targetTrigger": 0.465,
     "points": [
       [
         0,
@@ -236,7 +236,7 @@ export const PATTERN_CALIBRATION: Readonly<Partial<Record<PatternFamilyId, Patte
     "hardNegativeCount": 4,
     "controlCount": 0,
     "presenceThreshold": 0.525,
-    "targetTrigger": 0.7848,
+    "targetTrigger": 0.525,
     "points": [
       [
         0,
@@ -294,7 +294,7 @@ export const PATTERN_CALIBRATION: Readonly<Partial<Record<PatternFamilyId, Patte
     "hardNegativeCount": 4,
     "controlCount": 0,
     "presenceThreshold": 0.405,
-    "targetTrigger": 0.82,
+    "targetTrigger": 0.81,
     "points": [
       [
         0,
@@ -336,7 +336,7 @@ export const PATTERN_CALIBRATION: Readonly<Partial<Record<PatternFamilyId, Patte
     "hardNegativeCount": 4,
     "controlCount": 0,
     "presenceThreshold": 0.39,
-    "targetTrigger": 0.525,
+    "targetTrigger": 0.39,
     "points": [
       [
         0,
@@ -386,7 +386,7 @@ export const PATTERN_CALIBRATION: Readonly<Partial<Record<PatternFamilyId, Patte
     "hardNegativeCount": 4,
     "controlCount": 0,
     "presenceThreshold": 0.1619,
-    "targetTrigger": 0.183,
+    "targetTrigger": 0.1763,
     "points": [
       [
         0,
@@ -428,7 +428,7 @@ export const PATTERN_CALIBRATION: Readonly<Partial<Record<PatternFamilyId, Patte
     "hardNegativeCount": 4,
     "controlCount": 0,
     "presenceThreshold": 0.2022,
-    "targetTrigger": 0.7333,
+    "targetTrigger": 0.2567,
     "points": [
       [
         0,
@@ -544,7 +544,7 @@ export const PATTERN_CALIBRATION: Readonly<Partial<Record<PatternFamilyId, Patte
     "hardNegativeCount": 4,
     "controlCount": 0,
     "presenceThreshold": 0.325,
-    "targetTrigger": 0.75,
+    "targetTrigger": 0.325,
     "points": [
       [
         0,
@@ -594,7 +594,7 @@ export const PATTERN_CALIBRATION: Readonly<Partial<Record<PatternFamilyId, Patte
     "hardNegativeCount": 4,
     "controlCount": 0,
     "presenceThreshold": 0.5378,
-    "targetTrigger": 0.65,
+    "targetTrigger": 0.5378,
     "points": [
       [
         0,
@@ -945,7 +945,7 @@ export const PATTERN_CALIBRATION: Readonly<Partial<Record<PatternFamilyId, Patte
     "hardNegativeCount": 4,
     "controlCount": 0,
     "presenceThreshold": 0.525,
-    "targetTrigger": 0.75,
+    "targetTrigger": 0.525,
     "points": [
       [
         0,
