@@ -35,6 +35,7 @@ Options:
   --maia3-elo <rating>         Maia3 Elo, default 1800.
   --concurrency <n>            Remote bounded workers, default 2.
   --out <path>                 JSONL artifact path.
+  --debug                      Keep raw discovery/target frames in the final terminal output.
 `;
 
 const selectSubset = <T extends { caseId: string }>(items: readonly T[], raw: string): readonly T[] => {
@@ -69,6 +70,7 @@ const main = async (): Promise<void> => {
   const chess = createChessJsRulesAdapter();
   const maia3Elo = positive(args, "--maia3-elo", 1800);
   const concurrency = positive(args, "--concurrency", 2);
+  const debug = args.includes("--debug");
   const output = valueAfter(args, "--out") ?? `.local/pattern-steering-${Date.now()}.jsonl`;
   const records: unknown[] = [];
   const patternCache = createInMemoryAnalysisCache();
@@ -107,7 +109,7 @@ const main = async (): Promise<void> => {
       clearInterval(progressTimer);
     }
     if (isErr(remote)) throw new Error(`${remote.error.code}: ${remote.error.message}`);
-    renderLive([...renderedLines.values()].join(""), true);
+    renderLive(debug ? [...renderedLines.values()].join("") : "", true);
     const baselineViews: Readonly<{ label: string; line: import("../domain/scenario-lines/scenario-line").ScenarioLine; profile: ReturnType<typeof analyzeLessonLine>; fullLineSignature?: string }>[] = [];
     if (rawCase !== undefined) {
       const baseline = await fetchRemoteStylePaths(chess, rawCase.position, rawCase.horizon, config.value, 14, rawCase.rawGame);
@@ -175,7 +177,7 @@ const main = async (): Promise<void> => {
           }
         }
         records.push({ type: "case", caseId: item.caseId, mode: "steering", discovery: session.value.discovery, targets: session.value.targets, ...(baselineViews.length === 0 ? {} : { baseline: baselineViews } ) });
-        renderLive(renderPatternTargetSession(item.caseId, session.value), true);
+        renderLive(debug ? renderPatternTargetSession(item.caseId, session.value) : "", true);
         process.stdout.write(renderPatternTargetReferences(item.caseId, session.value));
         if (rawCase !== undefined) {
           const targets = session.value.targets.filter(candidate => candidate.lessonProfile !== undefined && candidate.line !== undefined).map(candidate => ({ label: `Target ${candidate.targetFamily}`, line: { ...candidate.line!, start: session.value.discovery.start, plies: [...candidate.prefixPlies, ...candidate.line!.plies] }, profile: candidate.lessonProfile!, ...(candidate.fullLineSignature === undefined ? {} : { fullLineSignature: candidate.fullLineSignature }) }));

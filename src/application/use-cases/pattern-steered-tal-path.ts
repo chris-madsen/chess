@@ -11,6 +11,7 @@ import type { PatternSteeringDecisionTrace } from "./pattern-steering";
 import type { AnalysisCachePort } from "../ports/analysis-cache";
 import type { PatternFamilyId } from "../../domain/patterns/pattern";
 import { patternTargetTriggerFor } from "../../domain/patterns/thresholds";
+import { repetitionKey } from "../../domain/chess/repetition-key";
 
 export type PatternSteeredTalPathRequest = Readonly<{
   chess: ChessRulesPort;
@@ -59,7 +60,7 @@ export const generatePatternSteeredTalPath = async (
   const decisionTraces: PatternSteeringDecisionTrace[] = [];
   let attackerStallCount = 0;
   let previousTargetFamily: PatternFamilyId | undefined = request.targetFamily;
-  const positionVisits = new Map<string, number>([[String(current.hash), 1]]);
+  const positionVisits = new Map<string, number>([[repetitionKey(current), 1]]);
   const emitTargetAffinities = (selected: import("./pattern-steering").PatternSteeringCandidate, position: import("../../domain/chess/position").PositionSnapshot, prefixPlies: readonly ScenarioPly[]): void => {
     if (request.targetFamily !== undefined) return;
     selected.postResponseFamilies
@@ -75,8 +76,8 @@ export const generatePatternSteeredTalPath = async (
       const hasResponsePly = plyNumber + 1 <= maxPlies;
       const decision = await evaluatePatternSteeringCandidates(request.chess, current, request.generator, request.tacticalGate, request.maia, request.lineId, request.candidateLimit ?? 8, hasResponsePly, request.cache, request.targetFamily, {
         stallCount: attackerStallCount,
-        repeatedPosition: (positionVisits.get(String(current.hash)) ?? 0) > 1,
-        recentPositionHashes: [...positionVisits.keys()],
+        repeatedPosition: (positionVisits.get(repetitionKey(current)) ?? 0) > 1,
+        recentPositionKeys: [...positionVisits.keys()],
         ...(previousTargetFamily === undefined ? {} : { previousTargetFamily })
       });
       if (isErr(decision)) return ok(terminalLine(request, plies, "Incomplete", decision.error));
@@ -102,7 +103,7 @@ export const generatePatternSteeredTalPath = async (
       current = selected.postResponsePosition;
       if (selected.calibratedProgress <= 0.02) attackerStallCount += 1;
       else attackerStallCount = 0;
-      const positionKey = String(current.hash);
+      const positionKey = repetitionKey(current);
       const visits = (positionVisits.get(positionKey) ?? 0) + 1;
       positionVisits.set(positionKey, visits);
       if (visits > 1) attackerStallCount = Math.max(attackerStallCount, 2);

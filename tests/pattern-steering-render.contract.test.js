@@ -198,6 +198,24 @@ test("target session renderer keeps only the three shortest terminal targets", (
   expect(rendered).not.toContain("Morphy's Mate");
 });
 
+test("suppressed target branches are hidden from normal target output", () => {
+  const position = chess.ingestPosition("4r3/1k6/pp3r2/1b2P2p/3R1p2/P1R2P2/1P4PP/6K1 w - - 0 35");
+  expect(position.tag).toBe("Ok");
+  const rendered = renderPatternTargetSession("case-suppressed", {
+    discovery: { tag: "ScenarioLine", mode: "HumanPath", label: "PatternSteeredTalPath", start: position.value, horizon: 2, plies: [], status: "Complete" },
+    targets: [{
+      targetFamily: "CORNER",
+      triggerPly: 0,
+      triggerAffinity: 0.97,
+      position: position.value,
+      prefixPlies: [],
+      lessonProfile: { qualityTier: "SUPPRESSED" },
+      line: { tag: "ScenarioLine", mode: "HumanPath", label: "Target", start: position.value, horizon: 2, plies: [], status: "Terminal" }
+    }]
+  });
+  expect(rendered).not.toContain("Target Corner Mate");
+});
+
 test("pattern steering renderer preserves a raw PGN prefix before continuation", () => {
   const position = chess.ingestRawGame("1. e4 e5 2. Nf3");
   expect(position.tag).toBe("Ok");

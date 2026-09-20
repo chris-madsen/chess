@@ -2,6 +2,7 @@ import { createChessJsRulesAdapter } from "../src/adapters/chessjs/chess-rules-a
 import { analyzeLessonLine } from "../src/application/use-cases/analyze-combination.ts";
 import { chooseShortTalAlternative, rankLessonLines } from "../src/application/use-cases/rank-lesson-lines.ts";
 import { makePlyIndex, makeScenarioHorizon } from "../src/domain/chess/value-objects.ts";
+import { repetitionKeyFromFen } from "../src/domain/chess/repetition-key.ts";
 
 const chess = createChessJsRulesAdapter();
 const mustOk = result => {
@@ -25,6 +26,11 @@ const lineFrom = (fen, moves, label = "fixture") => {
   }
   return { tag: "ScenarioLine", mode: "HumanPath", label, start, horizon, plies, status: "Terminal" };
 };
+
+test("repetition identity ignores FEN move counters", () => {
+  expect(repetitionKeyFromFen("8/8/8/8/8/8/8/4K2k w - - 0 1"))
+    .toBe(repetitionKeyFromFen("8/8/8/8/8/8/8/4K2k w - - 17 42"));
+});
 
 test("lesson analysis scores only the generated continuation", () => {
   const start = mustOk(chess.ingestRawGame("1. e4 e5 2. Nf3 Nc6"));

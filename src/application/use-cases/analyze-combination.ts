@@ -9,6 +9,7 @@ import type { MoveContribution, LessonProfile, SacrificeMotif, SacrificeProfile,
 import { lessonMotifName, type LessonTacticalMotifId, type TacticalMotif } from "../../domain/lessons/tactical-motifs";
 import { isErr } from "../../domain/shared/result";
 import { calibratedAttractorScore } from "../../domain/patterns/thresholds";
+import { repetitionKey } from "../../domain/chess/repetition-key";
 
 type BoardPiece = Readonly<{ side: Side; type: string; square: string }>;
 const pieceValues: Readonly<Record<string, number>> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
@@ -240,8 +241,8 @@ export const analyzeLessonLine = (
   const terminalFacts = chess.computeFacts(current);
   const humanPathMate = !isErr(terminalFacts) && terminalFacts.value.isCheckmate;
   if (checks >= 2) for (const ply of checkingPlies) motifs.push(motif("KING_HUNT", ply));
-  const hashes = positions.map(position => String(position.hash));
-  const repetitionCount = hashes.length - new Set(hashes).size;
+  const repetitionKeys = positions.map(repetitionKey);
+  const repetitionCount = repetitionKeys.length - new Set(repetitionKeys).size;
   const nonProgressMoveCount = attackerContributions.filter(item => !item.givesCheck && !item.captures && !item.patternRoleUsedLater && item.laterDependencyCount === 0).length;
   const lastThird = attackerContributions.filter(item => item.ply > Math.floor(Math.max(1, line.plies.length) * 2 / 3));
   const lastMaterial = !isErr(terminalFacts) ? materialValue(terminalFacts.value, "white") + materialValue(terminalFacts.value, "black") : 0;

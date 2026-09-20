@@ -54,7 +54,7 @@ test("Pattern steering evaluates candidates before selecting a move and preserve
   expect(result.selected.afterPosition.sideToMove).toBe("black");
 });
 
-test("a fixed target family is never replaced by a stronger incidental family", async () => {
+test("a target family remains preferred while the branch is not stalled", async () => {
   const result = mustOk(await evaluatePatternSteeringCandidates(
     chess,
     start,
@@ -193,7 +193,7 @@ test("all negative attractor deltas still return the best Tal-safe candidate", (
   expect(selected.seed.move.uci).toBe("e2e4");
 });
 
-test("trusted CSTal mate metadata preserves a reasonable longer educational alternative", () => {
+test("move-level mate selection keeps the shortest coherent Tal conversion", () => {
   const talSeed = (uci, name, mate) => ({
     ...seedFor(uci, `${name}-${mate}`),
     engineScore: { kind: "mate", value: mate, bound: "exact" },
@@ -204,5 +204,19 @@ test("trusted CSTal mate metadata preserves a reasonable longer educational alte
     candidate("e2e4", "cstal-absurd", 5, 0.7),
     candidate("d2d4", "cstal-extreme", 3, 0.6)
   ]));
-  expect(selected.seed.move.uci).toBe("e2e4");
+  expect(selected.seed.move.uci).toBe("d2d4");
+});
+
+test("stall fallback prefers the shortest trusted mate-class candidate", () => {
+  const talSeed = (uci, name, mate) => ({
+    ...seedFor(uci, [name, mate].join("-")),
+    engineScore: { kind: "mate", value: mate, bound: "exact" },
+    provenance: { ...seedFor(uci, [name, mate].join("-")).provenance, source: "LOCAL_STYLE_ENGINE", provider: { name, displayName: name } }
+  });
+  const candidate = (uci, name, mate, score) => ({ ...steeringCandidate(uci, score, 0.1), seed: talSeed(uci, name, mate), mateClass: true, mateDistance: mate, calibratedAfterResponseScore: score, calibratedProgress: 0.1 });
+  const selected = mustOk(selectPatternSteeringCandidate([
+    candidate("e2e4", "cstal-absurd", 5, 0.95),
+    candidate("d2d4", "cstal-extreme", 3, 0.70)
+  ], { stallCount: 2 }));
+  expect(selected.seed.move.uci).toBe("d2d4");
 });

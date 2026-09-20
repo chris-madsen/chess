@@ -153,6 +153,7 @@ export const renderPatternReference = (line: ScenarioLine, minimumAffinityByFami
 };
 
 const targetDisplayName = (family: PatternFamilyId): string => PATTERN_FAMILY_CATALOG.find(item => item.id === family)?.displayName ?? family;
+const visiblePatternTargets = (targets: readonly PatternTargetSession["targets"][number][]): readonly PatternTargetSession["targets"][number][] => targets.filter(target => target.lessonProfile?.qualityTier !== "SUPPRESSED");
 
 export const renderLessonProfile = (profile: LessonProfile): string => [
   "Lesson analysis",
@@ -172,7 +173,7 @@ export const renderLessonComparison = (caseId: string, lesson: Readonly<{ label:
   const ranked = rankLessonLines([lessonCandidate, ...otherCandidates, ...baselineCandidates], 1);
   const recommended = ranked[0] ?? lessonCandidate;
   const alternative = chooseShortTalAlternative(recommended, baselineCandidates);
-  const output = ["", "Educational comparison", `Case ${caseId}`, `Recommended lesson: ${recommended.value.label}`, renderLessonProfile(recommended.profile).trim()];
+  const output = [...["", "Educational comparison", `Case ${caseId}`, `Recommended lesson: ${recommended.value.label}`], formatSanMovetext(recommended.value.line), renderLessonProfile(recommended.profile).trim()];
   if (alternative.shown && alternative.shortTalLineId !== undefined) {
     const short = baselines.find(value => value.profile.lineId === alternative.shortTalLineId);
     if (short !== undefined) output.push("Shorter Tal alternative", `${short.label}: ${short.profile.generatedFullMoves} full moves, ${alternative.gapFullMoves} moves shorter`, formatSanMovetext(short.line));
@@ -193,7 +194,7 @@ export const renderPatternTargetSession = (caseId: string, session: PatternTarge
   output.push(`## ${caseId} Pattern discovery status ${session.discovery.status}`);
   output.push(formatSanMovetext(session.discovery).length === 0 ? "(calculating first move...)" : formatSanMovetext(session.discovery));
   output.push("");
-  for (const target of rankPatternTargets(session.targets)) {
+  for (const target of rankPatternTargets(visiblePatternTargets(session.targets))) {
     const line = target.line;
     if (line === undefined) {
       const prefixLine: ScenarioLine = { ...session.discovery, plies: target.prefixPlies, status: "Incomplete", targetFamily: target.targetFamily };
@@ -209,7 +210,7 @@ export const renderPatternTargetSession = (caseId: string, session: PatternTarge
 
 export const renderPatternTargetReferences = (caseId: string, session: PatternTargetSession): string => {
   const output = ["", "########", `Pattern references for ${caseId}`, ""];
-  const targets = rankPatternTargets(session.targets);
+  const targets = rankPatternTargets(visiblePatternTargets(session.targets));
   if (targets.length === 0) {
     output.push("No target reached 97%.", "");
     return `${output.join("\n")}########\n`;
