@@ -58,6 +58,31 @@ test("ordinary queen and bishop mate can still be an eligible short lesson", () 
   expect(profile.qualityTier).not.toBe("SUPPRESSED");
 });
 
+test("target label does not manufacture PatternClarity", () => {
+  const line = lineFrom("7k/5Q2/6BK/8/8/8/8/8 w - - 0 1", ["f7f8"], "drifted-target");
+  const profile = analyzeLessonLine(chess, { ...line, targetFamily: "HOOK" });
+  expect(profile.patternClarity).toBe(0);
+});
+
+test("ordinary queen trade is not automatically a queen sacrifice", () => {
+  const line = lineFrom("3qk3/8/8/8/8/8/8/3QK3 w - - 0 1", ["d1d8", "e8d8"], "ordinary-queen-trade");
+  const profile = analyzeLessonLine(chess, line);
+  expect(profile.sacrifices.some(sacrifice => sacrifice.type === "QUEEN")).toBe(false);
+});
+
+test("real Rxf6 to Qh6 mate records the exchange investment", () => {
+  const line = lineFrom(
+    "3r1rk1/pp1bppb1/1q1p1np1/2p5/3nP3/1PNPB1PP/P1P1N1BK/1R1Q1R2 w - - 3 16",
+    ["f1f6", "d4e2", "c3d5", "e2c3", "d5e7", "g8h7", "d1f1", "c3b1", "f1f4", "g7f6", "f4h6"],
+    "rxf6-qh6-mate"
+  );
+  const profile = analyzeLessonLine(chess, line, { forcedMateStatus: "VERIFIED" });
+  expect(profile.humanPathMate).toBe(true);
+  expect(profile.sacrifices.some(sacrifice => sacrifice.type === "EXCHANGE")).toBe(true);
+  expect(profile.motifs.some(motif => motif.id === "EXCHANGE_SACRIFICE")).toBe(true);
+  expect(profile.generatedFullMoves).toBeLessThanOrEqual(6);
+});
+
 const profile = (lineId, moves, utility, tier = "B", eligible = true) => ({
   lineId, generatedPlies: moves * 2, generatedFullMoves: moves, inputFinalMoveNumber: 20,
   fullRootToTerminalPlies: moves * 2, humanPathMate: eligible, forcedMateStatus: "UNAVAILABLE",

@@ -126,7 +126,7 @@ export const selectPatternSteeringCandidate = (
   const order = (first: PatternSteeringCandidate, second: PatternSteeringCandidate): number => (
     Number(second.immediateMate === true) - Number(first.immediateMate === true)
     || Number(second.mateClass === true) - Number(first.mateClass === true)
-    || ((first.mateClass === true && second.mateClass === true) ? (first.mateDistance ?? Number.POSITIVE_INFINITY) - (second.mateDistance ?? Number.POSITIVE_INFINITY) : 0)
+    || ((first.mateClass === true && second.mateClass === true && Math.abs((first.mateDistance ?? Number.POSITIVE_INFINITY) - (second.mateDistance ?? Number.POSITIVE_INFINITY)) > 4) ? (first.mateDistance ?? Number.POSITIVE_INFINITY) - (second.mateDistance ?? Number.POSITIVE_INFINITY) : 0)
     || (second.calibratedAfterResponseScore ?? second.afterResponseScore) - (first.calibratedAfterResponseScore ?? first.afterResponseScore)
     || (second.calibratedProgress ?? second.patternDelta) - (first.calibratedProgress ?? first.patternDelta)
     || String(first.seed.move.uci).localeCompare(String(second.seed.move.uci))

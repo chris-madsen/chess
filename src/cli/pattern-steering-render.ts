@@ -6,7 +6,7 @@ import type { PatternTargetSession } from "../application/use-cases/pattern-targ
 import { rankPatternTargets } from "../application/use-cases/pattern-target-branching";
 import type { PositionSnapshot } from "../domain/chess/position";
 import type { LessonProfile } from "../domain/lessons/lesson-profile";
-import { chooseShortTalAlternative, type LessonRankCandidate } from "../application/use-cases/rank-lesson-lines";
+import { chooseShortTalAlternative, rankLessonLines, type LessonRankCandidate } from "../application/use-cases/rank-lesson-lines";
 export { renderLiveTerminalFrame as renderPatternLiveFrame } from "./live-terminal-renderer";
 
 const wrapMovetext = (text: string, width = 72): string => {
@@ -164,12 +164,15 @@ export const renderLessonProfile = (profile: LessonProfile): string => [
   ""
 ].join("\n");
 
-export const renderLessonComparison = (caseId: string, lesson: Readonly<{ label: string; line: ScenarioLine; profile: LessonProfile; fullLineSignature?: string }> | undefined, baselines: readonly Readonly<{ label: string; line: ScenarioLine; profile: LessonProfile; fullLineSignature?: string }>[]): string => {
+export const renderLessonComparison = (caseId: string, lesson: Readonly<{ label: string; line: ScenarioLine; profile: LessonProfile; fullLineSignature?: string }> | undefined, baselines: readonly Readonly<{ label: string; line: ScenarioLine; profile: LessonProfile; fullLineSignature?: string }>[], additional: readonly Readonly<{ label: string; line: ScenarioLine; profile: LessonProfile; fullLineSignature?: string }>[] = []): string => {
   if (lesson === undefined) return "";
   const lessonCandidate: LessonRankCandidate<typeof lesson> = { value: lesson, profile: lesson.profile, ...(lesson.fullLineSignature === undefined ? {} : { fullLineSignature: lesson.fullLineSignature }) };
   const baselineCandidates: readonly LessonRankCandidate<typeof baselines[number]>[] = baselines.map(value => ({ value, profile: value.profile, ...(value.fullLineSignature === undefined ? {} : { fullLineSignature: value.fullLineSignature }) }));
-  const alternative = chooseShortTalAlternative(lessonCandidate, baselineCandidates);
-  const output = ["", "Educational comparison", `Case ${caseId}`, `Recommended lesson: ${lesson.label}`, renderLessonProfile(lesson.profile).trim()];
+  const otherCandidates = additional.map(value => ({ value, profile: value.profile, ...(value.fullLineSignature === undefined ? {} : { fullLineSignature: value.fullLineSignature }) }));
+  const ranked = rankLessonLines([lessonCandidate, ...otherCandidates, ...baselineCandidates], 1);
+  const recommended = ranked[0] ?? lessonCandidate;
+  const alternative = chooseShortTalAlternative(recommended, baselineCandidates);
+  const output = ["", "Educational comparison", `Case ${caseId}`, `Recommended lesson: ${recommended.value.label}`, renderLessonProfile(recommended.profile).trim()];
   if (alternative.shown && alternative.shortTalLineId !== undefined) {
     const short = baselines.find(value => value.profile.lineId === alternative.shortTalLineId);
     if (short !== undefined) output.push("Shorter Tal alternative", `${short.label}: ${short.profile.generatedFullMoves} full moves, ${alternative.gapFullMoves} moves shorter`, formatSanMovetext(short.line));

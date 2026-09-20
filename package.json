@@ -26,6 +26,7 @@
     "pattern:legacy-posthoc": "tsx src/cli/pattern-experiment.ts",
     "pattern:recognizer": "tsx src/cli/pattern-recognizer.ts",
     "pattern:calibrate": "tsx src/cli/pattern-calibrate.ts",
+    "pattern:calibrate:check": "node scripts/check-pattern-calibration.mjs",
     "pattern:dataset:lichess": "node scripts/build-lichess-pattern-dataset.mjs"
   },
   "dependencies": {

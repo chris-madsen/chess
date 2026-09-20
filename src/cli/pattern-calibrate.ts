@@ -7,7 +7,8 @@ import { retrievePatternFamilies } from "../domain/patterns/matchers";
 import { PATTERN_FAMILY_IDS, type PatternFamilyId } from "../domain/patterns/pattern";
 import { isErr } from "../domain/shared/result";
 
-type Scores = { positive: number[]; positiveNear: number[]; hardNegative: number[]; control: number[] };
+type NearScore = Readonly<{ score: number; distanceToTerminal?: number; caseId: string }>;
+type Scores = { positive: number[]; positiveNear: NearScore[]; hardNegative: number[]; control: number[] };
 type FamilyCalibration = { status: "CALIBRATED" | "WEAK_SEPARATION" | "UNAVAILABLE"; reason?: string; positiveCount: number; hardNegativeCount: number; controlCount: number; presenceThreshold?: number; targetTrigger?: number; points?: readonly (readonly [number, number])[] };
 const round = (value: number): number => Number(Math.max(0, Math.min(1, value)).toFixed(4));
 const quantile = (values: readonly number[], fraction: number): number => {
@@ -55,7 +56,7 @@ const presenceFor = (scores: Scores): number => {
 const targetFor = (scores: Scores): number => {
   if (scores.positive.length === 0) return 0;
   const negativeCeiling = Math.max(quantile(scores.hardNegative, 0.95), quantile(scores.control, 0.95));
-  const basinPositive = scores.positiveNear.length === 0 ? scores.positive : scores.positiveNear;
+  const basinPositive = scores.positiveNear.length === 0 ? scores.positive : scores.positiveNear.map(item => item.score);
   return round(Math.max(quantile(basinPositive, 0.75), negativeCeiling + (negativeCeiling < 1 ? 0.001 : 0)));
 };
 const pointsFor = (scores: Scores): readonly (readonly [number, number])[] => {
@@ -78,7 +79,7 @@ const generatedSource = (families: Readonly<Record<string, FamilyCalibration>>):
 const main = (): void => {
   const datasetPath = process.argv[2] ?? "datasets/pattern-mvp-lichess.jsonl";
   const outputPath = process.argv[3] ?? "src/domain/patterns/pattern-calibration.json";
-  const generatedPath = "src/domain/patterns/pattern-calibration.generated.ts";
+  const generatedPath = process.argv[4] ?? "src/domain/patterns/pattern-calibration.generated.ts";
   const chess = createChessJsRulesAdapter();
   const scores = new Map<PatternFamilyId, Scores>(PATTERN_FAMILY_IDS.map(family => [family, { positive: [], positiveNear: [], hardNegative: [], control: [] }]));
   let datasetVersion = "unknown";
@@ -95,8 +96,9 @@ const main = (): void => {
     const maximum = Math.max(...caseScoresValue.map(item => item.score));
     bucket[entry.exampleKind === "positive" ? "positive" : entry.exampleKind === "hard_negative" ? "hardNegative" : "control"].push(maximum);
     if (entry.exampleKind === "positive") {
-      const nearScores = caseScoresValue.filter(item => item.distanceToTerminal !== undefined && item.distanceToTerminal <= 4).map(item => item.score);
-      if (nearScores.length > 0) bucket.positiveNear.push(Math.max(...nearScores));
+      for (const nearScore of caseScoresValue.filter(item => item.distanceToTerminal !== undefined && item.distanceToTerminal <= 4)) {
+        bucket.positiveNear.push({ ...nearScore, caseId: entry.caseId });
+      }
     }
   }
   const families: Record<string, FamilyCalibration> = {};
@@ -106,7 +108,7 @@ const main = (): void => {
       ? { status: "UNAVAILABLE", reason: "no verified calibration fixtures", positiveCount: 0, hardNegativeCount: bucket.hardNegative.length, controlCount: bucket.control.length }
       : (() => { const presenceThreshold = presenceFor(bucket); return { status: presenceThreshold === 0 ? "WEAK_SEPARATION" as const : "CALIBRATED" as const, ...(presenceThreshold === 0 ? { reason: "no high-precision operating point" } : {}), positiveCount: bucket.positive.length, hardNegativeCount: bucket.hardNegative.length, controlCount: bucket.control.length, presenceThreshold, targetTrigger: Math.max(presenceThreshold, targetFor(bucket)), points: pointsFor(bucket) }; })();
   }
-  const artifact = { modelVersion: "mate-geometry-v2-calibration-v2", datasetVersion, split: "calibration", calibrationCases, method: "stable attacker side; positive/hard-negative/control operating points; monotonic empirical map", families };
+  const artifact = { modelVersion: "mate-geometry-v2-calibration-v3", datasetVersion, split: "calibration", calibrationCases, method: "stable attacker side; state-level positive-near basin; positive/hard-negative/control operating points; monotonic empirical map", families };
   writeFileSync(outputPath, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
   writeFileSync(generatedPath, generatedSource(families), "utf8");
   process.stdout.write(`pattern calibration written to ${outputPath} and ${generatedPath} (${calibrationCases} calibration cases)\n`);

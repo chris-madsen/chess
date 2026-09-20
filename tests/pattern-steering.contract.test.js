@@ -171,7 +171,7 @@ test("all negative attractor deltas still return the best Tal-safe candidate", (
   expect(selected.seed.move.uci).toBe("e2e4");
 });
 
-test("trusted CSTal mate metadata outranks ordinary Pattern affinity and shorter mate wins", () => {
+test("trusted CSTal mate metadata preserves a reasonable longer educational alternative", () => {
   const talSeed = (uci, name, mate) => ({
     ...seedFor(uci, `${name}-${mate}`),
     engineScore: { kind: "mate", value: mate, bound: "exact" },
@@ -182,5 +182,5 @@ test("trusted CSTal mate metadata outranks ordinary Pattern affinity and shorter
     candidate("e2e4", "cstal-absurd", 5, 0.7),
     candidate("d2d4", "cstal-extreme", 3, 0.6)
   ]));
-  expect(selected.seed.move.uci).toBe("d2d4");
+  expect(selected.seed.move.uci).toBe("e2e4");
 });
