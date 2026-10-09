@@ -82,6 +82,8 @@ test("StylePath API returns structured CSTal and Maia lines with provenance", as
     status: "ENGINE_GENERATED"
   });
   expect(body.lines[0].plies[0].requestId).toBe("cstal-absurd-1");
+  expect(body.renderedText).toContain('[Variant "From Position"]');
+  expect(body.renderedText).toContain(`[FEN "${startFen}"]`);
   expect(body.renderedText).toContain("1. e4");
 });
 

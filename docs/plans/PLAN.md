@@ -260,7 +260,7 @@ CLI добавить:
 
 ```bash
 npm run gate
-npm run style:lines:cstal -- --maia3-elo 2300 --raw-file game.txt --watch --refresh-ms 2000
+npm run style:lines:cstal -- --maia3-elo 2300 --file-pgn game.txt --watch --refresh-ms 2000
 ```
 
 Для live Windows smoke использовать отдельный opt-in test с локальным token, без публикации credentials.

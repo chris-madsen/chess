@@ -62,9 +62,9 @@ The Linux StylePath CLI suite uses these local providers:
 The Windows CSTal suite is selected with:
 
 ```bash
-npm run style:lines:cstal -- --fen "<fen>"
-npm run style:lines:cstal -- --maia3-elo 1800 --fen "<fen>"
-npm run style:lines:cstal -- --cstal-opponent maia1900 --fen "<fen>"
+npm run style:lines:cstal -- --file-fen game-fen.txt
+npm run style:lines:cstal -- --maia3-elo 1800 --file-fen game-fen.txt
+npm run style:lines:cstal -- --cstal-opponent maia1900 --file-fen game-fen.txt
 ```
 
 It uses:
@@ -144,7 +144,7 @@ npm run pattern:experiment -- \
   --maia3-elo 1800
 ```
 
-When `npm run style:lines -- --raw-file game.txt --watch` runs on the Windows host and `STYLE_SERVER_TOKEN` or `.local/style-server-token.txt` is available, the CLI uses the local StylePath API instead of starting another in-process engine set. The CLI consumes SSE progress, deduplicates repeated snapshots, and redraws one live terminal frame. If stdout is redirected to a file, the ANSI redraw codes are preserved as text; run it in a normal terminal to see the live view.
+When `npm run style:lines -- --file-pgn game.txt --watch` or `npm run style:lines -- --file-fen game-fen.txt --watch` runs on the Windows host and `STYLE_SERVER_TOKEN` or `.local/style-server-token.txt` is available, the CLI uses the local StylePath API instead of starting another in-process engine set. PGN files are sent as `rawGameBase64`; FEN files are sent as `fen`. The CLI consumes SSE progress, deduplicates repeated snapshots, and redraws one live terminal frame. If stdout is redirected to a file, the ANSI redraw codes are preserved as text; run it in a normal terminal to see the live view.
 
 All local engines are invoked through UCI adapters. Their raw output is untrusted until the returned move is validated against the current `PositionSnapshot`.
 

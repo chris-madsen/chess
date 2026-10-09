@@ -178,7 +178,8 @@ const ingestApiInput = (chess: ChessRulesPort, input: StyleLinesApiInput): Resul
         position: position.value,
         baseSanMoves: [],
         lineStartFullmove: fullmoveFromFen(String(position.value.fen)),
-        lineStartSide: sideToMoveFromFen(String(position.value.fen))
+        lineStartSide: sideToMoveFromFen(String(position.value.fen)),
+        sourceKind: "FenFile"
       }
     };
   }
@@ -192,7 +193,8 @@ const ingestApiInput = (chess: ChessRulesPort, input: StyleLinesApiInput): Resul
       position: position.value,
       baseSanMoves: rawSanTokens(input.rawSan as string),
       lineStartFullmove: 1,
-      lineStartSide: "white"
+      lineStartSide: "white",
+      sourceKind: "PgnFile"
     }
   };
 };

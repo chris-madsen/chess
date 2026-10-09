@@ -57,8 +57,8 @@ The product-level coaching workflow remains player-first and HumanPath-oriented.
 The implemented terminal mode is a local, read-only `StylePath` analysis harness:
 
 ```bash
-npm run style:lines -- --fen "<fen>"
-npm run style:lines -- --raw-file game.txt --watch --refresh-ms 2000
+npm run style:lines -- --file-fen game-fen.txt
+npm run style:lines -- --file-pgn game.txt --watch --refresh-ms 2000
 ```
 
 It generates one mixed teaching line per enabled local style engine:
@@ -72,10 +72,10 @@ Seer     -> Maia 1900 -> Seer     -> Maia 1900 -> ...
 On Windows, the CSTal suite can be selected explicitly:
 
 ```bash
-npm run style:lines:cstal -- --fen "<fen>"
-npm run style:lines:cstal -- --maia3-elo 1800 --fen "<fen>"
-npm run style:lines -- --engine-suite cstal-windows --fen "<fen>"
-npm run style:lines:cstal:maia1900 -- --fen "<fen>"
+npm run style:lines:cstal -- --file-fen game-fen.txt
+npm run style:lines:cstal -- --maia3-elo 1800 --file-fen game-fen.txt
+npm run style:lines -- --engine-suite cstal-windows --file-fen game-fen.txt
+npm run style:lines:cstal:maia1900 -- --file-fen game-fen.txt
 ```
 
 That suite generates two lines for the selected Maia opponent. The default opponent is Maia3 79M, with `--maia3-elo` available to change Maia3 Elo conditioning:

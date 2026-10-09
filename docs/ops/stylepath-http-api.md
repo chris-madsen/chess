@@ -174,10 +174,11 @@ Invoke-RestMethod https://chess.network-communications.net/api/style-lines `
 The local CLI can read `game.txt` from the current machine while taking the fully constructed StylePath lines from the public API job stream:
 
 ```bash
-npm run style:lines -- --raw-file game.txt --watch --refresh-ms 2000
+npm run style:lines -- --file-pgn game.txt --watch --refresh-ms 2000
+npm run style:lines -- --file-fen game-fen.txt --watch --refresh-ms 2000
 ```
 
-For RAW-file watch mode the default bot engine is `tal`, which maps to the server-side Windows CSTal suite and renders the two API lines returned by the job stream:
+For both file watch modes the default bot engine is `tal`, which maps to the server-side Windows CSTal suite and renders the two API lines returned by the job stream:
 
 - `CSTal ABSURD vs Maia3 79M StylePath`
 - `CSTal EXTREME vs Maia3 79M StylePath`
@@ -185,20 +186,24 @@ For RAW-file watch mode the default bot engine is `tal`, which maps to the serve
 Equivalent explicit form:
 
 ```bash
-npm run style:lines -- --raw-file game.txt --watch --refresh-ms 2000 --bot-engine tal
+npm run style:lines -- --file-pgn game.txt --watch --refresh-ms 2000 --bot-engine tal
+npm run style:lines -- --file-fen game-fen.txt --watch --refresh-ms 2000 --bot-engine tal
 ```
 
 To force the old local-provider orchestration instead of the API-backed server lines:
 
 ```bash
-npm run style:lines -- --raw-file game.txt --watch --refresh-ms 2000 --bot-engine local
+npm run style:lines -- --file-pgn game.txt --watch --refresh-ms 2000 --bot-engine local
+npm run style:lines -- --file-fen game-fen.txt --watch --refresh-ms 2000 --bot-engine local
 ```
 
-The API-backed CLI mode reads the RAW game file locally, submits it as `rawGameBase64` to:
+The API-backed CLI mode reads the selected file locally and submits exactly one input field to:
 
 ```text
 POST https://chess.network-communications.net/v1/style-lines/jobs
 ```
+
+`--file-pgn` is submitted as `rawGameBase64`; `--file-fen` is submitted as `fen`. The two fields are never sent together. A FEN file must contain one FEN record; surrounding whitespace and a trailing newline are ignored. The old inline `--fen` and `--raw-file` options are rejected.
 
 and renders snapshots from:
 

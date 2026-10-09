@@ -4,7 +4,8 @@ The system SHALL generate one `StylePath` ScenarioLine for each enabled local st
 
 ### Scenario: FEN input creates local style lines
 
-- GIVEN a valid FEN position
+- GIVEN `game-fen.txt` contains a valid FEN position
+- AND the user invokes the CLI with `--file-fen game-fen.txt`
 - AND enabled style engines Patricia, Jackal, and Seer
 - WHEN local StylePath analysis is requested
 - THEN the system creates three ScenarioLines
@@ -12,7 +13,8 @@ The system SHALL generate one `StylePath` ScenarioLine for each enabled local st
 
 ### Scenario: Windows CSTal suite creates local style lines
 
-- GIVEN a valid FEN position
+- GIVEN `game-fen.txt` contains a valid FEN position
+- AND the user invokes the CLI with `--file-fen game-fen.txt`
 - AND the Windows CSTal engine suite is selected
 - WHEN local StylePath analysis is requested
 - THEN the system creates two ScenarioLines
@@ -52,12 +54,45 @@ The system SHALL generate one `StylePath` ScenarioLine for each enabled local st
 - AND no frame contains global terminal reset, screen-clear, or scrollback-clear controls
 - AND timestamp-only heartbeat frames are suppressed.
 
-### Scenario: CLI renders movetext before metadata
+### Scenario: CLI requires one file input
 
-- GIVEN local StylePath one-shot output is rendered
+- GIVEN a user invokes the StylePath CLI
+- WHEN neither `--file-pgn <path>` nor `--file-fen <path>` is supplied, or both are supplied
+- THEN option parsing rejects the request with a structured usage error
+- AND the removed `--raw-file` and inline `--fen` options are rejected.
+
+### Scenario: FEN file preserves position metadata
+
+- GIVEN `game-fen.txt` contains a valid FEN with black to move and fullmove number 17
+- WHEN the user runs `npm run style:lines:cstal -- --file-fen game-fen.txt`
+- THEN analysis starts from that FEN position
+- AND rendered continuation starts with `17...`
+- AND no PGN prefix is added.
+
+### Scenario: Both file inputs support API watch
+
+- GIVEN a valid PGN file or a valid FEN file
+- WHEN the user runs the corresponding command with `--watch --refresh-ms 2000` and Tal API mode is active
+- THEN a file change cancels the current job and starts a new job
+- AND PGN input is sent as `rawGameBase64` or FEN input as `fen`
+- AND the other input field is absent.
+
+### Scenario: CLI renders every line as PGN
+
+- GIVEN local StylePath one-shot output is rendered from a FEN file
 - WHEN the CLI writes the result
-- THEN StylePath SAN movetext appears before the analysis metadata block
-- AND the metadata block still includes the generated timestamp, FEN position, and inferred Player side.
+- THEN the output is a standalone PGN document
+- AND it contains `[Variant "From Position"]`
+- AND it contains the starting `[FEN "..."]`
+- AND the SAN movetext uses the FEN side-to-move and fullmove number.
+
+### Scenario: PGN input does not receive a false FEN header
+
+- GIVEN local StylePath one-shot output is rendered from a PGN file
+- WHEN the CLI writes the result
+- THEN the output is a standalone PGN document
+- AND the original SAN prefix is preserved
+- AND the post-game position is not emitted as the starting FEN.
 
 ### Scenario: Watch mode keeps fixed engine depths stable
 

@@ -88,7 +88,7 @@ For the Linux benchmark, `fen` is mandatory because every dataset case starts fr
 The server must normalize it into the existing CLI input ADT:
 
 ```ts
-{ tag: "Fen", value: request.fen }
+{ tag: "FenFile", path: "__style_server_fen__.fen" }
 ```
 
 The server must return both existing lines:

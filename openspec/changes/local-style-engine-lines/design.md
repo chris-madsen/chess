@@ -40,17 +40,18 @@ CSTal EXTREME -> Maia3 79M -> CSTal EXTREME -> Maia3 79M -> ...
 
 ## CLI input
 
-- FEN mode validates a FEN string directly.
-- RAW file mode parses ordinary SAN move text from the initial position, normalizes it to a final `PositionSnapshot`, and infers Player side from side-to-move.
+- The CLI requires exactly one file input: `--file-pgn <path>` or `--file-fen <path>`.
+- `--file-fen` reads one FEN record, trims only surrounding whitespace/newlines, validates it through the chess rules port, and preserves side-to-move/fullmove numbering. Inline `--fen` is not supported.
+- `--file-pgn` parses ordinary SAN move text from the initial position, normalizes it to a final `PositionSnapshot`, and infers Player side from side-to-move. The original SAN prefix remains in rendered movetext. `--raw-file` is not supported.
 - User-facing `--horizon` is removed. Local StylePath analysis starts at horizon 8 full moves. Patricia, Seer, CSTal ABSURD, and CSTal EXTREME start at depth 13; Jackal starts at depth 8 to keep watch updates responsive.
 - `--engine-suite cstal-windows` selects the Windows CSTal suite. The default remains `local-style`.
-- Watch mode reacts to file changes through `fs.watch` when available and has a polling fallback. Rendering refreshes with the latest completed or partial engine-line results.
+- Both file modes support watch mode. Watch mode reacts to file changes through `fs.watch` when available and has a polling fallback. Rendering refreshes with the latest completed or partial engine-line results.
 - The current local style engines have fixed configured depths: Patricia and Seer depth 13, Jackal depth 8. Watch mode must not raise the global style-depth display into meaningless large values when every engine already has a fixed depth override.
 - If the rendered line signature is stable for 10 seconds, watch mode increases horizon by 2 full moves. Horizon extension has no product-level maximum; generous subprocess timeouts, serial request queues, and clean shutdown remain technical guards.
 
 ## CLI rendering
 
-One-shot output renders ScenarioLines first as ordinary SAN movetext, followed by the analysis metadata block. Watch mode redraws the previous local output block in place and must not emit global terminal reset, screen-clear, or scrollback-clear sequences. Frames are rendered only when line content, status, errors, or settings change; timestamp-only heartbeat frames are suppressed.
+Every rendered ScenarioLine is a standalone PGN document. FEN-origin documents include `Variant "From Position"` and the starting `FEN` tags; PGN-origin documents preserve the original SAN prefix and do not invent a FEN for the post-game position. Depth, horizon, status, and validation errors are represented by PGN tags/comments. Watch mode redraws the previous local output block in place and must not emit global terminal reset, screen-clear, or scrollback-clear sequences. Frames are rendered only when line content, status, errors, or settings change; timestamp-only heartbeat frames are suppressed.
 
 ## Safety
 

@@ -600,7 +600,7 @@ class StyleJobQueue {
     });
     job.providers = providers;
     const inputOptions: CliOptions = {
-      input: job.request.fen === undefined ? { tag: "RawFile", path: "__style_server_raw_game__.pgn" } : { tag: "Fen", value: job.request.fen },
+      input: job.request.fen === undefined ? { tag: "PgnFile", path: "__style_server_raw_game__.pgn" } : { tag: "FenFile", path: "__style_server_fen__.fen" },
       watchMode: false,
       refreshMs: job.request.refreshMs,
       engineSuite: "cstal-windows",
@@ -610,7 +610,7 @@ class StyleJobQueue {
     };
     const ingestedResult = ingestInput(inputOptions, {
       chess: this.chess,
-      readTextFile: () => job.request.rawGame ?? ""
+      readTextFile: () => job.request.fen ?? job.request.rawGame ?? ""
     });
     if (isErr(ingestedResult)) {
       job.status = "error";

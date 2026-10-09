@@ -15,8 +15,12 @@ import { createLocalStylePathProviders, createWindowsCstalStylePathProviders, ty
 import { renderedLineCount, renderLiveTerminalFrame, CLEAR_TO_END } from "./live-terminal-renderer";
 
 export type CliInput =
-  | Readonly<{ tag: "Fen"; value: string }>
-  | Readonly<{ tag: "RawFile"; path: string }>;
+  | Readonly<{ tag: "PgnFile"; path: string }>
+  | Readonly<{ tag: "FenFile"; path: string }>;
+
+export type StyleJobInput =
+  | Readonly<{ tag: "Pgn"; rawGame: string }>
+  | Readonly<{ tag: "Fen"; fen: string }>;
 
 export type BotEngine = "tal" | "local";
 
@@ -62,6 +66,7 @@ export type ServerStyleLine = Readonly<{
     source: string;
     provider: string;
   }>[];
+  error?: string;
 }>;
 
 export type StyleJobSnapshot = Readonly<{
@@ -88,7 +93,7 @@ export type StyleJobSnapshot = Readonly<{
 }>;
 
 export type StyleJobCreateRequest = Readonly<{
-  rawGame: string;
+  input: StyleJobInput;
   botEngine: BotEngine;
   cstalOpponent: WindowsCstalOpponent;
   maia3Elo: number;
@@ -96,6 +101,18 @@ export type StyleJobCreateRequest = Readonly<{
   maxFullMoves: number;
   timeoutMs: number;
 }>;
+
+export const styleJobRequestBody = (request: StyleJobCreateRequest): Readonly<Record<string, unknown>> => ({
+  ...(request.input.tag === "Pgn"
+    ? { rawGameBase64: base64Utf8(request.input.rawGame) }
+    : { fen: request.input.fen }),
+  engineSuite: request.botEngine === "tal" ? "cstal-windows" : "local-style",
+  cstalOpponent: request.cstalOpponent,
+  maia3Elo: request.maia3Elo,
+  refreshMs: request.refreshMs,
+  maxFullMoves: request.maxFullMoves,
+  timeoutMs: request.timeoutMs
+});
 
 export type StyleJobApiClient = Readonly<{
   createJob: (request: StyleJobCreateRequest) => Promise<Result<string, DomainError>>;
@@ -160,27 +177,34 @@ const isStyleJobSnapshot = (value: unknown): value is StyleJobSnapshot => (
   && Array.isArray((value as { lines?: unknown }).lines)
 );
 
-const renderApiStyleJobSnapshot = (snapshot: StyleJobSnapshot, generatedAtIso = new Date().toISOString()): string => {
-  const lines: string[] = [];
-  snapshot.lines.forEach(line => {
-    lines.push(`## ${line.label} depth ${line.styleDepth ?? snapshot.settings.styleDepth ?? 13} horizon ${snapshot.settings.horizonMoves ?? "api"}`);
-    lines.push(line.sanMovetext.length > 0 ? line.sanMovetext : "(no moves)");
-    if (line.status !== "Complete") {
-      lines.push(`status: ${line.status}`);
-    }
-    lines.push("");
-  });
-  if (snapshot.lines.length === 0) {
-    lines.push("status: Analyzing", "");
+const renderApiStyleJobSnapshot = (
+  snapshot: StyleJobSnapshot,
+  generatedAtIso = new Date().toISOString(),
+  sourceKind: "PgnFile" | "FenFile" = "FenFile"
+): string => {
+  const documents = snapshot.lines.map(line => renderPgnDocument({
+    sourceKind,
+    ...(sourceKind === "FenFile" && snapshot.input?.fen !== undefined ? { fen: snapshot.input.fen } : {}),
+    label: line.label,
+    styleDepth: line.styleDepth ?? snapshot.settings.styleDepth ?? 13,
+    horizonMoves: snapshot.settings.horizonMoves ?? 8,
+    movetext: line.sanMovetext,
+    ...(line.status !== "Complete" ? { status: line.status } : {}),
+    ...(line.error === undefined ? {} : { error: line.error })
+  }));
+  void generatedAtIso;
+  if (documents.length > 0) {
+    return `${documents.join("\n\n").trimEnd()}\n`;
   }
-  lines.push(
-    `StylePath API job ${snapshot.jobId} @ ${generatedAtIso}`,
-    `Job status: ${snapshot.status}`,
-    `Position: ${snapshot.input?.fen ?? "pending"}`,
-    `Player side inferred from turn: ${snapshot.input?.sideToMove ?? "pending"}`,
-    `API settings: bot engine tal, opponent ${snapshot.settings.cstalOpponent ?? "maia3"}, Maia3 Elo ${snapshot.settings.maia3Elo ?? 1900}, refresh ${snapshot.settings.refreshMs ?? "api"}ms, max ${snapshot.settings.maxFullMoves ?? defaultApiMaxFullMoves} full moves`
-  );
-  return `${lines.join("\n").trimEnd()}\n`;
+  return `${renderPgnDocument({
+    sourceKind,
+    ...(sourceKind === "FenFile" && snapshot.input?.fen !== undefined ? { fen: snapshot.input.fen } : {}),
+    label: "StylePath",
+    styleDepth: snapshot.settings.styleDepth ?? 13,
+    horizonMoves: snapshot.settings.horizonMoves ?? 8,
+    movetext: "",
+    status: "Analyzing"
+  })}\n`;
 };
 
 const apiSnapshotSignature = (snapshot: StyleJobSnapshot): string => JSON.stringify({
@@ -212,15 +236,7 @@ const createDefaultStyleJobApiClient = (): StyleJobApiClient => {
           authorization,
           "content-type": "application/json"
         },
-        body: JSON.stringify({
-          rawGameBase64: base64Utf8(request.rawGame),
-          engineSuite: request.botEngine === "tal" ? "cstal-windows" : "local-style",
-          cstalOpponent: request.cstalOpponent,
-          maia3Elo: request.maia3Elo,
-          refreshMs: request.refreshMs,
-          maxFullMoves: request.maxFullMoves,
-          timeoutMs: request.timeoutMs
-        })
+        body: JSON.stringify(styleJobRequestBody(request))
       });
       const body = await response.json().catch(() => undefined) as { jobId?: unknown; error?: unknown } | undefined;
       if (!response.ok || typeof body?.jobId !== "string") {
@@ -284,7 +300,37 @@ const renderWatchUpdateFrame = (text: string, previousLineCount: number): string
   previousLineCount <= 0 ? text : renderLiveTerminalFrame(text, previousLineCount)
 );
 
-const usage = `Usage:\n  npm run style:lines -- --fen "<fen>" [--watch]\n  npm run style:lines -- --raw-file game.txt [--watch]\n  npm run style:lines:cstal -- --fen "<fen>" [--watch]\n\nOptions:\n  --fen <fen>                 Analyze a FEN position.\n  --raw-file <path>          Read RAW SAN game notation from a text file.\n  --bot-engine <id>         Watch RAW-file line source: tal or local. Default tal.\n  --engine-suite <id>        Local engine suite: local-style or cstal-windows. Default local-style.\n  --cstal-opponent <id>      CSTal opponent: maia3 or maia1900. Default maia3.\n  --maia3-elo <rating>       Maia3 Elo conditioning, integer 1..4000. Default 1900.\n  --watch                    Re-read changed input and refresh output every 2 seconds.\n  --refresh-ms <ms>          Watch render interval, default 2000.\n\nAdaptive watch starts at depth 13 and horizon 8 full moves. Stable lines increase depth every 5 seconds and horizon every 10 seconds while the process is running.\n`;
+const readStyleJobInput = (
+  input: CliInput,
+  readTextFile: (path: string) => string
+): Result<StyleJobInput, DomainError> => {
+  try {
+    const contents = readTextFile(input.path);
+    return input.tag === "PgnFile"
+      ? ok({ tag: "Pgn", rawGame: contents })
+      : ok({ tag: "Fen", fen: contents.trim() });
+  } catch (error) {
+    return err(domainError(
+      input.tag === "PgnFile" ? "INVALID_RAW_GAME" : "INVALID_FEN",
+      input.tag === "PgnFile" ? "cli.pgnFile" : "cli.fenFile",
+      input.tag === "PgnFile" ? "Could not read PGN file" : "Could not read FEN file",
+      { cause: error instanceof Error ? error.message : String(error) }
+    ));
+  }
+};
+
+const validateStyleJobInput = (
+  input: StyleJobInput,
+  chess: ChessRulesPort
+): Result<undefined, DomainError> => {
+  if (input.tag === "Pgn") {
+    return ok(undefined);
+  }
+  const position = chess.ingestPosition(input.fen);
+  return isErr(position) ? position : ok(undefined);
+};
+
+const usage = `Usage:\n  npm run style:lines -- --file-pgn game.txt [--watch]\n  npm run style:lines -- --file-fen game-fen.txt [--watch]\n  npm run style:lines:cstal -- --file-pgn game.txt [--watch]\n  npm run style:lines:cstal -- --file-fen game-fen.txt [--watch]\n\nOptions:\n  --file-pgn <path>           Read PGN/RAW SAN game notation from a text file.\n  --file-fen <path>           Read one FEN position from a text file.\n  --bot-engine <id>           Watch file input with tal or local. Default tal.\n  --engine-suite <id>         Local engine suite: local-style or cstal-windows. Default local-style.\n  --cstal-opponent <id>       CSTal opponent: maia3 or maia1900. Default maia3.\n  --maia3-elo <rating>        Maia3 Elo conditioning, integer 1..4000. Default 1900.\n  --watch                     Re-read changed input and refresh output every 2 seconds.\n  --refresh-ms <ms>           Watch render interval, default 2000.\n\nExactly one of --file-pgn and --file-fen is required. Inline --fen and --raw-file are no longer supported.\nAdaptive watch starts at depth 13 and horizon 8 full moves. Stable lines increase depth every 5 seconds and horizon every 10 seconds while the process is running.\n`;
 
 const valueAfter = (args: readonly string[], name: string): string | undefined => {
   const index = args.indexOf(name);
@@ -292,19 +338,29 @@ const valueAfter = (args: readonly string[], name: string): string | undefined =
 };
 
 export const parseCliOptions = (args: readonly string[]): Result<CliOptions, DomainError> => {
-  const fen = valueAfter(args, "--fen");
-  const rawFile = valueAfter(args, "--raw-file");
+  const pgnFile = valueAfter(args, "--file-pgn");
+  const fenFile = valueAfter(args, "--file-fen");
   const botEngineRaw = valueAfter(args, "--bot-engine") ?? "tal";
   const engineSuiteRaw = valueAfter(args, "--engine-suite") ?? "local-style";
   const cstalOpponentRaw = valueAfter(args, "--cstal-opponent") ?? "maia3";
   const maia3EloRaw = valueAfter(args, "--maia3-elo") ?? "1900";
-  if ((fen === undefined && rawFile === undefined) || (fen !== undefined && rawFile !== undefined)) {
+  if (args.includes("--raw-file") || args.includes("--fen")) {
     return {
       tag: "Err",
       error: {
         code: "INVALID_MOVE_NOTATION",
         path: "cli.input",
-        message: "Provide exactly one of --fen or --raw-file"
+        message: "--raw-file and --fen were removed; use exactly one of --file-pgn or --file-fen"
+      }
+    };
+  }
+  if ((pgnFile === undefined && fenFile === undefined) || (pgnFile !== undefined && fenFile !== undefined)) {
+    return {
+      tag: "Err",
+      error: {
+        code: "INVALID_MOVE_NOTATION",
+        path: "cli.input",
+        message: "Provide exactly one of --file-pgn or --file-fen"
       }
     };
   }
@@ -379,7 +435,7 @@ export const parseCliOptions = (args: readonly string[]): Result<CliOptions, Dom
   return {
     tag: "Ok",
     value: {
-      input: fen === undefined ? { tag: "RawFile", path: rawFile as string } : { tag: "Fen", value: fen },
+      input: pgnFile === undefined ? { tag: "FenFile", path: fenFile as string } : { tag: "PgnFile", path: pgnFile },
       watchMode: args.includes("--watch"),
       refreshMs,
       engineSuite: engineSuiteRaw,
@@ -395,6 +451,7 @@ export type IngestedCliInput = Readonly<{
   baseSanMoves: readonly string[];
   lineStartFullmove: number;
   lineStartSide: "white" | "black";
+  sourceKind: "PgnFile" | "FenFile";
 }>;
 
 const stripRawGameNoise = (rawGame: string): string => rawGame
@@ -423,8 +480,16 @@ const fullmoveFromFen = (fen: string): number => {
 const sideToMoveFromFen = (fen: string): "white" | "black" => sideFromFenTurn(fen.trim().split(/\s+/)[1] ?? "w");
 
 export const ingestInput = (options: CliOptions, ports: Pick<CliPorts, "chess" | "readTextFile">): Result<IngestedCliInput, DomainError> => {
-  if (options.input.tag === "Fen") {
-    const position = ports.chess.ingestPosition(options.input.value);
+  if (options.input.tag === "FenFile") {
+    let fen: string;
+    try {
+      fen = ports.readTextFile(options.input.path).trim();
+    } catch (error) {
+      return err(domainError("INVALID_FEN", "cli.fenFile", "Could not read FEN file", {
+        cause: error instanceof Error ? error.message : String(error)
+      }));
+    }
+    const position = ports.chess.ingestPosition(fen);
     if (isErr(position)) {
       return position;
     }
@@ -434,12 +499,20 @@ export const ingestInput = (options: CliOptions, ports: Pick<CliPorts, "chess" |
         position: position.value,
         baseSanMoves: [],
         lineStartFullmove: fullmoveFromFen(String(position.value.fen)),
-        lineStartSide: sideToMoveFromFen(String(position.value.fen))
+        lineStartSide: sideToMoveFromFen(String(position.value.fen)),
+        sourceKind: "FenFile"
       }
     };
   }
 
-  const rawGame = ports.readTextFile(options.input.path);
+  let rawGame: string;
+  try {
+    rawGame = ports.readTextFile(options.input.path);
+  } catch (error) {
+    return err(domainError("INVALID_RAW_GAME", "cli.pgnFile", "Could not read PGN file", {
+      cause: error instanceof Error ? error.message : String(error)
+    }));
+  }
   const position = ports.chess.ingestRawGame(rawGame);
   if (isErr(position)) {
     return position;
@@ -450,7 +523,8 @@ export const ingestInput = (options: CliOptions, ports: Pick<CliPorts, "chess" |
       position: position.value,
       baseSanMoves: rawSanTokens(rawGame),
       lineStartFullmove: 1,
-      lineStartSide: "white"
+      lineStartSide: "white",
+      sourceKind: "PgnFile"
     }
   };
 };
@@ -497,14 +571,56 @@ export const formatSanMovetext = (
   return wrapMovetext(chunks.join(" "));
 };
 
+const escapePgnTagValue = (value: string): string => value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+
+type PgnDocumentOptions = Readonly<{
+  sourceKind: "PgnFile" | "FenFile";
+  fen?: string;
+  label: string;
+  styleDepth: number;
+  horizonMoves: number;
+  movetext: string;
+  status?: string;
+  error?: DomainError | string;
+}>;
+
+const renderPgnDocument = (options: PgnDocumentOptions): string => {
+  const headers = [
+    ...(options.sourceKind === "FenFile" && options.fen !== undefined
+      ? [
+        '[Variant "From Position"]',
+        `[FEN "${escapePgnTagValue(options.fen)}"]`
+      ]
+      : []),
+    '[Event "StylePath"]',
+    `[Engine "${escapePgnTagValue(options.label)}"]`,
+    `[StyleDepth "${options.styleDepth}"]`,
+    `[Horizon "${options.horizonMoves}"]`,
+    '[Result "*"]'
+  ];
+  const comments = [
+    options.status !== undefined && options.status !== "Complete" ? `Status: ${options.status}` : undefined,
+    options.error === undefined
+      ? undefined
+      : typeof options.error === "string"
+        ? `Error: ${options.error}`
+        : `Error: ${options.error.code} ${options.error.message}`
+  ].filter((comment): comment is string => comment !== undefined);
+  return [
+    ...headers,
+    "",
+    options.movetext.length > 0 ? options.movetext : "*",
+    ...(comments.length > 0 ? ["", `{${comments.join("; ")}}`] : [])
+  ].join("\n");
+};
+
 export const renderStylePathResults = (
   ingested: IngestedCliInput,
   results: readonly StylePathLineResult[],
   generatedAtIso: string,
   settings: AnalysisSettings
 ): string => {
-  const lines: string[] = [];
-  results.forEach(result => {
+  const documents = results.map(result => {
     const line = result.line;
     const continuation = line.plies.map(ply => String(ply.move.san));
     const movetext = formatSanMovetext(
@@ -512,27 +628,19 @@ export const renderStylePathResults = (
       ingested.lineStartFullmove,
       ingested.lineStartSide
     );
-    lines.push(`## ${line.label} depth ${result.styleDepth ?? settings.styleDepth} horizon ${settings.horizonMoves}`);
-    if (movetext.length > 0) {
-      lines.push(movetext);
-    } else {
-      lines.push("(no moves)");
-    }
-    if (line.status !== "Complete" && (line.status !== "Incomplete" || line.error !== undefined)) {
-      lines.push(`status: ${line.status}`);
-    }
-    if (line.error !== undefined) {
-      lines.push(renderErrorLine(line.error));
-    }
-    lines.push("");
+    return renderPgnDocument({
+      sourceKind: ingested.sourceKind,
+      ...(ingested.sourceKind === "FenFile" ? { fen: String(ingested.position.fen) } : {}),
+      label: line.label,
+      styleDepth: result.styleDepth ?? settings.styleDepth,
+      horizonMoves: settings.horizonMoves,
+      movetext,
+      ...(line.status !== "Complete" ? { status: line.status } : {}),
+      ...(line.error === undefined ? {} : { error: line.error })
+    });
   });
-  lines.push(
-    `StylePath analysis @ ${generatedAtIso}`,
-    `Position: ${String(ingested.position.fen)}`,
-    `Player side inferred from turn: ${ingested.position.sideToMove}`,
-    `Adaptive settings: style depth ${settings.styleDepth}, horizon ${settings.horizonMoves} full moves`
-  );
-  return `${lines.join("\n").trimEnd()}\n`;
+  void generatedAtIso;
+  return `${documents.join("\n\n").trimEnd()}\n`;
 };
 
 const numberConfigValue = (value: unknown): number | undefined => (
@@ -560,26 +668,21 @@ const renderWatchProgress = (
   providers.styleEngines.forEach(engine => {
     const result = progress.partialResults.get(engine.key);
     if (result !== undefined) {
-      const rendered = renderStylePathResults(progress.ingested, [result], new Date(nowMs).toISOString(), progress.settings)
-        .split("\n")
-        .filter(line => !line.startsWith("StylePath analysis @") && !line.startsWith("Position:") && !line.startsWith("Player side inferred") && !line.startsWith("Adaptive settings:"))
-        .join("\n")
-        .trimEnd();
+      const rendered = renderStylePathResults(progress.ingested, [result], new Date(nowMs).toISOString(), progress.settings).trimEnd();
       lines.push(rendered, "");
       return;
     }
-    lines.push(
-      `## ${engine.label ?? `${engine.identity.displayName} StylePath`} depth ${styleDepthForCliEngine(engine, progress.settings.styleDepth)} horizon ${progress.settings.horizonMoves}`,
-      "status: Analyzing",
-      ""
-    );
+    lines.push(renderPgnDocument({
+      sourceKind: progress.ingested.sourceKind,
+      ...(progress.ingested.sourceKind === "FenFile" ? { fen: String(progress.ingested.position.fen) } : {}),
+      label: engine.label ?? `${engine.identity.displayName} StylePath`,
+      styleDepth: styleDepthForCliEngine(engine, progress.settings.styleDepth),
+      horizonMoves: progress.settings.horizonMoves,
+      movetext: "",
+      status: "Analyzing"
+    }), "");
   });
-  lines.push(
-    `StylePath analysis @ ${new Date(nowMs).toISOString()}`,
-    `Position: ${String(progress.ingested.position.fen)}`,
-    `Player side inferred from turn: ${progress.ingested.position.sideToMove}`,
-    `Adaptive settings: style depth ${progress.settings.styleDepth}, horizon ${progress.settings.horizonMoves} full moves`
-  );
+  void nowMs;
   return `${lines.join("\n").trimEnd()}\n`;
 };
 
@@ -680,32 +783,22 @@ export const styleApiSnapshotSignature = (snapshot: StyleApiJobSnapshot): string
 
 export const renderStyleApiJobSnapshot = (
   snapshot: StyleApiJobSnapshot,
-  nowIso = new Date().toISOString()
+  nowIso = new Date().toISOString(),
+  sourceKind: "PgnFile" | "FenFile" = "FenFile"
 ): string => {
-  const lines: string[] = [];
   const lineSnapshots = snapshot.lines.length > 0 ? snapshot.lines : emptyApiLines(snapshot.settings);
-  lineSnapshots.forEach(line => {
-    lines.push(`## ${line.label} depth ${line.styleDepth} horizon ${snapshot.settings.horizonMoves}`);
-    lines.push(line.sanMovetext.length > 0 ? line.sanMovetext : "status: Analyzing");
-    if (line.sanMovetext.length > 0) {
-      lines.push(`status: ${line.status}`);
-    }
-    if (line.error !== undefined) {
-      lines.push(`error: ${line.error.code} ${line.error.message}`);
-    }
-    lines.push("");
-  });
-  lines.push(
-    `StylePath API job ${snapshot.jobId} @ ${nowIso}`,
-    `Job status: ${snapshot.status}`,
-    `Position: ${snapshot.input?.fen ?? "pending"}`,
-    `Player side inferred from turn: ${snapshot.input?.sideToMove ?? "pending"}`,
-    `API settings: bot engine tal, opponent ${snapshot.settings.cstalOpponent}, Maia3 Elo ${snapshot.settings.maia3Elo}, refresh ${snapshot.settings.refreshMs}ms, max ${snapshot.settings.maxFullMoves} full moves`
-  );
-  if (snapshot.error !== undefined) {
-    lines.push(`Job error: ${snapshot.error.code} ${snapshot.error.message}`);
-  }
-  return `${lines.join("\n").trimEnd()}\n`;
+  const documents = lineSnapshots.map(line => renderPgnDocument({
+    sourceKind,
+    ...(sourceKind === "FenFile" && snapshot.input?.fen !== undefined ? { fen: snapshot.input.fen } : {}),
+    label: line.label,
+    styleDepth: line.styleDepth,
+    horizonMoves: snapshot.settings.horizonMoves,
+    movetext: line.sanMovetext,
+    ...(line.status !== "Complete" ? { status: line.status } : {}),
+    ...(line.error === undefined ? {} : { error: line.error })
+  }));
+  void nowIso;
+  return `${documents.join("\n\n").trimEnd()}\n`;
 };
 
 export type StylePathRenderedSnapshot = Readonly<{
@@ -905,22 +998,6 @@ const isTransientProviderError = (error: DomainError): boolean => (
   error.code === "PROVIDER_TIMEOUT" || error.code === "PROVIDER_UNAVAILABLE"
 );
 
-const stringDetail = (error: DomainError, key: string): string | undefined => {
-  const value = error.details?.[key];
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-};
-
-const renderErrorLine = (error: DomainError): string => {
-  const provider = stringDetail(error, "engine");
-  const cause = stringDetail(error, "cause");
-  const suffix = [provider !== undefined ? `provider=${provider}` : undefined, cause !== undefined ? `cause=${cause}` : undefined]
-    .filter((part): part is string => part !== undefined)
-    .join("; ");
-  return suffix.length > 0
-    ? `error: ${error.code} ${error.message} (${suffix})`
-    : `error: ${error.code} ${error.message}`;
-};
-
 const hasAdaptiveStyleDepth = (providers: StylePathProviders): boolean => (
   providers.styleEngines.some(engine => numberConfigValue(engine.configuration.styleDepth) === undefined)
 );
@@ -953,23 +1030,33 @@ const runApiBackedWatch = async (options: CliOptions, ports: CliPorts): Promise<
     generation += 1;
     const currentGeneration = generation;
     controller?.abort();
-    controller = new AbortController();
+    const requestController = new AbortController();
+    controller = requestController;
 
-    let rawGame: string;
-    try {
-      rawGame = options.input.tag === "RawFile" ? ports.readTextFile(options.input.path) : "";
-    } catch (error) {
-      writeErrorSnapshot(domainError("INVALID_RAW_GAME", "cli.rawFile", "Could not read RAW game file", {
-        cause: error instanceof Error ? error.message : String(error)
-      }));
+    const inputResult = readStyleJobInput(options.input, ports.readTextFile);
+    if (isErr(inputResult)) {
+      writeErrorSnapshot(inputResult.error);
+      return;
+    }
+    const validation = validateStyleJobInput(inputResult.value, ports.chess);
+    if (isErr(validation)) {
+      writeErrorSnapshot(validation.error);
       return;
     }
 
-    writeSnapshot("status: Submitting StylePath API job\n", `submitting:${currentGeneration}:${rawGame.length}`);
+    writeSnapshot(renderPgnDocument({
+      sourceKind: inputResult.value.tag === "Pgn" ? "PgnFile" : "FenFile",
+      ...(inputResult.value.tag === "Fen" ? { fen: inputResult.value.fen } : {}),
+      label: "StylePath API",
+      styleDepth: 14,
+      horizonMoves: 8,
+      movetext: "",
+      status: "Submitting"
+    }), `submitting:${currentGeneration}:${JSON.stringify(inputResult.value)}`);
 
     void (async (): Promise<void> => {
       const created = await api.createJob({
-        rawGame,
+        input: inputResult.value,
         botEngine: options.botEngine,
         cstalOpponent: options.cstalOpponent,
         maia3Elo: options.maia3Elo,
@@ -989,8 +1076,12 @@ const runApiBackedWatch = async (options: CliOptions, ports: CliPorts): Promise<
           return;
         }
         const signature = `api:${eventName}:${apiSnapshotSignature(snapshot)}`;
-        writeSnapshot(renderApiStyleJobSnapshot(snapshot), signature);
-      }, controller?.signal ?? new AbortController().signal);
+        writeSnapshot(renderApiStyleJobSnapshot(
+          snapshot,
+          new Date().toISOString(),
+          inputResult.value.tag === "Pgn" ? "PgnFile" : "FenFile"
+        ), signature);
+      }, requestController.signal);
       if (stopped || currentGeneration !== generation) {
         return;
       }
@@ -1002,7 +1093,7 @@ const runApiBackedWatch = async (options: CliOptions, ports: CliPorts): Promise<
 
   startServerJob();
 
-  if (options.input.tag === "RawFile") {
+  if (options.input.tag === "PgnFile" || options.input.tag === "FenFile") {
     try {
       fileWatcher = watch(options.input.path, () => { startServerJob(); });
     } catch {
@@ -1028,7 +1119,9 @@ const runApiBackedWatch = async (options: CliOptions, ports: CliPorts): Promise<
 };
 
 const shouldUseApiBackedWatch = (options: CliOptions): boolean => (
-  options.watchMode && options.input.tag === "RawFile" && options.botEngine === "tal"
+  options.watchMode
+  && (options.input.tag === "PgnFile" || options.input.tag === "FenFile")
+  && options.botEngine === "tal"
 );
 
 const runWatch = async (options: CliOptions, ports: CliPorts): Promise<void> => {
@@ -1299,7 +1392,7 @@ const runWatch = async (options: CliOptions, ports: CliPorts): Promise<void> => 
     }
   }, options.refreshMs);
 
-  if (options.input.tag === "RawFile") {
+  if (options.input.tag === "PgnFile" || options.input.tag === "FenFile") {
     try {
       fileWatcher = watch(options.input.path, () => { startContinuousGeneration(); });
     } catch {
@@ -1388,13 +1481,10 @@ const streamStyleApiEvents = async (
 
 const runStyleApiWatch = async (
   options: CliOptions,
-  ports: Pick<CliPorts, "readTextFile" | "write" | "writeError">,
+  ports: Pick<CliPorts, "chess" | "readTextFile" | "write" | "writeError">,
   api: StyleApiConfig
 ): Promise<number> => {
-  if (options.input.tag !== "RawFile") {
-    return 1;
-  }
-  const rawFilePath = options.input.path;
+  const inputFilePath = options.input.path;
   let stopped = false;
   let generation = 0;
   let lastRenderedLineCount = 0;
@@ -1410,7 +1500,7 @@ const runStyleApiWatch = async (
       return;
     }
     lastRenderedSignature = signature;
-    const text = renderStyleApiJobSnapshot(snapshot);
+    const text = renderStyleApiJobSnapshot(snapshot, new Date().toISOString(), options.input.tag);
     ports.write(renderWatchUpdateFrame(text, lastRenderedLineCount));
     lastRenderedLineCount = renderedLineCount(text);
   };
@@ -1421,12 +1511,14 @@ const runStyleApiWatch = async (
     activeAbort?.abort();
     activeAbort = new AbortController();
     const abort = activeAbort;
-    let rawGame = "";
-    try {
-      rawGame = ports.readTextFile(rawFilePath);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      ports.writeError(`Failed to read ${rawFilePath}: ${message}\n`);
+    const inputResult = readStyleJobInput(options.input, ports.readTextFile);
+    if (isErr(inputResult)) {
+      ports.writeError(`${inputResult.error.code}: ${inputResult.error.message}\n`);
+      return;
+    }
+    const validation = validateStyleJobInput(inputResult.value, ports.chess);
+    if (isErr(validation)) {
+      ports.writeError(`${validation.error.code}: ${validation.error.message}\n`);
       return;
     }
 
@@ -1440,7 +1532,9 @@ const runStyleApiWatch = async (
           "cf-ipcountry": "EE"
         },
         body: JSON.stringify({
-          rawGameBase64: Buffer.from(rawGame, "utf8").toString("base64"),
+          ...(inputResult.value.tag === "Pgn"
+            ? { rawGameBase64: Buffer.from(inputResult.value.rawGame, "utf8").toString("base64") }
+            : { fen: inputResult.value.fen }),
           engineSuite: "cstal-windows",
           cstalOpponent: options.cstalOpponent,
           maia3Elo: options.maia3Elo,
@@ -1485,7 +1579,7 @@ const runStyleApiWatch = async (
 
   void startJob();
   try {
-    fileWatcher = watch(rawFilePath, () => { void startJob(); });
+    fileWatcher = watch(inputFilePath, () => { void startJob(); });
   } catch {
     // The keepalive timer below preserves watch-mode lifetime if fs.watch is unavailable.
   }
@@ -1527,17 +1621,18 @@ export const runCli = async (args: readonly string[], ports?: Partial<CliPorts>)
     (ports?.writeError ?? process.stderr.write.bind(process.stderr))(`${parsed.error.message}\n\n${usage}`);
     return 2;
   }
-  if (ports === undefined && parsed.value.watchMode && parsed.value.input.tag === "RawFile") {
+  const chess = ports?.chess ?? createChessJsRulesAdapter();
+  if (ports === undefined && parsed.value.watchMode) {
     const api = readStyleApiConfig();
     if (api !== undefined) {
       return runStyleApiWatch(parsed.value, {
+        chess,
         readTextFile: (path: string): string => readFileSync(path, "utf8"),
         write: process.stdout.write.bind(process.stdout),
         writeError: process.stderr.write.bind(process.stderr)
       }, api);
     }
   }
-  const chess = ports?.chess ?? createChessJsRulesAdapter();
   const apiBackedWatch = shouldUseApiBackedWatch(parsed.value);
   const unavailableProvider: StylePathProviders["maia"] = async () => err(domainError(
     "PROVIDER_UNAVAILABLE",

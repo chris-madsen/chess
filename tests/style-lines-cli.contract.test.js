@@ -5,9 +5,11 @@ import {
   INITIAL_ANALYSIS_SETTINGS,
   WATCH_CLEAR_TO_END,
   analyzeStylePathsOnce,
+  ingestInput,
   nextAdaptiveAnalysisState,
   parseCliOptions,
   renderStyleApiJobSnapshot,
+  styleJobRequestBody,
   styleApiSnapshotSignature,
   runCli
 } from "../src/cli/style-lines.ts";
@@ -118,29 +120,61 @@ const testPorts = (
 });
 
 test("CLI one-shot FEN renders SAN StylePath output with adaptive defaults", async () => {
-  const options = mustOk(parseCliOptions(["--fen", startFen]));
+  const options = mustOk(parseCliOptions(["--file-fen", "game-fen.txt"]));
   const seenRequests = [];
-  const ports = testPorts(() => "", fullGameStyleMoves, fullGameMaiaMoves, seenRequests);
+  const ports = testPorts(() => startFen, fullGameStyleMoves, fullGameMaiaMoves, seenRequests);
   const result = await analyzeStylePathsOnce(options, ports);
   const text = mustOk(result);
-  expect(text).toContain("## Patricia StylePath depth 13 horizon 8");
-  expect(text.indexOf("## Patricia StylePath")).toBeLessThan(text.indexOf("StylePath analysis @"));
-  expect(text).toContain("Player side inferred from turn: white");
-  expect(text).toContain("Adaptive settings: style depth 13, horizon 8 full moves");
+  expect(text).toContain('[Variant "From Position"]');
+  expect(text).toContain(`[FEN "${startFen}"]`);
+  expect(text).toContain('[Engine "Patricia StylePath"]');
+  expect(text.indexOf('[Engine "Patricia StylePath"]')).toBeLessThan(text.indexOf("1. e4 e5"));
   expect(text).toContain("1. e4 e5 2. Nf3 Nc6");
   expect(text).not.toContain("(e2e4)");
   expect(text).not.toContain("LOCAL_STYLE_ENGINE");
   expect(seenRequests.filter(request => request.ply % 2 === 1).every(request => request.searchLimit?.tag === "Depth" && request.searchLimit.depth === 13)).toBe(true);
 });
 
+test("CLI requires exactly one new file input and rejects legacy flags", () => {
+  expect(parseCliOptions([]).tag).toBe("Err");
+  expect(parseCliOptions(["--file-pgn", "game.txt", "--file-fen", "game-fen.txt"]).tag).toBe("Err");
+  expect(parseCliOptions(["--raw-file", "game.txt"]).error.message).toContain("--file-pgn or --file-fen");
+  expect(parseCliOptions(["--fen", startFen]).error.message).toContain("--file-pgn or --file-fen");
+});
+
+test("FEN file ingestion trims file framing and preserves black fullmove numbering", () => {
+  const options = mustOk(parseCliOptions(["--file-fen", "game-fen.txt"]));
+  const ingested = mustOk(ingestInput(options, {
+    chess,
+    readTextFile: path => {
+      expect(path).toBe("game-fen.txt");
+      return "  4k3/8/8/8/8/8/8/4K3 b - - 0 17\n";
+    }
+  }));
+  expect(ingested.baseSanMoves).toEqual([]);
+  expect(ingested.lineStartSide).toBe("black");
+  expect(ingested.lineStartFullmove).toBe(17);
+  expect(String(ingested.position.fen)).toContain(" b ");
+});
+
+test("empty and invalid FEN files fail before providers are called", () => {
+  const options = mustOk(parseCliOptions(["--file-fen", "game-fen.txt"]));
+  const empty = ingestInput(options, { chess, readTextFile: () => " \n" });
+  expect(empty.tag).toBe("Err");
+  expect(empty.error.code).toBe("INVALID_FEN");
+  const invalid = ingestInput(options, { chess, readTextFile: () => "not a fen" });
+  expect(invalid.tag).toBe("Err");
+  expect(invalid.error.code).toBe("INVALID_FEN");
+});
+
 test("CLI rejects removed user --horizon flag", () => {
-  const result = parseCliOptions(["--fen", startFen, "--horizon", "6"]);
+  const result = parseCliOptions(["--file-fen", "game-fen.txt", "--horizon", "6"]);
   expect(result.tag).toBe("Err");
   expect(result.error.code).toBe("INVALID_HORIZON");
 });
 
 test("CLI parses cstal-windows suite and renders CSTal lines", async () => {
-  const options = mustOk(parseCliOptions(["--fen", startFen, "--engine-suite", "cstal-windows"]));
+  const options = mustOk(parseCliOptions(["--file-fen", "game-fen.txt", "--engine-suite", "cstal-windows"]));
   const seenRequests = [];
   const styleEngines = [
     {
@@ -158,27 +192,27 @@ test("CLI parses cstal-windows suite and renders CSTal lines", async () => {
       provideMove: scriptedProvider("LOCAL_STYLE_ENGINE", localStyleEngineProvider("cstal-extreme", "CSTal EXTREME", "test"), fullGameStyleMoves, seenRequests)
     }
   ];
-  const ports = testPorts(() => "", fullGameStyleMoves, fullGameMaiaMoves, seenRequests, styleEngines);
+  const ports = testPorts(() => startFen, fullGameStyleMoves, fullGameMaiaMoves, seenRequests, styleEngines);
   const result = await analyzeStylePathsOnce(options, ports);
   const text = mustOk(result);
 
   expect(options.engineSuite).toBe("cstal-windows");
-  expect(text).toContain("## CSTal ABSURD StylePath depth 13 horizon 8");
-  expect(text).toContain("## CSTal EXTREME StylePath depth 13 horizon 8");
+  expect(text).toContain("[Engine \"CSTal ABSURD StylePath\"]");
+  expect(text).toContain("[Engine \"CSTal EXTREME StylePath\"]");
   expect(text).toContain("1. e4 e5 2. Nf3 Nc6");
 });
 
 test("CLI parses CSTal opponent selection", () => {
-  const options = mustOk(parseCliOptions(["--fen", startFen, "--engine-suite", "cstal-windows", "--cstal-opponent", "maia1900", "--maia3-elo", "1800"]));
+  const options = mustOk(parseCliOptions(["--file-fen", "game-fen.txt", "--engine-suite", "cstal-windows", "--cstal-opponent", "maia1900", "--maia3-elo", "1800"]));
   expect(options.engineSuite).toBe("cstal-windows");
   expect(options.cstalOpponent).toBe("maia1900");
   expect(options.maia3Elo).toBe(1800);
 
-  const invalid = parseCliOptions(["--fen", startFen, "--engine-suite", "cstal-windows", "--cstal-opponent", "both"]);
+  const invalid = parseCliOptions(["--file-fen", "game-fen.txt", "--engine-suite", "cstal-windows", "--cstal-opponent", "both"]);
   expect(invalid.tag).toBe("Err");
   expect(invalid.error.path).toBe("cli.cstalOpponent");
 
-  const invalidElo = parseCliOptions(["--fen", startFen, "--engine-suite", "cstal-windows", "--maia3-elo", "wat"]);
+  const invalidElo = parseCliOptions(["--file-fen", "game-fen.txt", "--engine-suite", "cstal-windows", "--maia3-elo", "wat"]);
   expect(invalidElo.tag).toBe("Err");
   expect(invalidElo.error.path).toBe("cli.maia3Elo");
 });
@@ -209,26 +243,27 @@ test("CLI one-shot writes an analyzing frame before slow providers finish", asyn
       };
     }
   };
-  const ports = testPorts(() => "", fullGameStyleMoves, fullGameMaiaMoves, [], [slowStyle]);
-  const promise = runCli(["--fen", startFen], ports);
+  const ports = testPorts(() => startFen, fullGameStyleMoves, fullGameMaiaMoves, [], [slowStyle]);
+  const promise = runCli(["--file-fen", "game-fen.txt"], ports);
   await new Promise(resolve => setTimeout(resolve, 0));
 
   expect(ports.write).toHaveBeenCalled();
-  expect(ports.write.mock.calls[0][0]).toContain("## Slow CSTal StylePath depth 14 horizon 8");
-  expect(ports.write.mock.calls[0][0]).toContain("status: Analyzing");
+  expect(ports.write.mock.calls[0][0]).toContain("[Engine \"Slow CSTal StylePath\"]");
+  expect(ports.write.mock.calls[0][0]).toContain("{Status: Analyzing}");
 
   await expect(promise).resolves.toBe(0);
 });
 
 test("CLI one-shot RAW file appends continuation to original movetext", async () => {
-  const options = mustOk(parseCliOptions(["--raw-file", "game.txt"]));
+  const options = mustOk(parseCliOptions(["--file-pgn", "game.txt"]));
   const ports = testPorts(path => {
     expect(path).toBe("game.txt");
     return "1. e4 c5";
   }, sicilianStyleMoves, sicilianMaiaMoves);
   const result = await analyzeStylePathsOnce(options, ports);
   const text = mustOk(result);
-  expect(text).toContain("Player side inferred from turn: white");
+  expect(text).toContain("[Event \"StylePath\"]");
+  expect(text).not.toContain("[Variant \"From Position\"]");
   expect(text).toContain("1. e4 c5 2. Nf3 d6 3. d4 cxd4");
 });
 
@@ -251,18 +286,20 @@ test("adaptive analysis increases depth after 5 stable seconds and horizon after
 
 test("CLI watch mode refreshes continuously with local block redraw", async () => {
   const ports = testPorts(() => startFen);
-  const promise = runCli(["--fen", startFen, "--watch", "--refresh-ms", "250"], ports);
+  const promise = runCli(["--file-fen", "game-fen.txt", "--watch", "--refresh-ms", "250", "--bot-engine", "local"], ports);
   await new Promise(resolve => setTimeout(resolve, 750));
   expect(ports.write.mock.calls.length).toBeGreaterThanOrEqual(1);
-  expect(ports.write.mock.calls.length).toBeLessThanOrEqual(3);
+  expect(ports.write.mock.calls.length).toBeLessThanOrEqual(4);
   const writes = ports.write.mock.calls.map(call => call[0]);
   expect(writes[0].startsWith("\x1b")).toBe(false);
-  for (const text of writes) {
+  const renderedWrites = writes.filter(text => text.includes("[Event \"StylePath\"]"));
+  expect(renderedWrites.length).toBeGreaterThanOrEqual(1);
+  for (const text of renderedWrites) {
     expect(text).not.toContain("\x1b[H");
     expect(text).not.toContain("\x1b[2J");
     expect(text).not.toContain("\x1b[3J");
-    expect((text.match(/## Patricia StylePath/g) ?? []).length).toBe(1);
-    expect(text).toContain("StylePath analysis @");
+    expect((text.match(/\[Engine "Patricia StylePath"\]/g) ?? []).length).toBe(1);
+    expect(text).toContain('[Event "StylePath"]');
   }
   if (writes.length > 1) {
     expect(writes.slice(1).some(text => text.includes(WATCH_CLEAR_TO_END))).toBe(true);
@@ -272,13 +309,13 @@ test("CLI watch mode refreshes continuously with local block redraw", async () =
 });
 
 test("CLI bot engine defaults to Tal and validates selection", () => {
-  const options = mustOk(parseCliOptions(["--raw-file", "game.txt", "--watch"]));
+  const options = mustOk(parseCliOptions(["--file-pgn", "game.txt", "--watch"]));
   expect(options.botEngine).toBe("tal");
 
-  const local = mustOk(parseCliOptions(["--raw-file", "game.txt", "--watch", "--bot-engine", "local"]));
+  const local = mustOk(parseCliOptions(["--file-pgn", "game.txt", "--watch", "--bot-engine", "local"]));
   expect(local.botEngine).toBe("local");
 
-  const invalid = parseCliOptions(["--raw-file", "game.txt", "--watch", "--bot-engine", "unknown"]);
+  const invalid = parseCliOptions(["--file-pgn", "game.txt", "--watch", "--bot-engine", "unknown"]);
   expect(invalid.tag).toBe("Err");
   expect(invalid.error.path).toBe("cli.botEngine");
 });
@@ -320,13 +357,13 @@ test("CLI RAW watch with default Tal reads local file and renders API job events
     styleJobApi: api
   };
 
-  const promise = runCli(["--raw-file", "game.txt", "--watch", "--refresh-ms", "2000"], ports);
+  const promise = runCli(["--file-pgn", "game.txt", "--watch", "--refresh-ms", "2000"], ports);
   await new Promise(resolve => setTimeout(resolve, 20));
   process.emit("SIGINT");
   await expect(promise).resolves.toBe(0);
 
   expect(createdRequests).toEqual([expect.objectContaining({
-    rawGame: "1. e4 c5",
+    input: { tag: "Pgn", rawGame: "1. e4 c5" },
     botEngine: "tal",
     cstalOpponent: "maia3",
     maia3Elo: 1900,
@@ -337,8 +374,59 @@ test("CLI RAW watch with default Tal reads local file and renders API job events
   const output = ports.write.mock.calls.map(call => call[0]).join("\n");
   expect(output).toContain("CSTal ABSURD vs Maia3 79M StylePath");
   expect(output).toContain("1. e4 e5 2. Nf3#");
-  expect(output).toContain("StylePath API job job-1");
+  expect(output).toContain("[Event \"StylePath\"]");
   expect(output).not.toContain("Patricia StylePath");
+});
+
+test("CLI FEN watch sends only fen to the StylePath API", async () => {
+  const createdRequests = [];
+  const api = {
+    createJob: async request => {
+      createdRequests.push(request);
+      return { tag: "Ok", value: "fen-job-1" };
+    },
+    streamEvents: async (jobId, onSnapshot, signal) => {
+      expect(jobId).toBe("fen-job-1");
+      await new Promise(resolve => signal.addEventListener("abort", resolve, { once: true }));
+      return { tag: "Ok", value: undefined };
+    }
+  };
+  const ports = {
+    readTextFile: path => {
+      expect(path).toBe("game-fen.txt");
+      return `  ${startFen}\n`;
+    },
+    write: jest.fn(),
+    writeError: jest.fn(),
+    styleJobApi: api
+  };
+
+  const promise = runCli(["--file-fen", "game-fen.txt", "--watch", "--refresh-ms", "2000"], ports);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  process.emit("SIGINT");
+  await expect(promise).resolves.toBe(0);
+
+  expect(createdRequests).toEqual([expect.objectContaining({
+    input: { tag: "Fen", fen: startFen },
+    botEngine: "tal"
+  })]);
+});
+
+test("API request body never mixes PGN and FEN fields", () => {
+  const common = {
+    botEngine: "tal",
+    cstalOpponent: "maia3",
+    maia3Elo: 1900,
+    refreshMs: 2000,
+    maxFullMoves: 80,
+    timeoutMs: 300000
+  };
+  const pgnBody = styleJobRequestBody({ ...common, input: { tag: "Pgn", rawGame: "1. e4" } });
+  const fenBody = styleJobRequestBody({ ...common, input: { tag: "Fen", fen: startFen } });
+  expect(pgnBody).toHaveProperty("rawGameBase64");
+  expect(pgnBody).not.toHaveProperty("fen");
+  expect(fenBody).toHaveProperty("fen", startFen);
+  expect(fenBody).not.toHaveProperty("rawGameBase64");
 });
 
 test("CLI API snapshot renderer is stable for duplicate progress events", () => {
@@ -379,9 +467,9 @@ test("CLI API snapshot renderer is stable for duplicate progress events", () => 
     ]
   };
   const rendered = renderStyleApiJobSnapshot(snapshot, "2026-09-17T18:00:01.000Z");
-  expect((rendered.match(/## CSTal ABSURD/g) ?? []).length).toBe(1);
-  expect((rendered.match(/## CSTal EXTREME/g) ?? []).length).toBe(1);
-  expect(rendered).toContain("StylePath API job job-1");
+  expect((rendered.match(/\[Engine "CSTal ABSURD vs Maia3 79M StylePath"\]/g) ?? []).length).toBe(1);
+  expect((rendered.match(/\[Engine "CSTal EXTREME vs Maia3 79M StylePath"\]/g) ?? []).length).toBe(1);
+  expect(rendered).toContain(`[FEN "${startFen}"]`);
   expect(styleApiSnapshotSignature(snapshot)).toBe(styleApiSnapshotSignature({
     ...snapshot,
     createdAt: "2026-09-17T18:00:02.000Z"
