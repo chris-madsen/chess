@@ -1,0 +1,4 @@
+[Variant "From Position"]
+[FEN "r2r2k1/2p2pbp/p3p1p1/2NbN2n/1p4Q1/1P6/1PP3P1/2K1R3 w - - 0 1"]
+
+1. Qh3 Nf4 2. Qh2 Bxe5 3. Rxe5 Nxg2 
