@@ -5,6 +5,7 @@ import {
   INITIAL_ANALYSIS_SETTINGS,
   WATCH_CLEAR_TO_END,
   analyzeStylePathsOnce,
+  defaultStyleApiBaseUrlForPlatform,
   ingestInput,
   nextAdaptiveAnalysisState,
   parseCliOptions,
@@ -22,6 +23,18 @@ import {
 
 const chess = createChessJsRulesAdapter();
 const startFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+
+test("Style API defaults to the local Windows server and the public endpoint elsewhere", () => {
+  expect(defaultStyleApiBaseUrlForPlatform("win32", {})).toBe("http://127.0.0.1:8787");
+  expect(defaultStyleApiBaseUrlForPlatform("linux", {})).toBe("https://chess.network-communications.net");
+  expect(defaultStyleApiBaseUrlForPlatform("win32", {
+    STYLE_SERVER_HOST: "10.0.0.5",
+    STYLE_SERVER_PORT: "9000"
+  })).toBe("http://10.0.0.5:9000");
+  expect(defaultStyleApiBaseUrlForPlatform("win32", {
+    CHESS_STYLE_API_BASE_URL: "https://example.test/"
+  })).toBe("https://example.test");
+});
 
 const fullGameStyleMoves = {
   1: "e2e4",

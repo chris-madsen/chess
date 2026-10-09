@@ -130,13 +130,25 @@ export type CliPorts = Readonly<{
 
 export const WATCH_CLEAR_TO_END = CLEAR_TO_END;
 
-const defaultStyleApiBaseUrl = "https://chess.network-communications.net";
+const defaultRemoteStyleApiBaseUrl = "https://chess.network-communications.net";
 const defaultStyleApiTokenFiles = [
   ".local/style-server-token.txt",
   "/media/ilja/DATA/chess/chess-api.ken"
 ] as const;
 const defaultApiMaxFullMoves = 80;
 const defaultApiTimeoutMs = 300_000;
+
+export const defaultStyleApiBaseUrlForPlatform = (
+  platform: NodeJS.Platform = process.platform,
+  environment: Readonly<Record<string, string | undefined>> = process.env
+): string => {
+  const explicit = environment.CHESS_STYLE_API_BASE_URL ?? environment.STYLE_SERVER_URL;
+  if (explicit?.trim()) return explicit.trim().replace(/\/+$/u, "");
+  if (platform === "win32") {
+    return `http://${environment.STYLE_SERVER_HOST ?? "127.0.0.1"}:${environment.STYLE_SERVER_PORT ?? "8787"}`;
+  }
+  return defaultRemoteStyleApiBaseUrl;
+};
 
 const configuredStyleApiToken = (): string | undefined => {
   const fromEnv = process.env.CHESS_STYLE_API_TOKEN ?? process.env.CHESS_TRAINER_API_TOKEN;
@@ -221,7 +233,7 @@ const apiSnapshotSignature = (snapshot: StyleJobSnapshot): string => JSON.string
 });
 
 const createDefaultStyleJobApiClient = (): StyleJobApiClient => {
-  const baseUrl = (process.env.CHESS_STYLE_API_BASE_URL ?? defaultStyleApiBaseUrl).replace(/\/$/u, "");
+  const baseUrl = defaultStyleApiBaseUrlForPlatform();
   const token = configuredStyleApiToken();
   const authorization = token === undefined ? undefined : `Bearer ${token}`;
 
@@ -230,31 +242,47 @@ const createDefaultStyleJobApiClient = (): StyleJobApiClient => {
       if (authorization === undefined) {
         return err(styleJobApiError("styleApi.authorization", "CHESS_STYLE_API_TOKEN or a style server token file is required"));
       }
-      const response = await fetch(`${baseUrl}/v1/style-lines/jobs`, {
-        method: "POST",
-        headers: {
-          authorization,
-          "content-type": "application/json"
-        },
-        body: JSON.stringify(styleJobRequestBody(request))
-      });
-      const body = await response.json().catch(() => undefined) as { jobId?: unknown; error?: unknown } | undefined;
-      if (!response.ok || typeof body?.jobId !== "string") {
-        return err(styleJobApiError("styleApi.createJob", "StylePath API job creation failed", {
-          status: response.status,
-          error: typeof body?.error === "string" ? body.error : undefined
+      try {
+        const response = await fetch(`${baseUrl}/v1/style-lines/jobs`, {
+          method: "POST",
+          headers: {
+            authorization,
+            "content-type": "application/json"
+          },
+          body: JSON.stringify(styleJobRequestBody(request))
+        });
+        const body = await response.json().catch(() => undefined) as { jobId?: unknown; error?: unknown } | undefined;
+        if (!response.ok || typeof body?.jobId !== "string") {
+          return err(styleJobApiError("styleApi.createJob", "StylePath API job creation failed", {
+            status: response.status,
+            error: typeof body?.error === "string" ? body.error : undefined
+          }));
+        }
+        return ok(body.jobId);
+      } catch (error) {
+        return err(styleJobApiError("styleApi.createJob", "StylePath API request failed", {
+          cause: error instanceof Error ? error.message : String(error),
+          baseUrl
         }));
       }
-      return ok(body.jobId);
     },
     streamEvents: async (jobId, onSnapshot, signal) => {
       if (authorization === undefined) {
         return err(styleJobApiError("styleApi.authorization", "CHESS_STYLE_API_TOKEN or a style server token file is required"));
       }
-      const response = await fetch(`${baseUrl}/v1/style-lines/jobs/${encodeURIComponent(jobId)}/events`, {
-        headers: { authorization },
-        signal
-      });
+      let response: Response;
+      try {
+        response = await fetch(`${baseUrl}/v1/style-lines/jobs/${encodeURIComponent(jobId)}/events`, {
+          headers: { authorization },
+          signal
+        });
+      } catch (error) {
+        if (signal.aborted) return ok(undefined);
+        return err(styleJobApiError("styleApi.events", "StylePath API stream request failed", {
+          cause: error instanceof Error ? error.message : String(error),
+          baseUrl
+        }));
+      }
       if (!response.ok || response.body === null) {
         return err(styleJobApiError("styleApi.events", "StylePath API event stream failed", { status: response.status }));
       }
@@ -736,10 +764,8 @@ const readStyleApiConfig = (): StyleApiConfig | undefined => {
   if (token.length === 0) {
     return undefined;
   }
-  const host = process.env.STYLE_SERVER_HOST ?? "127.0.0.1";
-  const port = process.env.STYLE_SERVER_PORT ?? "8787";
   return {
-    baseUrl: (process.env.STYLE_SERVER_URL ?? `http://${host}:${port}`).replace(/\/+$/, ""),
+    baseUrl: defaultStyleApiBaseUrlForPlatform(),
     token
   };
 };
@@ -1088,7 +1114,13 @@ const runApiBackedWatch = async (options: CliOptions, ports: CliPorts): Promise<
       if (isErr(streamed)) {
         writeErrorSnapshot(streamed.error);
       }
-    })();
+    })().catch(error => {
+      if (!stopped && currentGeneration === generation) {
+        writeErrorSnapshot(styleJobApiError("styleApi.request", "StylePath API request failed", {
+          cause: error instanceof Error ? error.message : String(error)
+        }));
+      }
+    });
   };
 
   startServerJob();
